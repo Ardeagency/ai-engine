@@ -592,6 +592,7 @@ export async function createOrgServer(org) {
     location,
     image:       snapshotId || "ubuntu-24.04",
     user_data:   userData,
+    ssh_keys:    [107329413],   // Mac key (FEAT-014 deploy 2026-05-12)
     labels: {
       type:     "org-server",
       org_id:   orgId,
@@ -693,6 +694,7 @@ export async function wakeOrgServer(org, snapshotId) {
     location,
     image:       snapshotId,
     user_data:   userData,
+    ssh_keys:    [107329413],   // Mac key (FEAT-014 deploy 2026-05-12)
     labels: { type: "org-server", org_id: orgId, agent_id: agentId },
   };
 

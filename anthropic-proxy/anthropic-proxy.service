@@ -1,0 +1,18 @@
+[Unit]
+Description=Anthropic API Proxy (per-org metering + cap)
+After=network.target
+Before=openclaw-bridge.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/anthropic-proxy
+EnvironmentFile=/opt/anthropic-proxy/.env
+ExecStart=/usr/bin/node /opt/anthropic-proxy/server.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=anthropic-proxy
+
+[Install]
+WantedBy=multi-user.target

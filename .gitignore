@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Environment & secrets
+.env
+*.pid
+
+# Logs
+*.log
+/tmp/
+
+# Sessions & runtime state
+sessions/
+
+# Workspaces (per-org, created at runtime)
+workspaces/
+
+# Legacy/test dirs
+org_*/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# === Añadido 2026-05-12 (AUDIT-002 H2) ===
+# Backups de .env y otros .bak (NUNCA commitear)
+.env.bak*
+*.bak.*
+*.bak
+
+# Python venv y caches
+**/.venv/
+**/__pycache__/
+*.pyc
+*.pyo
+
+# Backups generales del repo
+backups/
+
+# Otros runtime
+*.tmp

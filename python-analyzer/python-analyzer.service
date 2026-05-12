@@ -1,0 +1,17 @@
+[Unit]
+Description=AI Engine — Python Analyzer (FastAPI on :8001)
+After=network.target ai-engine.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root/ai-engine/python-analyzer
+EnvironmentFile=/root/ai-engine/.env
+Environment="PATH=/root/ai-engine/python-analyzer/.venv/bin:/usr/bin"
+ExecStart=/root/ai-engine/python-analyzer/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001 --workers 1
+Restart=always
+RestartSec=5
+# Modelos pueden tardar 30-60s en cargar la primera vez
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

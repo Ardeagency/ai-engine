@@ -23,6 +23,8 @@ import { startJobWorker }       from "./services/job-worker.service.js";
 import { startOrgSyncService }  from "./services/org-sync.service.js";
 import { startTokenRefreshService } from "./services/token-refresh.service.js";
 import { startBrandSensorSync } from "./services/brand-sensor-sync.service.js";
+import { startRecommendationAutoLink } from "./services/recommendation-auto-link.service.js";
+import { retryOrphanReplies } from "./services/retry-orphan-replies.service.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -101,5 +103,28 @@ app.listen(PORT, () => {
   // Deshabilitar con BRAND_SENSOR_SYNC_ENABLED=false
   if (process.env.BRAND_SENSOR_SYNC_ENABLED !== "false") {
     startBrandSensorSync();
+  }
+
+  // Cierra el loop de aprendizaje: linkea strategic_recommendations aprobadas
+  // con posts publicados (match por similitud de copy_seed vs content real).
+  // Sin esto, measure_recommendation_outcomes nunca tiene material y Vera no
+  // aprende de sus propias predicciones. Cada 30 min.
+  // Deshabilitar con RECOMMENDATION_AUTO_LINK_ENABLED=false
+  if (process.env.RECOMMENDATION_AUTO_LINK_ENABLED !== "false") {
+    startRecommendationAutoLink();
+  }
+
+  // Retry de respuestas huérfanas — corre 5s después de arrancar para que el
+  // resto del stack (registry, supabase, openclaw connections) esté listo.
+  // Reenvía cualquier mensaje user que se quedó sin respuesta en la última hora.
+  // Cubre el caso: OpenClaw emite nuevo formato → parser falla → auto-repair
+  // fixea + redeploya → al arrancar, esto retoma el mensaje que se perdió.
+  // Deshabilitar con RETRY_ORPHAN_REPLIES_ENABLED=false
+  if (process.env.RETRY_ORPHAN_REPLIES_ENABLED !== "false") {
+    setTimeout(() => {
+      retryOrphanReplies()
+        .then((r) => console.log(`retry-orphan: scan=${r.scanned} retried=${r.retried}`))
+        .catch((e) => console.warn("retry-orphan: error:", e.message));
+    }, 5000);
   }
 });

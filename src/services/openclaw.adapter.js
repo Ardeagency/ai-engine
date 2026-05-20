@@ -231,21 +231,176 @@ function _extractToolCallMarkers(text) {
   return { tool_calls, cleanText };
 }
 
-function _normalizeOpenClawResponse(raw) {
+/**
+ * Extrae UN objeto JSON balanceado del string a partir de `from`.
+ * Cuenta llaves respetando strings y escapes.
+ * Retorna { blob, end } o null.
+ */
+function _extractJsonObjectFrom(txt, from = 0) {
+  const start = txt.indexOf("{", from);
+  if (start === -1) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < txt.length; i++) {
+    const c = txt[i];
+    if (escape) { escape = false; continue; }
+    if (c === "\\") { escape = true; continue; }
+    if (c === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (c === "{") depth++;
+    else if (c === "}") {
+      depth--;
+      if (depth === 0) return { blob: txt.slice(start, i + 1), end: i + 1 };
+    }
+  }
+  return null; // no balanceado
+}
+
+/**
+ * Divide la respuesta cruda en segmentos ORDENADOS preservando TODO el contenido:
+ *   - Texto antes del primer JSON
+ *   - Cada bloque JSON (parseado si se puede)
+ *   - Texto entre JSONs
+ *   - Texto después del último JSON
+ *
+ * Esto permite que OpenClaw responda con creatividad total: prosa + JSON
+ * (charts, datos estructurados, payloads) intercalados como quiera, sin que
+ * ai-engine descarte nada. Cada segmento conserva su orden original.
+ *
+ * Retorna [{ kind: "text"|"json", content }, ...]
+ */
+function _splitResponseSegments(txt) {
+  const segments = [];
+  let cursor = 0;
+  while (cursor < txt.length) {
+    const nextBrace = txt.indexOf("{", cursor);
+
+    // No quedan { → todo lo restante es texto
+    if (nextBrace === -1) {
+      const rest = txt.slice(cursor).trim();
+      if (rest) segments.push({ kind: "text", content: rest });
+      break;
+    }
+
+    // Texto previo a este { — se preserva como markdown
+    const before = txt.slice(cursor, nextBrace).trim();
+    if (before) segments.push({ kind: "text", content: before });
+
+    // Intentar extraer JSON balanceado
+    const obj = _extractJsonObjectFrom(txt, nextBrace);
+    if (!obj) {
+      // Llave sin cerrar — tratamos el resto como texto
+      const rest = txt.slice(nextBrace).trim();
+      if (rest) segments.push({ kind: "text", content: rest });
+      break;
+    }
+
+    try {
+      const parsed = _safeJsonParse(obj.blob);
+      segments.push({ kind: "json", content: parsed });
+    } catch (e) {
+      // No era JSON real (ej: un objeto JS no estricto, o un {} accidental en prosa)
+      // → preservar como texto literal, no descartar
+      segments.push({ kind: "text", content: obj.blob });
+      console.warn(`openclaw.adapter: bloque {} no parseable como JSON, preservado como texto: ${e.message}`);
+    }
+    cursor = obj.end;
+  }
+  return segments;
+}
+
+/**
+ * Extrae el texto utilizable de un objeto JSON emitido por OpenClaw.
+ * Maneja las formas conocidas (payloads[].text, .text, .message, .content);
+ * para objetos de forma desconocida los embebe como bloque ```json para que
+ * el frontend los renderice (Vera puede emitir charts/data como objetos).
+ */
+function _extractTextFromJsonSegment(obj) {
+  if (!obj || typeof obj !== "object") return null;
+
+  // Forma estándar OpenClaw: { payloads: [{ text }] }
+  if (Array.isArray(obj.payloads)) {
+    const parts = [];
+    for (const p of obj.payloads) {
+      if (typeof p === "string") { parts.push(p); continue; }
+      const t = p?.text ?? p?.content ?? p?.markdown ?? null;
+      if (t) parts.push(t);
+      else parts.push("```json\n" + JSON.stringify(p, null, 2) + "\n```");
+    }
+    if (parts.length) return parts.join("\n\n");
+  }
+
+  // Formas alternas
+  if (typeof obj.text === "string") return obj.text;
+  if (typeof obj.message === "string") return obj.message;
+  if (typeof obj.content === "string") return obj.content;
+  if (typeof obj.markdown === "string") return obj.markdown;
+
+  // Objetos meta-only (solo sessionId, audit, etc.) → no aportan texto, devolver null
+  const onlyMeta = Object.keys(obj).every((k) => ["meta", "sessionId", "ok", "status", "event", "at"].includes(k));
+  if (onlyMeta) return null;
+
+  // Forma desconocida → embedir como JSON code block para que Vera lo vea
+  return "```json\n" + JSON.stringify(obj, null, 2) + "\n```";
+}
+
+// Raw response logging — preserves the full payload so podemos auditar lo que
+// OpenClaw realmente emite (charts, multi-payload, formatos custom).
+// Cap simple: si pasa de 5 MB, trunca al frente (mantiene últimas respuestas).
+const RAW_LOG_PATH = "/var/log/openclaw-raw.log";
+const RAW_LOG_MAX_BYTES = 5 * 1024 * 1024;
+async function _logRawResponse(raw, meta) {
   try {
-    const txt   = raw.trim();
-    const start = txt.indexOf("{");
-    if (start === -1) throw new Error("No JSON en la salida de OpenClaw");
-    const parsed = _safeJsonParse(txt.slice(start));
+    const { promises: fsp, existsSync } = await import("node:fs");
+    const stat = existsSync(RAW_LOG_PATH) ? await fsp.stat(RAW_LOG_PATH) : { size: 0 };
+    if (stat.size > RAW_LOG_MAX_BYTES) {
+      const data = await fsp.readFile(RAW_LOG_PATH);
+      await fsp.writeFile(RAW_LOG_PATH, data.slice(data.length - RAW_LOG_MAX_BYTES / 2));
+    }
+    const header = `\n===== ${new Date().toISOString()} | org=${meta?.org || "?"} | conv=${meta?.conv || "?"} =====\n`;
+    await fsp.appendFile(RAW_LOG_PATH, header + raw + "\n");
+  } catch (_) { /* never block on logging */ }
+}
 
-    const rawText =
-      parsed?.payloads?.[0]?.text ||
-      parsed?.text ||
-      parsed?.message ||
-      "Sin respuesta.";
+function _normalizeOpenClawResponse(raw, meta = {}) {
+  // Persistir respuesta cruda completa — clave para que el auto-repair y un
+  // humano puedan ver qué formato emitió OpenClaw cuando algo se ve raro.
+  _logRawResponse(raw, meta);
 
-    const returnedSessionId = parsed?.meta?.agentMeta?.sessionId || null;
-    const { tool_calls, cleanText } = _extractToolCallMarkers(rawText);
+  try {
+    const txt = String(raw || "").trim();
+    if (!txt) {
+      return { text: "Sin respuesta.", tool_calls: [], requires_consent: false, returnedSessionId: null };
+    }
+
+    const segments = _splitResponseSegments(txt);
+
+    // Combinar segmentos en orden, preservando TODO lo que OpenClaw quiso decir
+    const textParts = [];
+    let returnedSessionId = null;
+    let jsonCount = 0;
+    let textCount = 0;
+
+    for (const seg of segments) {
+      if (seg.kind === "text") {
+        textParts.push(seg.content);
+        textCount++;
+      } else {
+        const o = seg.content;
+        const t = _extractTextFromJsonSegment(o);
+        if (t) textParts.push(t);
+
+        // sessionId: tomar el primero que aparezca
+        if (!returnedSessionId) {
+          returnedSessionId = o?.meta?.agentMeta?.sessionId || o?.sessionId || null;
+        }
+        jsonCount++;
+      }
+    }
+
+    const combinedText = textParts.filter(Boolean).join("\n\n") || "Sin respuesta.";
+    const { tool_calls, cleanText } = _extractToolCallMarkers(combinedText);
 
     if (tool_calls.length > 0) {
       console.log(
@@ -253,12 +408,22 @@ function _normalizeOpenClawResponse(raw) {
         tool_calls.map((t) => t.name).join(", ")
       );
     }
+    if (segments.length > 1 || (jsonCount > 0 && textCount > 0)) {
+      console.log(`openclaw.adapter: respuesta multi-segmento (${segments.length} segs, ${jsonCount} json, ${textCount} texto)`);
+    }
 
     return { text: cleanText, tool_calls, requires_consent: false, returnedSessionId };
   } catch (e) {
     console.error("openclaw.adapter: parse error:", e.message);
-    console.error("openclaw.adapter: raw snippet (500 chars):", String(raw || "").slice(0, 500));
-    return { text: "Error procesando respuesta del agente.", tool_calls: [], requires_consent: false, returnedSessionId: null };
+    console.error("openclaw.adapter: raw response → /var/log/openclaw-raw.log");
+    // Fail-open: devolvemos el raw como texto para que el usuario VEA algo
+    // en vez de un genérico "error procesando". Si era markdown, se renderiza.
+    return {
+      text: String(raw || "").slice(0, 8000) || "Error procesando respuesta del agente.",
+      tool_calls: [],
+      requires_consent: false,
+      returnedSessionId: null,
+    };
   }
 }
 
@@ -371,7 +536,7 @@ export async function callOpenClaw({
     console.log(`openclaw.adapter: [remote] org "${organizationId}" → ${orgEntry.ip}:${orgEntry.port}`);
     const raw = await _callRemoteOpenClaw({ orgEntry, agentId, enrichedMessage, clawSessionId });
 
-    const normalized = _normalizeOpenClawResponse(raw);
+    const normalized = _normalizeOpenClawResponse(raw, { org: organizationId, conv: conversationId });
 
     if (normalized.returnedSessionId) {
       _sessionStore.set(sessionKey, {

@@ -311,10 +311,117 @@ function _splitResponseSegments(txt) {
 }
 
 /**
+ * Detecta si un objeto JSON tiene forma de chart spec del frontend.
+ * El renderer (parseChartSpec en VeraView.js) requiere `type` y suele usar `data`.
+ * Aceptamos variantes comunes (`kind`, `chartType`) y las normalizamos.
+ *
+ * Retorna { isChart, normalized } — normalized tiene `type` siempre presente.
+ */
+function _detectChartShape(o) {
+  if (!o || typeof o !== "object" || Array.isArray(o)) return { isChart: false };
+
+  const CHART_TYPES = ["bar", "line", "area", "pie", "donut", "pyramid", "scatter", "radar", "column", "horizontalbar", "stacked", "stacked_bar"];
+
+  // Normalizamos: type | kind | chartType, en cualquier capitalización
+  const rawType = String(o.type ?? o.kind ?? o.chartType ?? o.chart_type ?? "").trim().toLowerCase();
+  const hasChartType = CHART_TYPES.includes(rawType);
+
+  // Algunos LLMs envuelven el chart como { chart: { type, data } }
+  if (!hasChartType && o.chart && typeof o.chart === "object") {
+    const inner = _detectChartShape(o.chart);
+    if (inner.isChart) return inner;
+  }
+
+  // Heurística positiva: tiene `type` chart-like + algún campo de datos
+  const hasData = Array.isArray(o.data) || Array.isArray(o.values) || Array.isArray(o.series) || Array.isArray(o.points);
+  if (hasChartType && hasData) {
+    const normalized = { ...o, type: rawType };
+    // Normalizar `values` → `data` si hace falta
+    if (!normalized.data && Array.isArray(o.values)) normalized.data = o.values;
+    if (!normalized.data && Array.isArray(o.series)) normalized.data = o.series;
+    return { isChart: true, normalized };
+  }
+
+  return { isChart: false };
+}
+
+/**
+ * Detecta forma de quick-reply buttons.
+ * El renderer acepta { buttons: [...] } o array directo de botones.
+ */
+function _detectButtonsShape(o) {
+  if (!o || typeof o !== "object") return { isButtons: false };
+
+  // Variantes que pueden venir: buttons, actions, quick_replies, quickReplies, options
+  const candidates = [o.buttons, o.actions, o.quick_replies, o.quickReplies, o.options];
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length > 0) {
+      const looksLikeButtons = c.every(
+        (b) => b && typeof b === "object" && (b.label || b.text || b.title)
+      );
+      if (looksLikeButtons) {
+        return {
+          isButtons: true,
+          normalized: { title: o.title, buttons: c.map((b) => ({
+            label: b.label ?? b.text ?? b.title,
+            text:  b.text  ?? b.value ?? b.label ?? b.title,
+            variant: b.variant ?? b.style ?? "secondary",
+          })) },
+        };
+      }
+    }
+  }
+  return { isButtons: false };
+}
+
+/**
+ * Detecta forma de diagrama mermaid (texto con sintaxis flowchart/graph/sequenceDiagram/etc).
+ */
+function _detectMermaidShape(o) {
+  if (!o || typeof o !== "object") return { isMermaid: false };
+  const candidates = [o.mermaid, o.diagram, o.flowchart];
+  for (const c of candidates) {
+    if (typeof c === "string" && /^\s*(graph|flowchart|sequenceDiagram|classDiagram|stateDiagram|gantt|pie|mindmap|journey|erDiagram)\b/m.test(c)) {
+      return { isMermaid: true, source: c.trim() };
+    }
+  }
+  // O directamente { type: "mermaid", code: "..." }
+  if ((o.type === "mermaid" || o.kind === "mermaid") && typeof o.code === "string") {
+    return { isMermaid: true, source: o.code.trim() };
+  }
+  return { isMermaid: false };
+}
+
+/**
+ * Convierte un objeto JSON desconocido en el bloque markdown adecuado para
+ * que el frontend lo RENDERICE en vez de mostrar JSON crudo (mala UX).
+ *
+ * Orden de detección: chart → buttons → mermaid → fallback JSON block.
+ * El usuario nunca debería ver ```json``` salvo casos muy raros.
+ */
+function _wrapJsonAsRenderableBlock(o) {
+  const chart = _detectChartShape(o);
+  if (chart.isChart) {
+    return "```chart\n" + JSON.stringify(chart.normalized, null, 2) + "\n```";
+  }
+  const buttons = _detectButtonsShape(o);
+  if (buttons.isButtons) {
+    return "```buttons\n" + JSON.stringify(buttons.normalized, null, 2) + "\n```";
+  }
+  const mermaid = _detectMermaidShape(o);
+  if (mermaid.isMermaid) {
+    return "```mermaid\n" + mermaid.source + "\n```";
+  }
+  // Último recurso — JSON desconocido. Mejor que perderlo, pero idealmente
+  // este branch no se toca: si pasa seguido, sumar el shape a las heurísticas.
+  return "```json\n" + JSON.stringify(o, null, 2) + "\n```";
+}
+
+/**
  * Extrae el texto utilizable de un objeto JSON emitido por OpenClaw.
- * Maneja las formas conocidas (payloads[].text, .text, .message, .content);
- * para objetos de forma desconocida los embebe como bloque ```json para que
- * el frontend los renderice (Vera puede emitir charts/data como objetos).
+ * Para objetos conocidos (payloads/text/message) devuelve el texto;
+ * para objetos con shape de chart/buttons/mermaid los envuelve en el bloque
+ * markdown correspondiente para que el frontend los renderice nativamente.
  */
 function _extractTextFromJsonSegment(obj) {
   if (!obj || typeof obj !== "object") return null;
@@ -326,23 +433,23 @@ function _extractTextFromJsonSegment(obj) {
       if (typeof p === "string") { parts.push(p); continue; }
       const t = p?.text ?? p?.content ?? p?.markdown ?? null;
       if (t) parts.push(t);
-      else parts.push("```json\n" + JSON.stringify(p, null, 2) + "\n```");
+      else if (p && typeof p === "object") parts.push(_wrapJsonAsRenderableBlock(p));
     }
     if (parts.length) return parts.join("\n\n");
   }
 
-  // Formas alternas
+  // Formas alternas con texto plano
   if (typeof obj.text === "string") return obj.text;
   if (typeof obj.message === "string") return obj.message;
   if (typeof obj.content === "string") return obj.content;
   if (typeof obj.markdown === "string") return obj.markdown;
 
-  // Objetos meta-only (solo sessionId, audit, etc.) → no aportan texto, devolver null
+  // Objetos meta-only (solo sessionId, audit, etc.) → no aportan texto
   const onlyMeta = Object.keys(obj).every((k) => ["meta", "sessionId", "ok", "status", "event", "at"].includes(k));
   if (onlyMeta) return null;
 
-  // Forma desconocida → embedir como JSON code block para que Vera lo vea
-  return "```json\n" + JSON.stringify(obj, null, 2) + "\n```";
+  // Forma desconocida → intentar renderizar como chart/buttons/mermaid
+  return _wrapJsonAsRenderableBlock(obj);
 }
 
 // Raw response logging — preserves the full payload so podemos auditar lo que

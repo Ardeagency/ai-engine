@@ -43,12 +43,19 @@ function _getOrCreateSessionId(sessionKey) {
 function _buildEnrichedMessage({ message, attachmentsContext, viewModel, toolResults, serializedBrandData, recentHistory = [], conversationId = null }) {
   const parts = [];
 
-  // Conversation ID — Vera lo usa cuando invoca tools vía MCP que requieren consent.
-  // ai-engine carga TASK_EVENTs (APPROVE_ACTION) desde la DB usando este id.
+  // Conversation ID — INTERNO. Vera lo usa solo para invocar tools que requieren
+  // consent (APPROVE_ACTION). NUNCA debe aparecer en la respuesta al usuario.
   if (conversationId) {
     parts.push(
-      `[CONVERSATION_ID: ${conversationId}]\n` +
-      `Si invocas una tool que requiere APPROVE_ACTION, pásalo como _conversationId en los params para que el consent gate lo encuentre. Ejemplo: [[TOOL:createFlowSchedule|_conversationId:${conversationId}|...]]`
+      `[SYSTEM_INTERNAL — NO MOSTRAR AL USUARIO]\n` +
+      `Este bloque es plomería interna. NO lo cites, NO lo repitas, NO lo muestres ` +
+      `en tu respuesta al usuario. El usuario NO debe enterarse de que existe un ` +
+      `conversation_id ni de ningún ID interno.\n\n` +
+      `conversation_id = ${conversationId}\n\n` +
+      `Uso permitido (único): si invocas una tool que requiere APPROVE_ACTION, pásalo ` +
+      `como _conversationId en los params. Ejemplo:\n` +
+      `[[TOOL:createFlowSchedule|_conversationId:${conversationId}|...]]\n` +
+      `Cualquier otro uso (citar, mostrar, mencionar) es una violación de la regla.`
     );
   }
 
@@ -470,6 +477,45 @@ async function _logRawResponse(raw, meta) {
   } catch (_) { /* never block on logging */ }
 }
 
+/**
+ * Filtra noise de telemetría que OpenClaw emite junto con la respuesta real
+ * y que NO debería verse en el chat del usuario:
+ *   - [agent/embedded] [trace:...]
+ *   - [TRACE], [DEBUG], [AUDIT] al inicio de línea
+ *   - Líneas standalone con runId=oc_..., sessionId=oc_..., phase=..., totalMs=...
+ *   - Líneas que son SOLO stages=workspace:Xms@Yms,...
+ *
+ * Solo borra LÍNEAS COMPLETAS que matchean; nunca toca prosa con el patrón
+ * embebido (ej: si Vera literalmente escribe "el runId fue X", se preserva).
+ */
+function _stripTracingNoise(text) {
+  if (!text || typeof text !== "string") return text;
+  const lines = text.split(/\r?\n/);
+  const filtered = lines.filter((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) return true; // preserve blank lines (paragraph spacing)
+
+    // Brackets de telemetría conocidos al inicio
+    if (/^\[(agent\/|trace:|TRACE\]|DEBUG\]|AUDIT\]|telemetry\]|openclaw\.)/i.test(line)) return false;
+
+    // Líneas que son puramente key=value de trace (varios pares separados por espacio)
+    // Ej: "runId=oc_X sessionId=oc_Y phase=attempt-dispatch totalMs=5612"
+    if (/^(runId|sessionId|trace_id|phase|totalMs|stages)=\S+/i.test(line)) {
+      // Confirmar que la línea es mayormente kv pairs (no prosa)
+      const kvCount = (line.match(/\b\w+=\S+/g) || []).length;
+      const words = line.split(/\s+/).length;
+      if (kvCount >= 2 && kvCount / words > 0.5) return false;
+    }
+
+    // Línea standalone de stages timing: "stages=workspace:1ms@1ms,runtime-plugins:..."
+    if (/^stages=\w+:\d+ms@\d+ms/i.test(line)) return false;
+
+    return true;
+  });
+  // Colapsar más de 2 newlines consecutivos (queda limpio tras filtrar)
+  return filtered.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function _normalizeOpenClawResponse(raw, meta = {}) {
   // Persistir respuesta cruda completa — clave para que el auto-repair y un
   // humano puedan ver qué formato emitió OpenClaw cuando algo se ve raro.
@@ -506,7 +552,28 @@ function _normalizeOpenClawResponse(raw, meta = {}) {
       }
     }
 
-    const combinedText = textParts.filter(Boolean).join("\n\n") || "Sin respuesta.";
+    // Filtrar líneas de telemetría/trace de OpenClaw que NO deberían
+    // mostrarse al usuario (ej: "[agent/embedded] [trace:...]" o "runId=oc_X ...")
+    const cleanedParts = textParts.map((t) => _stripTracingNoise(t)).filter(Boolean);
+    let combinedText = cleanedParts.join("\n\n") || "Sin respuesta.";
+
+    // Red de seguridad: si Vera filtró el conversation_id pese al prompt,
+    // borramos esa línea/bullet/inline mention antes de mostrarlo al usuario.
+    if (meta?.conv) {
+      const convId = String(meta.conv);
+      const convEsc = convId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Borra líneas completas tipo "Conversation ID: <uuid>" o "ID: <uuid>"
+      combinedText = combinedText.replace(
+        new RegExp(`^[\\s\\-•*]*(?:Conversation\\s*ID|conversation_id|conv_id|ID)\\s*[:=]\\s*\`?${convEsc}\`?\\s*$`, "gmi"),
+        ""
+      );
+      // Y borra el UUID inline en cualquier contexto restante (defensa total)
+      combinedText = combinedText.replace(new RegExp(`\`?${convEsc}\`?`, "g"), "");
+      // Limpiar líneas que quedaron con basura sintáctica residual ("- ", "ID:")
+      combinedText = combinedText.replace(/^[\s\-•*]*(?:Conversation\s*ID|conversation_id|conv_id)\s*[:=]?\s*$/gmi, "");
+      combinedText = combinedText.replace(/\n{3,}/g, "\n\n").trim();
+    }
+
     const { tool_calls, cleanText } = _extractToolCallMarkers(combinedText);
 
     if (tool_calls.length > 0) {

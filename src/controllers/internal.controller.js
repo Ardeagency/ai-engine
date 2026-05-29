@@ -686,3 +686,67 @@ export const crawlSiteHandler = async (req, res) => {
     return res.status(500).json({ error: e.message || String(e) });
   }
 };
+
+// ── POST /internal/brand-scrape/start ────────────────────────────────────────
+// Crea un brand_scrape_job y arranca el pipeline en background.
+// Body: { url, organization_id?, max_pages?, max_depth? }
+// Header: x-webhook-secret
+// Response inmediata: { job_id }
+export const brandScrapeStart = async (req, res) => {
+  if (!assertWebhookSecret(req, res)) return;
+
+  const { url, organization_id = null, max_pages, max_depth, created_by = null } = req.body || {};
+  if (!url || typeof url !== "string") {
+    return res.status(400).json({ error: "url (string) requerido" });
+  }
+
+  try {
+    const { createJob, runPipeline } = await import("../services/brand-scrape-orchestrator.service.js");
+    const { jobId } = await createJob({ seedUrl: url, organizationId: organization_id, createdBy: created_by });
+
+    // Disparar pipeline en background, sin esperar
+    setImmediate(() => {
+      runPipeline(jobId, {
+        maxPages: Math.min(Math.max(parseInt(max_pages, 10) || 80, 1), 200),
+        maxDepth: Math.min(Math.max(parseInt(max_depth, 10) || 4, 1), 8),
+      }).catch((err) => console.error(`runPipeline jobId=${jobId} fatal:`, err));
+    });
+
+    return res.json({ job_id: jobId, status: "queued" });
+  } catch (e) {
+    console.error("brand-scrape-start error:", e);
+    return res.status(500).json({ error: e.message || String(e) });
+  }
+};
+
+// ── GET /internal/brand-scrape/status/:jobId ─────────────────────────────────
+// Polling endpoint para el frontend.
+// Header: x-webhook-secret
+export const brandScrapeStatus = async (req, res) => {
+  if (!assertWebhookSecret(req, res)) return;
+
+  const { jobId } = req.params;
+  if (!jobId) return res.status(400).json({ error: "jobId requerido" });
+
+  try {
+    const { getStatus } = await import("../services/brand-scrape-orchestrator.service.js");
+    const job = await getStatus(jobId);
+    if (!job) return res.status(404).json({ error: "job not found" });
+    return res.json({
+      job_id: job.id,
+      status: job.status,
+      stage: job.stage,
+      progress: job.progress,
+      brand_payload: job.brand_payload,
+      error: job.error,
+      cost_usd: job.cost_usd,
+      tokens_in: job.tokens_in,
+      tokens_out: job.tokens_out,
+      started_at: job.started_at,
+      finished_at: job.finished_at,
+    });
+  } catch (e) {
+    console.error("brand-scrape-status error:", e);
+    return res.status(500).json({ error: e.message || String(e) });
+  }
+};

@@ -18,6 +18,8 @@ import {
   rejectVeraAction,
   listVeraActions,
   crawlSiteHandler,
+  brandScrapeStart,
+  brandScrapeStatus,
 } from "../controllers/internal.controller.js";
 import { userAuthMiddleware } from "../middleware/auth.middleware.js";
 import { runAutoLinkCycle } from "../services/recommendation-auto-link.service.js";
@@ -31,6 +33,8 @@ const router = express.Router();
 router.post("/org-created",   orgCreated);   // trigger v9: nueva organización
 router.post("/server-ready",  serverReady);  // org-server notifica que está listo (cloud-init completo)
 router.post("/crawl-site",  crawlSiteHandler); // BFS recursivo brand-scraper Fase 1
+router.post("/brand-scrape/start",  brandScrapeStart);
+router.get("/brand-scrape/status/:jobId", brandScrapeStatus);
 
 // ── Defaults tarball (para cloud-init de org-servers) ─────────────────────────
 router.get("/defaults.tar.gz", serveDefaultsTarball);

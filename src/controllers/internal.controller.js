@@ -88,6 +88,12 @@ export const orgCreated = async (req, res) => {
   res.json({ received: true, organizationId });
 
   // Provisionar en background
+  // KILL-SWITCH temporal: DISABLE_ORG_AUTO_PROVISION=true en .env desactiva
+  // el provisioning automatico. Re-habilitar quitando el env y reiniciando.
+  if (process.env.DISABLE_ORG_AUTO_PROVISION === "true") {
+    console.log(`internal: org \"${organizationId}\" auto-provision DISABLED (env flag)`);
+    return;
+  }
   setImmediate(async () => {
     try {
       await provisionOpenClawForOrg(organizationId, orgName);
@@ -493,6 +499,23 @@ export const serveMcpServer = (req, res) => {
   }
 };
 
+// ── GET /internal/anthropic-proxy.js ──────────────────────────────────────────
+// Sirve el código del anthropic-proxy. Reemplaza el b64 inline en cloud-init
+// para mantener user_data < 32 KB (límite duro de Hetzner Cloud).
+const ANTHROPIC_PROXY_PATH = path.resolve(__dirname_ctrl, "../../anthropic-proxy/server.js");
+
+export const serveAnthropicProxy = (req, res) => {
+  if (!assertWebhookSecret(req, res)) return;
+  try {
+    const content = readFileSync(ANTHROPIC_PROXY_PATH, "utf8");
+    res.setHeader("Content-Type", "application/javascript");
+    res.send(content);
+  } catch (e) {
+    console.error("internal: error sirviendo anthropic-proxy.js:", e.message);
+    res.status(500).json({ error: "Error sirviendo anthropic-proxy" });
+  }
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
 // VERA Pending Actions — endpoints user-facing (Fase IV)
 // Auth: req.user inyectado por userAuthMiddleware
@@ -602,5 +625,64 @@ export const listVeraActions = async (req, res) => {
     return res.json({ actions: data, count: data.length });
   } catch (e) {
     return res.status(e.statusCode || 500).json({ error: e.message || "error" });
+  }
+};
+
+// ── POST /internal/crawl-site ────────────────────────────────────────────────
+// BFS recursivo de descubrimiento de rutas. Devuelve pages[] + stats.
+// Body: { url, max_pages?, max_depth?, max_concurrent?, delay_ms?, timeout_ms?, include_html? }
+// Header: x-webhook-secret
+export const crawlSiteHandler = async (req, res) => {
+  if (!assertWebhookSecret(req, res)) return;
+
+  const {
+    url,
+    max_pages = 200,
+    max_depth = 5,
+    max_concurrent = 5,
+    delay_ms = 200,
+    timeout_ms = 15000,
+    include_html = false,
+  } = req.body || {};
+
+  if (!url || typeof url !== "string") {
+    return res.status(400).json({ error: "url (string) requerido" });
+  }
+
+  try {
+    const { crawlSite } = await import("../services/site-crawler.service.js");
+    const startedAt = new Date().toISOString();
+    const result = await crawlSite({
+      seedUrl: url,
+      maxPages: Math.min(Math.max(parseInt(max_pages, 10) || 200, 1), 1000),
+      maxDepth: Math.min(Math.max(parseInt(max_depth, 10) || 5, 1), 10),
+      maxConcurrent: Math.min(Math.max(parseInt(max_concurrent, 10) || 5, 1), 20),
+      delayMs: Math.max(parseInt(delay_ms, 10) || 0, 0),
+      timeoutMs: Math.min(Math.max(parseInt(timeout_ms, 10) || 15000, 1000), 60000),
+      includeHtml: !!include_html,
+      onProgress: (p) => {
+        if (p.phase === "batch_end") {
+          console.log(`crawl: depth=${p.depth} pages=${p.pages} queue=${p.queue} new=${p.newRoutesInBatch}`);
+        }
+      },
+    });
+
+    return res.json({
+      started_at: startedAt,
+      seed: result.seed,
+      terminated: result.terminated,
+      stats: result.stats,
+      pages: result.pages.map((p) => ({
+        url: p.url,
+        status: p.status,
+        content_length: p.content_length,
+        depth: p.depth,
+        ...(include_html ? { html: p.html } : {}),
+      })),
+      errors: result.errors,
+    });
+  } catch (e) {
+    console.error("crawl-site error:", e);
+    return res.status(500).json({ error: e.message || String(e) });
   }
 };

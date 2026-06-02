@@ -41,6 +41,7 @@ log = logging.getLogger(__name__)
 
 TOP_K = int(os.environ.get("TRENDS_TOP_K", "10"))
 MAX_PER_INTENT = int(os.environ.get("TRENDS_MAX_PER_INTENT", "4"))
+MIN_SEMANTIC = float(os.environ.get("TRENDS_MIN_SEMANTIC", "0.40"))  # piso de relevancia: descarta senales que no tienen que ver con la marca
 BRAND_IDENTITY_TTL_S = 7 * 24 * 3600
 
 # Pesos del final_score (suman 1.0)
@@ -235,7 +236,7 @@ async def score_signals(signals: list[RawSignal], brand_container_id: str
     scored: list[ScoredSignal] = []
     for s, v in zip(signals, sig_vecs):
         sem = _cosine(brand_vec, v) if brand_vec and v else 0.0
-        sem = max(0.0, min(1.0, (sem + 1.0) / 2.0))  # [-1,1] → [0,1]
+        sem = max(0.0, min(1.0, sem))  # coseno de embeddings OpenAI ya es ~[0,1]; el (x+1)/2 inflaba a >=0.5 todo
         vol  = _norm_volume(s.search_volume)
         gro  = _norm_growth(s)
         fre  = _norm_freshness(s)
@@ -261,6 +262,12 @@ async def score_signals(signals: list[RawSignal], brand_container_id: str
                 "timestamp": s.timestamp.isoformat() if s.timestamp else None,
             },
         ))
+
+    # Piso de relevancia: descarta senales semanticamente irrelevantes a la
+    # marca (antes colaban por frescura/volumen aunque no tuvieran que ver).
+    relevant = [s for s in scored if s.semantic_relevance >= MIN_SEMANTIC]
+    log.info("scorer: relevance filter %d -> %d (min=%.2f)", len(scored), len(relevant), MIN_SEMANTIC)
+    scored = relevant
 
     top = _diverse_top_k(scored, TOP_K, MAX_PER_INTENT)
     log.info("scorer: in=%d scored=%d top=%d cost_usd=%.6f",

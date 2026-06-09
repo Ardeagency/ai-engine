@@ -189,7 +189,7 @@ function _buildEnrichedMessage({ message, attachmentsContext, viewModel, toolRes
     `- Alcance estimado | 45K | cuentas únicas/mes\n` +
     `- Engagement rate | 4.2% | promedio del sector\n` +
     `[/METRICS]\n\n` +
-    `Para sugerir acciones concretas al usuario al final de un análisis:\n` +
+    `Para sugerir el siguiente paso. CADA accion es un mensaje que el usuario te ENVIARA si la clickea — redactala como una peticion del usuario hacia ti (ej. \"Genera el brief\", \"Conecta la cuenta de IGNIS\"), NUNCA como \"ir a tal pagina\" o navegacion:\n` +
     `[ACTIONS]\n` +
     `- Generar brief de contenido para el mes\n` +
     `- Analizar competencia en Instagram\n` +
@@ -199,7 +199,7 @@ function _buildEnrichedMessage({ message, attachmentsContext, viewModel, toolRes
     `• Usa [PILLS] para selecciones rápidas de 2-5 opciones cortas.\n` +
     `• Usa [STEPS] para cualquier proceso secuencial de 3+ pasos.\n` +
     `• Usa [METRICS] cuando presentes 2+ números o KPIs juntos.\n` +
-    `• Usa [ACTIONS] al final de análisis largos para sugerir el siguiente paso.\n` +
+    `• Usa [ACTIONS] al final de analisis largos. Cada item se envia como mensaje conversacional del usuario al clickearlo — frasealo como peticion directa, no como redireccion.\n` +
     `• Los bloques van en su propio párrafo, nunca dentro de una oración.\n` +
     `• NO uses HTML con <script> ni atributos de evento (onclick, onerror).`
   );

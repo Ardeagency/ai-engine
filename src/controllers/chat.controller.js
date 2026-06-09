@@ -23,7 +23,7 @@ import { estimateClaudeTaskCost } from "../lib/cost-estimator.js";
  */
 export const chatController = async (req, res) => {
   try {
-    const { organization_id, conversation_id, message, attachments, confirmed_high_cost } = req.body ?? {};
+    const { organization_id, conversation_id, message, attachments, confirmed_high_cost, simplify_request } = req.body ?? {};
 
     const hasMessage     = typeof message === "string" && message.trim().length > 0;
     const hasAttachments = Array.isArray(attachments) && attachments.length > 0;
@@ -91,9 +91,43 @@ export const chatController = async (req, res) => {
           organizationId: organization_id,
         });
         if (estimate.confirm_required) {
+          // Persistir el [CONFIRM] como ai_message para que viva en el historial
+          // y el frontend lo reciba via Supabase Realtime como cualquier respuesta.
+          const reasonsLines = (estimate.reasons || [])
+            .map((r) => `REASON: ${String(r).replace(/\n/g, " ")}`)
+            .join("\n");
+          const confirmBlock =
+            "[CONFIRM]\n" +
+            `ESTIMATE_USD: ${estimate.usd_min}-${estimate.usd_max}\n` +
+            `ESTIMATE_MINUTES: ${estimate.minutes_min}-${estimate.minutes_max}\n` +
+            (reasonsLines ? reasonsLines + "\n" : "") +
+            "[/CONFIRM]";
+
+          const { error: confirmInsertErr } = await supabase
+            .from("ai_messages")
+            .insert({
+              conversation_id: convId,
+              role:            "assistant",
+              content:         confirmBlock,
+              organization_id,
+              metadata: {
+                type:             "cost_confirm",
+                estimate,
+                original_message: message.trim(),
+                original_attachments: hasAttachments ? attachments : [],
+              },
+            });
+          if (confirmInsertErr) {
+            console.warn(`chatController: error guardando [CONFIRM] (fail-open al flujo legacy):`, confirmInsertErr.message);
+            return res.json({
+              conversation_id: convId,
+              status:          "cost_confirmation_required",
+              estimate,
+            });
+          }
           return res.json({
             conversation_id: convId,
-            status:          "cost_confirmation_required",
+            status:          "cost_confirmation_inline",
             estimate,
           });
         }
@@ -135,6 +169,7 @@ export const chatController = async (req, res) => {
         organizationId: organization_id,
         userId:         user.id,
         conversationId: convId,
+        simplifyRequest: simplify_request === true,
       });
     });
   } catch (error) {

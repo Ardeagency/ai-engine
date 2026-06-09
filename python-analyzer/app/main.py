@@ -295,11 +295,16 @@ async def _fetch_posts_for_patterns(limit: int):
             f"{SUPABASE_URL}/rest/v1/brand_posts",
             headers=H,
             params={
-                "select": "id,brand_container_id,network,content,metrics,engagement_total,followers_snapshot,sentiment_score,sentiment,enrichment,media_assets,is_competitor,captured_at",
-                "is_processed": "is.true",
+                "select": "id,brand_container_id,network,content,metrics,engagement_total,followers_snapshot,sentiment_score,sentiment,enrichment,media_assets,is_competitor,captured_at,updated_at",
+                "ai_analyzed_at": "not.is.null",
                 "sentiment_score": "not.is.null",
-                "order": "captured_at.desc",
-                "limit": str(limit * 3),
+                # ORDER por updated_at (cuándo se persistió/analizó), no captured_at
+                # (fecha del post original). Con captured_at, los posts scrapeados
+                # hoy de hace años quedan al fondo y nunca se procesan.
+                "order": "updated_at.desc",
+                # 5x para sobrevivir al filtro de duplicados (los más recientes ya
+                # están en post_patterns).
+                "limit": str(limit * 5),
             },
         )
         r.raise_for_status()

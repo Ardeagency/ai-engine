@@ -405,7 +405,7 @@ export const deleteOrgHetznerServer = async (req, res) => {
   try {
     await deleteOrgServer(instance.hetzner_server_id);
     await supabase.from("openclaw_instances")
-      .update({ status: "deleted", hetzner_server_id: null, server_ip: null, updated_at: new Date().toISOString() })
+      .update({ status: "stopped", hetzner_server_id: null, server_ip: null, updated_at: new Date().toISOString() })
       .eq("organization_id", orgId);
     unregisterOrg(orgId);
     res.json({ ok: true, org_id: orgId, deleted_server_id: instance.hetzner_server_id });

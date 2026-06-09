@@ -1,42 +1,62 @@
 ---
 name: brand-dna-reading
-description: Absorbs and deeply understands a brand's complete identity from its DNA file. Use when starting work on any brand, onboarding a new client, creating any content piece, or when needing to verify brand coherence. Triggers on "understand this brand", "read the DNA", "who is this brand", or any new brand activation.
+description: Comprende la identidad profunda de una marca a partir de su DNA — quien ES, no que dice ser. Usala al arrancar trabajo con una marca, en onboarding de un cliente nuevo, o cuando alguien pida "entiende esta marca", "lee el DNA", "quien es esta marca", "como piensa/siente esta marca", "que la hace distinta". Reconstruye un perfil vivo, detecta la tension interna y los vacios del brief. NO produce contenido, copy ni campañas; solo comprende (para crear, ve a content-manifesting / copy-forging).
 ---
 
-# Brand DNA Reading — Absorción Profunda de Identidad de Marca
+# Brand DNA Reading — Absorcion profunda de identidad
 
-No estás leyendo un archivo de configuración. Estás conociendo a una persona. Una marca es un organismo vivo con personalidad, historia, miedos, ambiciones y contradicciones. Tu trabajo es entenderla como la entendería alguien que ha trabajado con ella durante años.
+No lees un archivo de configuracion: conoces a una persona. Una marca es un organismo con personalidad, historia, miedos, ambiciones y contradicciones. Tu trabajo es entenderla como alguien que ha trabajado con ella durante años, no como quien acaba de abrir el brochure. Por que importa: todo lo que se cree despues (copy, piezas, campañas) hereda esta lectura. Si la comprension es generica, todo lo demas sale generico.
 
-## Proceso de Absorción
+Esta skill COMPRENDE, no produce. No escribas captions, headlines ni planes aqui. Tu entregable es un perfil vivo que las skills de produccion consumiran.
 
-### Paso 1: Lectura Inicial
-Lee el perfil de marca completo desde el contexto inyectado (sección `DATOS ACTUALES DE LA MARCA`). No crees nada hasta que lo hayas procesado completamente.
+## Proceso de absorcion
 
-### Paso 2: Reconstrucción Interna
-Después de leer, reformula en tus propias palabras:
-— ¿Quién es esta marca si fuera una persona? ¿Cómo habla en una cena? ¿Cómo reacciona ante una crisis? ¿Qué le da miedo? ¿Qué le emociona?
-— ¿Cuál es su verdadera diferencia? No la que dice en su brochure — la real. La que sus clientes sienten pero tal vez no articulan.
-— ¿Qué tensión interna tiene? ¿Quiere ser accesible pero también premium? ¿Quiere ser innovadora pero no arriesgarse demasiado? Toda marca tiene una tensión. Encuéntrala.
+**1. Lectura inicial.** Lee el perfil completo desde el contexto inyectado (seccion `DATOS ACTUALES DE LA MARCA`). No interpretes hasta haberlo procesado entero — una lectura parcial inventa una marca que no existe.
 
-### Paso 3: Identificación de Vacíos
-Revisa qué información falta o es superficial:
-— Si el tono de voz dice solo "profesional" — eso no es suficiente. ¿Profesional como un abogado o profesional como un médico de familia?
-— Si los valores son genéricos ("calidad, innovación, compromiso") — eso no diferencia a nadie.
-— Si no hay información sobre lo que la marca NO dice — es tan importante como lo que sí dice.
+**2. Reconstruccion interna.** Reformula en tus propias palabras:
+- ¿Quien es si fuera persona? ¿Como habla en una cena? ¿Como reacciona ante una crisis? ¿Que le da miedo, que la emociona?
+- ¿Cual es su diferencia REAL? No la del brochure — la que sus clientes sienten pero no articulan.
+- ¿Que tension interna carga? Accesible pero premium. Innovadora pero sin arriesgarse. Toda marca tiene una. Encuentrala: esa tension es donde vive su caracter.
 
-### Paso 4: Creación del Perfil Vivo
-Genera un resumen interno narrativo que capture:
-— Su esencia en una frase de elevador
-— Su personalidad como si describieras a un ser humano
-— Sus tres fortalezas intangibles (sensaciones que provoca, no features)
-— Su vulnerabilidad principal (dónde podría perder relevancia)
-— La emoción dominante que debe provocar en su audiencia
+**3. Deteccion de vacios.** Marca lo que falta o es superficial, porque un vacio no nombrado se llena despues con relleno:
+- Tono "profesional" no basta: ¿profesional como un abogado o como un medico de familia?
+- Valores genericos ("calidad, innovacion, compromiso") no diferencian a nadie — señalalos como huecos.
+- Lo que la marca NO dice / NO hace es tan definitorio como lo que si. Si no esta, es un vacio.
 
-### Paso 5: Test del Espejo
-Antes de crear cualquier contenido: "Si la marca pudiera hablar, ¿diría esto exactamente así?" Si no es un sí inmediato, ajusta.
+**4. Perfil vivo.** Produce un resumen narrativo interno con: esencia en una frase de elevador; personalidad descrita como un humano; tres fortalezas intangibles (sensaciones que provoca, no features); su vulnerabilidad principal (donde podria perder relevancia); la emocion dominante que debe provocar.
 
-## Señales de que la Entendiste Perfecto
-— El cliente dice "esto suena exactamente como nosotros"
-— La audiencia reacciona como si la marca los conociera personalmente
-— Cada pieza se siente como parte de la misma conversación
-— Hasta el contenido más simple se siente inconfundiblemente de esa marca
+**5. Test del espejo.** Pregunta: "Si la marca pudiera hablar, ¿diria esto exactamente asi?". Si no es un si inmediato, ajusta. Esta es tu prueba de que entendiste, no de que sonaste bonito.
+
+Antes de entregar, aplica brand-fidelity-check.
+
+## Ejemplo trabajado
+
+**Input (perfil crudo del brief):**
+> Marca: Lumora. Sector: skincare. Tono: profesional y cercano. Valores: calidad, confianza, innovacion. Diferencial: productos naturales de alta calidad.
+
+**Output (perfil vivo reconstruido):**
+> **Esencia:** "El cuidado de piel que no te promete milagros, te da rituales." Lumora no vende resultados, vende constancia hecha placer.
+>
+> **Personalidad:** una dermatologa de 38 que tambien es tu amiga. Te corrige sin regañarte. Sabe mas que tu pero nunca te lo restriega.
+>
+> **Tension interna detectada:** quiere ser *clinica* (autoridad, ciencia) y a la vez *calida* (ritual, mimo). Ahi vive su voz — ni laboratorio frio ni spa vacio. Cuando dude, esa tension es la brujula.
+>
+> **Fortalezas intangibles:** (1) sensacion de estar en buenas manos; (2) permiso a cuidarse sin culpa de "vanidad"; (3) calma — la antitesis del marketing de urgencia.
+>
+> **Vulnerabilidad:** si cae en lenguaje de "milagro" o "anti-edad agresivo" pierde su unico activo: la confianza. Ahi muere.
+>
+> **Emocion dominante:** sosiego confiado.
+>
+> **Vacios del brief (a llenar antes de producir):**
+> - "Profesional y cercano" es vago → resuelto arriba como dermatologa-amiga; confirmar con cliente.
+> - "Natural" no esta definido: ¿clean beauty con respaldo cientifico, o naturismo puro? Cambia toda la voz. FALTA.
+> - No hay un "lo que Lumora NUNCA dice" → propuesto: nunca promete transformacion rapida, nunca usa miedo al envejecer.
+
+Nota como el input vago ("profesional", "calidad") se vuelve afilado: una tension concreta, una vulnerabilidad nombrada, y vacios explicitos que la produccion debe cerrar en vez de improvisar.
+
+## Señales de que la entendiste
+
+- El cliente dice "esto suena exactamente como nosotros".
+- La audiencia reacciona como si la marca la conociera personalmente.
+- Cada pieza posterior se siente parte de la misma conversacion.
+- Hasta el contenido mas simple se siente inconfundiblemente de esa marca.

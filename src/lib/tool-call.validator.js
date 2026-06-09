@@ -37,6 +37,41 @@ const TOOL_SCHEMAS = {
   likeFlow:                { flowId: "uuid" },
   createFlowSchedule:      { params: "object", brandContainerId: "uuid" },
   triggerFlowRun:          { params: "object", brandContainerId: "uuid" },
+
+  // VERA Cycle Pulse tools
+  createOrgNotification:         { title: "string", body: "string", severity: "string", type: "string", action_url: "string", action_label: "string", brand_container_id: "uuid", metadata: "object", params: "object" },
+  createNotification:            { title: "string", body: "string", severity: "string", type: "string", action_url: "string", action_label: "string", brand_container_id: "uuid", metadata: "object", params: "object" },
+  proposeStrategicRecommendation:{ title: "string", description: "string", topic: "string", tone: "string", mood: "string", confidence: "string", rationale: "string", brand_container_id: "uuid", anchor_product_name: "string", target_persona: "string" },
+  proposePendingAction:          { params: "object", brandContainerId: "uuid" },
+  getBrainFeed:                  { feed_id: "uuid", bucket: "string" },
+
+  // ── Aliases canonicos v3 (mismas validaciones que los canonical correspondientes) ──
+  getBrandDNA:               { brandContainerId: "uuid" },
+  getPendingBriefs:          {},
+  getFlows:                  {},
+  getFlowInputs:             { flowId: "uuid", params: "object", brandContainerId: "uuid" },
+  forgeProductionPrompt:     { params: "object", brandContainerId: "uuid" },
+  getRunsAwaitingApproval:   { brandContainerId: "uuid" },
+  approveRunStage:           { params: "object", brandContainerId: "uuid" },
+  getScraperStatus:          {},
+  updateBrandDNA:            { params: "object" },
+  updateProduct:             { params: "object" },
+  updateAudienceConcept:     { params: "object" },
+  addCompetitorToMonitoring: { handle: "string" },
+  triggerFlow:               { params: "object", brandContainerId: "uuid" },
+  inspectRun:                { runId: "uuid" },
+
+  // ── Fase B bloque 1: tools MISSING v3 implementadas ─────────────────────
+  getMonitoringTriggers:     { brandContainerId: "uuid" },
+  getMonitoringTargets:      { brandContainerId: "uuid" },
+  pauseFlow:                 { params: "object" },
+  updateCampaignConcept:     { params: "object" },
+  addKeywordToTrends:        { params: "object" },
+  removeKeywordFromTrends:   { params: "object" },
+  createDefensiveWatch:      { params: "object" },
+  triggerDeepScrape:         { params: "object" },
+  getBrandHealthMetrics:     { brandContainerId: "uuid" },
+  searchIntelligence:        { params: "object" },
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────

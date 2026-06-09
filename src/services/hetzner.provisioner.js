@@ -38,9 +38,10 @@ const SERVER_TYPES = {
 
 // Modelos de Anthropic por plan
 const MODELS_BY_PLAN = {
-  starter: "anthropic/claude-sonnet-4-20250514",
-  growth:  "anthropic/claude-sonnet-4-20250514",
-  pro:     "anthropic/claude-opus-4-20250514",
+  starter: "anthropic/claude-sonnet-4-6",
+  growth:  "anthropic/claude-sonnet-4-6",
+  pro:     "anthropic/claude-opus-4-8",
+  agency:  "anthropic/claude-sonnet-4-6",
 };
 
 // ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -193,24 +194,19 @@ OPENCLAW_TIMEOUT_MS=120000
 `;
   const envB64 = Buffer.from(envFile).toString("base64");
 
-  // ── Anthropic proxy (per-org metering + cap) ────────────────────────────────
-  // Lee server.js compilado embebido como base64 desde el ai-engine.
-  // Si el archivo no existe (dev), el proxy se omite y el bridge falla-abierto.
-  let anthropicProxyB64 = "";
-  let anthropicProxyEnvB64 = "";
-  let anthropicProxyUnitB64 = "";
-  try {
-    const proxyPath = fileURLToPath(new URL("../../anthropic-proxy/server.js", import.meta.url));
-    anthropicProxyB64 = Buffer.from(readFileSync(proxyPath, "utf8")).toString("base64");
-
-    const proxyEnv = `ORGANIZATION_ID=${orgId}
+  // ── Anthropic proxy & MCP server ────────────────────────────────────────────
+  // Los binarios (server.js de cada uno) NO se embeben en user_data porque
+  // Hetzner Cloud tiene un límite duro de 32 KB. Se descargan vía curl desde
+  // el control plane (endpoints /internal/anthropic-proxy.js y /internal/mcp-server.js).
+  // Aquí solo generamos los .env y systemd units pequeños que sí van inline.
+  const proxyEnv = `ORGANIZATION_ID=${orgId}
 ANTHROPIC_PROXY_PORT=${anthropicProxyPort}
 SUPABASE_URL=${supabaseUrl || ""}
 SUPABASE_SERVICE_KEY=${supabaseServiceKey || ""}
 `;
-    anthropicProxyEnvB64 = Buffer.from(proxyEnv).toString("base64");
+  const anthropicProxyEnvB64 = Buffer.from(proxyEnv).toString("base64");
 
-    const proxyUnit = `[Unit]
+  const proxyUnit = `[Unit]
 Description=Anthropic API Proxy (per-org metering + cap)
 After=network.target
 Before=openclaw-bridge.service
@@ -229,30 +225,13 @@ SyslogIdentifier=anthropic-proxy
 [Install]
 WantedBy=multi-user.target
 `;
-    anthropicProxyUnitB64 = Buffer.from(proxyUnit).toString("base64");
-  } catch (e) {
-    console.warn(`hetzner.provisioner: anthropic-proxy/server.js no encontrado — VM se aprovisionará SIN metering. Detalle: ${e.message}`);
-  }
-  const includeProxy = Boolean(anthropicProxyB64);
+  const anthropicProxyUnitB64 = Buffer.from(proxyUnit).toString("base64");
 
-  // ── MCP server (cliente HTTP del control plane) ─────────────────────────────
-  // Distribuido a cada org-server. Se registra en OpenClaw como stdio MCP server.
-  // Pasa por X-Org-Token todas las llamadas al endpoint /mcp/dispatch.
-  let mcpServerB64 = "";
-  let mcpEnvB64 = "";
-  try {
-    const mcpPath = fileURLToPath(new URL("../mcp/ai-engine-tools.js", import.meta.url));
-    mcpServerB64 = Buffer.from(readFileSync(mcpPath, "utf8")).toString("base64");
-
-    const mcpEnv = `AI_ENGINE_URL=${callbackUrl}
+  const mcpEnv = `AI_ENGINE_URL=${callbackUrl}
 ORG_TOKEN=${orgToken}
 ORG_ID=${orgId}
 `;
-    mcpEnvB64 = Buffer.from(mcpEnv).toString("base64");
-  } catch (e) {
-    console.warn(`hetzner.provisioner: src/mcp/ai-engine-tools.js no encontrado — VM se aprovisionará SIN MCP. Detalle: ${e.message}`);
-  }
-  const includeMcp = Boolean(mcpServerB64);
+  const mcpEnvB64 = Buffer.from(mcpEnv).toString("base64");
 
   const ocConfig = JSON.stringify({
     tools: { web: { search: { enabled: true, provider: "duckduckgo", maxResults: 10 } } },
@@ -265,6 +244,10 @@ ORG_ID=${orgId}
         heartbeat: { every: "30m", target: "none", lightContext: true, isolatedSession: true, activeHours: { start: "08:00", end: "22:00" } },
       },
     },
+    // maxTokens 16000 — sube el cap default de OpenClaw (4096) para Anthropic
+    // y permite respuestas largas (artifacts HTML/JS, reportes extensos).
+    // Solo se aplica a orgs provisionadas DESPUÉS de este cambio; orgs
+    // existentes (incluida IGNIS) mantienen el cap viejo hasta reprovision.
   }, null, 2);
   const ocConfigB64 = Buffer.from(ocConfig).toString("base64");
 
@@ -322,10 +305,15 @@ curl -fsSL https://deb.nodesource.com/setup_lts.x | bash -
 apt-get install -y nodejs
 
 echo "[setup] OpenClaw + ClawHub..."
-npm install -g openclaw clawhub
+npm install -g openclaw@2026.6.1 clawhub
 
-if [ -f /opt/anthropic-proxy/server.js ]; then
-  echo "[setup] Anthropic proxy deps..."
+# ── Descargar anthropic-proxy/server.js desde el control plane ───────────────
+# (Movido fuera de user_data por límite 32 KB de Hetzner Cloud)
+echo "[setup] Descargando anthropic-proxy desde AI Engine..."
+mkdir -p /opt/anthropic-proxy
+if curl -sf --max-time 30 -H "x-webhook-secret: ${webhookSecret}" \\
+     "${callbackUrl}/internal/anthropic-proxy.js" -o /opt/anthropic-proxy/server.js; then
+  echo "[setup] anthropic-proxy.js descargado OK"
   cat > /opt/anthropic-proxy/package.json <<'PROXY_PKG_EOF'
 {
   "name": "anthropic-proxy",
@@ -344,6 +332,18 @@ PROXY_PKG_EOF
   else
     echo "[setup] WARN: anthropic-proxy no respondió a health"
   fi
+else
+  echo "[setup] WARN: no se pudo descargar anthropic-proxy.js — VM sin metering"
+fi
+
+# ── Descargar mcp-server.js desde el control plane ───────────────────────────
+# (Movido fuera de user_data por límite 32 KB de Hetzner Cloud)
+echo "[setup] Descargando mcp-server desde AI Engine..."
+mkdir -p /opt/ai-engine-mcp
+if ! curl -sf --max-time 30 -H "x-webhook-secret: ${webhookSecret}" \\
+     "${callbackUrl}/internal/mcp-server.js" -o /opt/ai-engine-mcp/server.js; then
+  echo "[setup] WARN: no se pudo descargar mcp-server.js — markers [[TOOL:...]] como fallback"
+  rm -f /opt/ai-engine-mcp/server.js
 fi
 
 echo "[setup] Workspace..."
@@ -363,6 +363,13 @@ if [ -f /tmp/vera-defaults.tar.gz ]; then
     [ -f "$f" ] && cp "$f" /root/workspaces/${agentId}/
   done
 
+  # Personalizar AGENTS.md con el nombre real de la org (placeholder {{ORG_NAME}})
+  if [ -f /root/workspaces/${agentId}/AGENTS.md ]; then
+    ORG_NAME_ESCAPED=$(printf '%s' "${safeName}" | sed -e 's/[\\&|]/\\\\&/g')
+    sed -i "s|{{ORG_NAME}}|\${ORG_NAME_ESCAPED}|g" /root/workspaces/${agentId}/AGENTS.md
+    echo "[setup] AGENTS.md personalizado para ${safeName}"
+  fi
+
   # Copiar skills
   mkdir -p /root/workspaces/${agentId}/skills
   if [ -d /tmp/vera-defaults/skills ]; then
@@ -380,6 +387,11 @@ echo "[setup] ClawHub skills..."
 for skill in proactive-agent-lite xiucheng-self-improving-agent summarize-pro ontology multi-search-engine agent-browser-clawdbot automation-workflows humanizer; do
   clawhub install "$skill" --workspace /root/workspaces/${agentId} 2>/dev/null && echo "[clawhub] $skill OK" || echo "[clawhub] $skill SKIP"
 done
+
+echo "[setup] Reparar config + provider anthropic (API key via proxy, multitenant)..."
+openclaw doctor --fix >/dev/null 2>&1 || true
+echo "$ANTHROPIC_API_KEY" | openclaw models auth paste-api-key --provider anthropic >/dev/null 2>&1 || true
+openclaw models set ${model} >/dev/null 2>&1 || true
 
 echo "[setup] Registrar agente..."
 openclaw agents add ${agentId} \\
@@ -406,7 +418,7 @@ MCP_PKG_EOF
   # Source del .env para inyectar AI_ENGINE_URL y ORG_TOKEN al MCP child process
   set -a; . /opt/ai-engine-mcp/.env; set +a
   MCP_CFG=$(cat <<MCP_CFG_EOF
-{"command":"node","args":["/opt/ai-engine-mcp/server.js"],"env":{"AI_ENGINE_URL":"${AI_ENGINE_URL}","ORG_TOKEN":"${ORG_TOKEN}","ORG_ID":"${ORG_ID}"}}
+{"command":"node","args":["/opt/ai-engine-mcp/server.js"],"env":{"AI_ENGINE_URL":"\${AI_ENGINE_URL}","ORG_TOKEN":"\${ORG_TOKEN}","ORG_ID":"\${ORG_ID}"}}
 MCP_CFG_EOF
 )
   openclaw mcp set ai-engine "$MCP_CFG" 2>&1 && echo "[setup] MCP ai-engine registrado OK" || echo "[setup] WARN: MCP register fallo — markers seguirán funcionando como fallback"
@@ -476,24 +488,18 @@ write_files:
     content: ${hooksB64}
   - path: /etc/systemd/system/openclaw-bridge.service
     encoding: b64
-    content: ${systemdB64}${includeProxy ? `
-  - path: /opt/anthropic-proxy/server.js
-    encoding: b64
-    content: ${anthropicProxyB64}
+    content: ${systemdB64}
   - path: /opt/anthropic-proxy/.env
     permissions: "0600"
     encoding: b64
     content: ${anthropicProxyEnvB64}
   - path: /etc/systemd/system/anthropic-proxy.service
     encoding: b64
-    content: ${anthropicProxyUnitB64}` : ""}${includeMcp ? `
-  - path: /opt/ai-engine-mcp/server.js
-    encoding: b64
-    content: ${mcpServerB64}
+    content: ${anthropicProxyUnitB64}
   - path: /opt/ai-engine-mcp/.env
     permissions: "0600"
     encoding: b64
-    content: ${mcpEnvB64}` : ""}
+    content: ${mcpEnvB64}
   - path: /root/setup.sh
     permissions: "0700"
     encoding: b64

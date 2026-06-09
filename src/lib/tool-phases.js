@@ -21,6 +21,9 @@ export const PHASE_A_TOOLS = [
   "getProducts",
   "getCampaigns",
   "getAvailableFlows",
+  "getFlowInputs",
+  "forgeProductionPrompt",
+  "getRunsAwaitingApproval",
   // Dashboard tools (read-only, sin consent) — Vera puede responder cualquier
   // pregunta de "cómo voy", "quién me amenaza", "top tema", etc. desde Phase A.
   "getBrandKpisStrip",
@@ -64,10 +67,11 @@ export const PHASE_B_TOOLS = [
   "getRetailPrices",
   // Monitoring & competitor intelligence (nuevas en Phase B)
   "getMonitoringTriggers",
-  "getSensorRuns",
-  "getBrandVulnerabilities",
-  "getUrlWatchers",
-  "getPendingAnalysisJobs",
+  // NOTA: getSensorRuns / getBrandVulnerabilities / getUrlWatchers /
+  // getPendingAnalysisJobs se removieron aqui: estaban listados en la fase
+  // pero NO tienen handler en TOOL_REGISTRY → Vera los veia "habilitados",
+  // los invocaba, y la Capa 2 (allowlist) los rechazaba con un error que
+  // contradecia el prompt. Re-agregar solo cuando exista su handler.
   "getBodyMissions",
   "getBriefingHoy",
   "getPendingActions",
@@ -91,6 +95,8 @@ export const PHASE_B_TOOLS = [
   "getFlowRuns",
   "getFlowSchedules",
   "getFlowRunOutputs",
+  "runContentFlow",
+  "approveRunStage",
   "getIntelligenceSignals",
   // Social analytics (APIs externas — tokens solo para lectura en fase B)
   "getSocialSummary",
@@ -111,6 +117,33 @@ export const PHASE_B_TOOLS = [
   "upsertBrandFont",
   "upsertBrandRule",
   "deleteBrandRule",
+  // VERA Cycle Pulse — Vera puede notificar, proponer briefs y leer feeds
+  // incluso en autonomy=parcial (todo lo de aquí es non-destructive)
+  "createOrgNotification",
+  "createNotification", // alias canonico v3 de createOrgNotification
+  "proposeStrategicRecommendation",
+  "proposePendingAction",
+  "getBrainFeed",
+  // Aliases canonicos v3 (read + write internos sin consent / con consent normal)
+  "getBrandDNA",
+  "getPendingBriefs",
+  "getFlows",
+  "getScraperStatus",
+  "updateBrandDNA",
+  "updateProduct",
+  "updateAudienceConcept",
+  "addCompetitorToMonitoring",
+  "inspectRun",
+  // Fase B bloque 1: tools MISSING v3 implementadas
+  "getMonitoringTriggers",
+  "getMonitoringTargets",
+  "addKeywordToTrends",
+  "removeKeywordFromTrends",
+  "createDefensiveWatch",
+  "triggerDeepScrape",
+  // Fase B bloque 3: ultimas 2 tools MISSING v3 (cobertura 26/26)
+  "getBrandHealthMetrics",
+  "searchIntelligence",
 ];
 
 export const PHASE_C_TOOLS = [
@@ -119,8 +152,13 @@ export const PHASE_C_TOOLS = [
   "likeFlow",
   "createFlowSchedule",
   "triggerFlowRun",
-  // Vulnerability management (write — requiere confirmación)
-  "updateVulnerabilityStatus",
+  // Alias canonico v3
+  "triggerFlow",
+  // Fase B bloque 1: writes con consent
+  "pauseFlow",
+  "updateCampaignConcept",
+  // NOTA: updateVulnerabilityStatus removido — no tiene handler en
+  // TOOL_REGISTRY (tool fantasma). Re-agregar cuando se implemente.
 ];
 
 export const TOOLS_BY_PHASE = {

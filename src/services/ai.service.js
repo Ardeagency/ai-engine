@@ -239,6 +239,14 @@ export async function generateAssistantReply(ctx) {
     planType = subRes.data?.plan_type || "basico";
   } catch (_) { /* non-fatal */ }
 
+  // brandContainerId efectivo de la conversacion: el explicito, o el unico de
+  // la org si solo hay uno. Se pasa al dispatcher para que las tools operen
+  // sobre la marca correcta (no la mas antigua por auto-resolve).
+  let effectiveBrandContainerId = brandContainerId;
+  if (!effectiveBrandContainerId && orgContext.brand_containers?.length === 1) {
+    effectiveBrandContainerId = orgContext.brand_containers[0].id;
+  }
+
   // allowedTools deriva directamente del nivel de autonomía
   const allowedTools = TOOLS_BY_PHASE[autonomy.phase] ?? TOOLS_BY_PHASE["A"];
 
@@ -327,6 +335,7 @@ export async function generateAssistantReply(ctx) {
           organizationId,
           userId,
           conversationId,
+          brandContainerId: effectiveBrandContainerId,
           approvedIntents: session.approvedIntents,
           allowedTools,
           costController,
@@ -366,6 +375,9 @@ export async function generateAssistantReply(ctx) {
   }
 
   const finalText = openClawResp.text || "Hola, soy Vera. ¿En qué puedo ayudarte?";
+  // Largo del envelope final que se mando al modelo — sirve a processAndSaveReply
+  // para estimar input_tokens (chars/4) en el cobro dinamico de vera_chat.
+  const enrichedInputLength = openClawResp.enriched_input_length ?? 0;
 
   await emitActivity(conversationId, "Preparando respuesta…", { step: "finalizing" });
 
@@ -389,7 +401,7 @@ export async function generateAssistantReply(ctx) {
     });
   }
 
-  return { message: finalText, actions: [] };
+  return { message: finalText, actions: [], enriched_input_length: enrichedInputLength };
 }
 
 // ── Background processor ───────────────────────────────────────────────────────
@@ -397,16 +409,23 @@ export async function generateAssistantReply(ctx) {
 // ai_messages para que el frontend lo recoja via Supabase Realtime o polling.
 // No lanza excepciones — todos los errores se guardan en la DB.
 
-export async function processAndSaveReply({ message, attachments = [], organizationId, userId, conversationId }) {
+export async function processAndSaveReply({ message, attachments = [], organizationId, userId, conversationId, simplifyRequest = false }) {
   // Registrar conversación en el emitter — habilita los status updates en tiempo real
   registerConversation(conversationId, organizationId);
 
   let aiText;
   let metadata = {};
+  let enrichedInputLength = 0;
+
+  // Si el usuario aprobo el [CONFIRM] pidiendo version simplificada, inyectamos
+  // una nota system al mensaje para que VERA reduzca scope sin perder calidad.
+  const effectiveMessage = simplifyRequest
+    ? `[INSTRUCCION DEL USUARIO]: Autorizo la tarea pero pide version SIMPLIFICADA. Entrega un plan compacto, ve directo a lo esencial, sin perder calidad ni rigor. No expandas mas alla de lo necesario.\n\n[MENSAJE ORIGINAL]:\n${message || ""}`
+    : message;
 
   try {
-    const { message: text, actions = [] } = await generateAssistantReply({
-      message,
+    const { message: text, actions = [], enriched_input_length = 0 } = await generateAssistantReply({
+      message: effectiveMessage,
       attachments,
       organizationId,
       userId,
@@ -414,6 +433,7 @@ export async function processAndSaveReply({ message, attachments = [], organizat
     });
     aiText = text;
     if (actions.length) metadata.actions = actions;
+    enrichedInputLength = enriched_input_length;
   } catch (err) {
     console.error(`ai.service: processAndSaveReply error [org=${organizationId}]:`, err.message);
     aiText =
@@ -421,6 +441,9 @@ export async function processAndSaveReply({ message, attachments = [], organizat
         ? err.message
         : "Ocurrió un error inesperado al procesar tu solicitud. Por favor intenta de nuevo.";
     metadata.error = true;
+    // Fallback: si el modelo nunca se llamo (pre-flight), aproximamos input con
+    // el mensaje del usuario. Es peor que 0 para no infra-cobrar el minimo.
+    enrichedInputLength = (message || "").length;
   } finally {
     unregisterConversation(conversationId);
   }
@@ -430,17 +453,37 @@ export async function processAndSaveReply({ message, attachments = [], organizat
   // sin ver status obsoletos mezclados.
   await clearActivities(conversationId);
 
+  // ── Estimacion de costo del intercambio (heuristica chars/4) ────────────
+  // Aproximacion: 1 token ~= 4 caracteres (regla GPT-tokenizer).
+  // Pricing Sonnet 4: $3/MTok input + $15/MTok output.
+  // 1 credito = $1 USD (modelo 1:1 desde 2026-05-21). Sin margen aqui — el
+  // margen vive en el precio del plan mensual.
+  // Minimo 0.01 credito ($0.01) por intercambio para auditabilidad.
+  const inputTokens   = Math.ceil(enrichedInputLength / 4);
+  const outputTokens  = Math.ceil((aiText || "").length / 4);
+  const usdCost       = inputTokens * (3 / 1_000_000) + outputTokens * (15 / 1_000_000);
+  const creditsCharge = Math.max(0.01, usdCost);
+
   const row = {
     conversation_id: conversationId,
     role: metadata.error ? "error" : "assistant",
     content: aiText,
     organization_id: organizationId,
+    tokens_used: inputTokens + outputTokens,
   };
   // metadata es opcional — solo se incluye si la columna existe y hay datos
   if (Object.keys(metadata).length) row.metadata = metadata;
 
-  const { error: dbErr } = await supabase.from("ai_messages").insert(row);
+  // Capturamos el id del mensaje para source_id del ledger
+  let insertSucceeded = true;
+  let insertedMessageId = null;
+  const { data: inserted, error: dbErr } = await supabase
+    .from("ai_messages")
+    .insert(row)
+    .select("id")
+    .single();
   if (dbErr) {
+    insertSucceeded = false;
     // Si la columna metadata aún no existe, reintentar sin ella
     if (dbErr.code === "42703" && row.metadata !== undefined) {
       console.warn(
@@ -448,18 +491,68 @@ export async function processAndSaveReply({ message, attachments = [], organizat
         `Ejecuta SQL/migrate_v7_ai_messages_metadata.sql en Supabase.`
       );
       delete row.metadata;
-      const { error: retryErr } = await supabase.from("ai_messages").insert(row);
+      const { data: retryInserted, error: retryErr } = await supabase
+        .from("ai_messages")
+        .insert(row)
+        .select("id")
+        .single();
       if (retryErr) {
         console.error(
           `ai.service: no se pudo guardar respuesta en DB (retry) [conv=${conversationId}]:`,
           retryErr.message
         );
+      } else {
+        insertSucceeded = true;
+        insertedMessageId = retryInserted?.id || null;
       }
     } else {
       console.error(
         `ai.service: no se pudo guardar respuesta en DB [conv=${conversationId}]:`,
         dbErr.message
       );
+    }
+  } else {
+    insertedMessageId = inserted?.id || null;
+  }
+
+  // ── Cobro vera_chat dinamico (por tokens estimados) ─────────────────────
+  // RPC use_credits_numeric acepta decimales, hace SELECT + UPDATE balance +
+  // INSERT credit_usage atomicamente. Retorna false si saldo insuficiente.
+  // Fire-and-forget: cualquier fallo de cobro NUNCA bloquea el chat.
+  // Pre-flight errors (auth/budget antes del LLM) deberian no cobrarse:
+  // el guard `row.role !== 'error_preflight'` queda preparado para cuando
+  // marquemos esos casos explicitamente (hoy NUNCA matchea, se cobra todo
+  // lo que se persistio).
+  if (insertSucceeded && row.role !== "error_preflight") {
+    try {
+      const { data: charged, error: chargeErr } = await supabase.rpc("use_credits_numeric", {
+        p_organization_id: organizationId,
+        p_user_id:         userId,
+        p_credits_amount:  Number(creditsCharge.toFixed(6)),
+        p_kind:            "vera_chat",
+        p_usd_cost:        Number(creditsCharge.toFixed(6)),
+        p_source_table:    "ai_messages",
+        p_source_id:       insertedMessageId,
+        p_metadata: {
+          conversation_id: conversationId,
+          role:            row.role,
+          model:           "claude-sonnet-4",
+          input_tokens:    inputTokens,
+          output_tokens:   outputTokens,
+          input_chars:     enrichedInputLength,
+          output_chars:    (aiText || "").length,
+          estimated:       true,
+        },
+      });
+      if (chargeErr) {
+        console.error(`[credits] vera_chat RPC error [org=${organizationId}]:`, chargeErr.message);
+      } else if (charged === false) {
+        console.warn(`[credits] vera_chat: saldo insuficiente [org=${organizationId}] — cobro saltado (cr=${creditsCharge} usd=$${usdCost.toFixed(6)})`);
+      } else {
+        console.log(`[credits] vera_chat charged ${creditsCharge}cr usd=$${usdCost.toFixed(6)} (in:${inputTokens}t out:${outputTokens}t) org=${organizationId}`);
+      }
+    } catch (creditErr) {
+      console.error(`[credits] vera_chat deduct failed [org=${organizationId}]:`, creditErr?.message || creditErr);
     }
   }
 }

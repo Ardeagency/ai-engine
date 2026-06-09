@@ -55,40 +55,40 @@ function requireField(value, name) {
 export async function updateBrandProfile({ organizationId, ...fields }) {
   const bc = await resolveBrandContainer(null, organizationId);
 
-  // Buscar el registro brand de este brand_container
-  const { data: existing } = await supabase
-    .from("brands")
-    .select("id")
-    .eq("project_id", bc.id)
-    .maybeSingle();
+  // Mapping de fields legacy del prompt -> columnas reales de brand_containers
+  // (tono_comunicacion/estilo_escritura se fusionan en verbal_dna jsonb)
+  const updates = {};
+  if (fields.nicho_mercado !== undefined)         updates.nicho_core = fields.nicho_mercado;
+  if (fields.arquetipo_personalidad !== undefined) updates.arquetipo = fields.arquetipo_personalidad;
+  if (fields.palabras_clave !== undefined)        updates.palabras_clave = fields.palabras_clave;
+  if (fields.palabras_prohibidas !== undefined)   updates.palabras_prohibidas = fields.palabras_prohibidas;
+  if (fields.objetivos_marca !== undefined)       updates.objetivos_estrategicos = fields.objetivos_marca;
+  if (fields.enfoque_marca !== undefined)         updates.propuesta_valor = fields.enfoque_marca;
 
-  const allowedFields = [
-    "nicho_mercado", "arquetipo_personalidad", "tono_comunicacion",
-    "estilo_escritura", "palabras_clave", "palabras_prohibidas",
-    "objetivos_marca", "enfoque_marca",
-  ];
-  const updates = pick(fields, allowedFields);
+  // verbal_dna jsonb merge — solo si llegan tono_comunicacion o estilo_escritura
+  const verbalPatch = {};
+  if (fields.tono_comunicacion !== undefined) verbalPatch.tono = fields.tono_comunicacion;
+  if (fields.estilo_escritura !== undefined)  verbalPatch.estilo = fields.estilo_escritura;
+  if (Object.keys(verbalPatch).length) {
+    const { data: cur } = await supabase
+      .from("brand_containers")
+      .select("verbal_dna")
+      .eq("id", bc.id)
+      .maybeSingle();
+    updates.verbal_dna = { ...(cur?.verbal_dna || {}), ...verbalPatch };
+  }
 
   if (!Object.keys(updates).length) {
-    throw new Error("Debes especificar al menos un campo para actualizar (tono_comunicacion, estilo_escritura, palabras_clave, etc.).");
+    throw new Error("Debes especificar al menos un campo (tono_comunicacion, estilo_escritura, palabras_clave, arquetipo_personalidad, nicho_mercado, objetivos_marca, enfoque_marca, palabras_prohibidas).");
   }
 
-  if (existing?.id) {
-    const { error } = await supabase
-      .from("brands")
-      .update({ ...updates, updated_at: new Date().toISOString() })
-      .eq("id", existing.id);
-    if (error) throw error;
-    return { success: true, action: "updated", brand_id: existing.id, fields_updated: Object.keys(updates) };
-  } else {
-    const { data: created, error } = await supabase
-      .from("brands")
-      .insert({ project_id: bc.id, ...updates })
-      .select("id")
-      .single();
-    if (error) throw error;
-    return { success: true, action: "created", brand_id: created.id, fields_updated: Object.keys(updates) };
-  }
+  const { error } = await supabase
+    .from("brand_containers")
+    .update({ ...updates, updated_at: new Date().toISOString() })
+    .eq("id", bc.id);
+  if (error) throw error;
+
+  return { success: true, action: "updated", brand_container_id: bc.id, fields_updated: Object.keys(updates) };
 }
 
 /**
@@ -156,7 +156,7 @@ export async function upsertAudience({
   let currentState = null;
   if (audience_id) {
     const { data: existing } = await supabase
-      .from("audiences")
+      .from("audience_personas")
       .select("*")
       .eq("id", audience_id)
       .eq("brand_container_id", bc.id)
@@ -172,7 +172,7 @@ export async function upsertAudience({
     organizationId,
     brandContainerId: bc.id,
     actionType:    audience_id ? "update_audience" : "create_audience",
-    targetTable:   "audiences",
+    targetTable:   "audience_personas",
     targetId:      audience_id || null,
     proposedPayload: data,
     currentState,
@@ -190,15 +190,15 @@ export async function deleteAudience({ organizationId, audience_id }) {
   requireField(audience_id, "audience_id");
   const bc = await resolveBrandContainer(null, organizationId);
 
-  const { data: brand } = await supabase
-    .from("brands").select("id").eq("project_id", bc.id).maybeSingle();
-  if (!brand?.id) throw new Error("No hay perfil de marca configurado.");
-
   const { data: existing } = await supabase
-    .from("audiences").select("id, name").eq("id", audience_id).eq("brand_id", brand.id).maybeSingle();
-  if (!existing) throw new Error(`Audiencia ${audience_id} no encontrada.`);
+    .from("audience_personas")
+    .select("id, name")
+    .eq("id", audience_id)
+    .eq("brand_container_id", bc.id)
+    .maybeSingle();
+  if (!existing) throw new Error(`Audiencia ${audience_id} no encontrada para esta marca.`);
 
-  const { error } = await supabase.from("audiences").delete().eq("id", audience_id);
+  const { error } = await supabase.from("audience_personas").delete().eq("id", audience_id);
   if (error) throw error;
   return { success: true, action: "deleted", audience_id, name: existing.name };
 }

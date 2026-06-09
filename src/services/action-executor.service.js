@@ -110,6 +110,9 @@ async function _dispatchByActionType(action) {
     case "unlink_segment_persona":
       return await _executeUnlinkSegmentPersona(action);
 
+    case "update_monitoring_trigger":
+      return await _executeUpdateMonitoringTrigger(action);
+
     // ── pending — Fase III/IV completas ──────────────────────────────────
     case "publish_instagram_post":
     case "publish_facebook_post":
@@ -145,7 +148,6 @@ async function _dispatchByActionType(action) {
     case "remove_intelligence_entity":
     case "add_url_watcher":
     case "remove_url_watcher":
-    case "update_monitoring_trigger":
     case "add_brand_integration":
     case "remove_brand_integration":
       throw new Error(`executor not implemented for ${type}`);
@@ -156,6 +158,31 @@ async function _dispatchByActionType(action) {
 }
 
 // ── Handlers implementados ──────────────────────────────────────────────────
+
+// Limpia las claves de metadata (_risk_level, _auto_eligible, etc.) del payload.
+function _cleanPayload(payload) {
+  const out = {};
+  for (const [k, v] of Object.entries(payload || {})) {
+    if (!k.startsWith("_")) out[k] = v;
+  }
+  return out;
+}
+
+// BAJO — ajusta un sensor de monitoreo existente (pausa/reactiva/cadencia).
+async function _executeUpdateMonitoringTrigger(action) {
+  if (!action.target_id) throw new Error("update_monitoring_trigger requiere target_id");
+  const patch = _cleanPayload(action.proposed_payload);
+  if (Object.keys(patch).length === 0) throw new Error("update_monitoring_trigger: payload vacio");
+  patch.updated_at = new Date().toISOString();
+  const { data, error } = await supabase
+    .from("monitoring_triggers")
+    .update(patch)
+    .eq("id", action.target_id)
+    .select("id")
+    .single();
+  if (error) throw new Error(`monitoring_triggers update: ${error.message}`);
+  return { table: "monitoring_triggers", row_id: data.id, operation: "update" };
+}
 
 async function _executeCreateAudience(action) {
   if (!action.brand_container_id) {

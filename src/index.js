@@ -20,10 +20,12 @@ import { initRegistry } from "./services/openclaw.registry.js";
 import { startHealthService } from "./services/server.health.service.js";
 import { startScraperScheduler } from "./services/social-scraper.service.js";
 import { startJobWorker }       from "./services/job-worker.service.js";
+import { startComfyFlowRunner } from "./services/comfy-flow-runner.service.js";
 import { startOrgSyncService }  from "./services/org-sync.service.js";
 import { startTokenRefreshService } from "./services/token-refresh.service.js";
 import { startBrandSensorSync } from "./services/brand-sensor-sync.service.js";
 import { startRecommendationAutoLink } from "./services/recommendation-auto-link.service.js";
+import { startDailyBriefingJob } from "./services/daily-briefing-job.service.js";
 import { retryOrphanReplies } from "./services/retry-orphan-replies.service.js";
 
 const app = express();
@@ -85,6 +87,9 @@ app.listen(PORT, () => {
     startJobWorker();
   }
 
+  // Comfy flow runner (FEAT-033) — consume comfy_flow_jobs. Inerte salvo COMFY_BRIDGE_ENABLED=true.
+  startComfyFlowRunner();
+
   // Red de seguridad: detecta orgs sin agente OpenClaw y las provisiona automáticamente.
   // Cubre el caso de webhook no configurado, caída del servidor en el momento del INSERT, etc.
   // Deshabilitar con ORG_SYNC_ENABLED=false
@@ -112,6 +117,7 @@ app.listen(PORT, () => {
   // Deshabilitar con RECOMMENDATION_AUTO_LINK_ENABLED=false
   if (process.env.RECOMMENDATION_AUTO_LINK_ENABLED !== "false") {
     startRecommendationAutoLink();
+    startDailyBriefingJob();
   }
 
   // Retry de respuestas huérfanas — corre 5s después de arrancar para que el

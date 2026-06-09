@@ -12,7 +12,7 @@
  *   (el provisioner retorna inmediatamente — el resto es asíncrono)
  */
 import { supabase } from "../lib/supabase.js";
-import { createOrgServer } from "./hetzner.provisioner.js";
+import { createOrgServer, listOrgServers } from "./hetzner.provisioner.js";
 import { logProvisioningEvent } from "../lib/provisioning-events.js";
 
 export async function provisionOpenClawForOrg(organizationId, orgName) {
@@ -39,6 +39,45 @@ export async function provisionOpenClawForOrg(organizationId, orgName) {
  */
 async function _provisionHetznerServer(organizationId, orgName, existing) {
   const agentId = `org_${organizationId.replace(/-/g, "").slice(0, 24)}`;
+
+  // Reconciliación: si ya hay un servidor Hetzner con label org_id=<orgId>, reusarlo
+  // en lugar de provocar un 409 "server name is already used" en POST /servers.
+  // Esto cubre el caso de la fila openclaw_instances quedando en status=failed
+  // mientras la VM real sigue viva en Hetzner.
+  try {
+    const hetznerServers = await listOrgServers();
+    const existingHetzner = hetznerServers.find((s) => s.orgId === organizationId);
+    if (existingHetzner) {
+      const reconciledStatus = existingHetzner.status === "running" ? "healthy" : "starting";
+      const reconcileRow = {
+        organization_id:   organizationId,
+        agent_id:          agentId,
+        workspace_path:    `remote://hetzner/${agentId}`,
+        status:            reconciledStatus,
+        server_type:       "hetzner",
+        container_name:    agentId,
+        hetzner_server_id: String(existingHetzner.id),
+        updated_at:        new Date().toISOString(),
+      };
+      if (existing) {
+        await supabase.from("openclaw_instances").update(reconcileRow).eq("organization_id", organizationId);
+      } else {
+        await supabase.from("openclaw_instances").insert(reconcileRow);
+      }
+      await logProvisioningEvent({
+        organizationId,
+        eventType: "server_reconciled",
+        phase:     reconciledStatus === "healthy" ? "server_ready" : "starting",
+        message:   `Servidor Hetzner #${existingHetzner.id} ya existía (status=${existingHetzner.status}) — reconciliado, no se recrea`,
+        metadata:  { hetzner_server_id: existingHetzner.id, hetzner_status: existingHetzner.status },
+      });
+      console.log(`provisioner: [hetzner] org "${organizationId}" → server #${existingHetzner.id} ya existe (${existingHetzner.status}) — reconciliado a ${reconciledStatus}, no se recrea`);
+      return { agentId, hetznerServerId: existingHetzner.id, reconciled: true };
+    }
+  } catch (reconcileErr) {
+    console.warn(`provisioner: [hetzner] reconcile lookup falló para org "${organizationId}":`, reconcileErr.message?.slice(0, 200));
+    // No abortamos: seguimos al flujo de creación normal.
+  }
 
   const upsertData = {
     organization_id: organizationId,

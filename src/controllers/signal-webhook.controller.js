@@ -154,11 +154,7 @@ async function enqueueSignalAnalysis(signal, entity, organizationId) {
     `signal-webhook: vulnerabilidad ${threatLevel.toUpperCase()} creada para ${entity.name}`
   );
 
-  console.log(
-    `signal-webhook: signal ${signal.id} → mission ${mission.id} | job priority=${priority} | threat=${threatLevel}`
-  );
-
-  return { mission_id: mission.id, job_id: job?.id, threat_level: threatLevel };
+  return { threat_level: threatLevel };
 }
 
 // ── Handler: Supabase Database Webhook ───────────────────────────────────────

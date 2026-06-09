@@ -1,0 +1,551 @@
+
+VERA  ↔  AI-ENGINE
+El cerebro y el cuerpo
+Documento de Protocolo Técnico  ·  AI Smart Content  ·  ARDE Agency  ·  v3.0  ·  2026
+VERA — EL CEREBRO
+Percibe. Triangula. Decide. Dirige.
+VERA es la inteligencia operativa. Ella lee el mundo, interpreta las señales, cruza con el ADN de la marca y determina qué debe suceder. Nadie le dice qué hacer — ella decide y dirige. Si necesita algo que ai-engine no tiene, lo busca por su cuenta y le notifica a los devs qué necesita construir.
+AI-ENGINE — EL CUERPO
+Ejecuta. Conecta. Reporta.
+AI-engine es el único puente de VERA con el mundo real. Conecta con Supabase, Apify, scrapers, flows, notificaciones, plataformas externas. No piensa — ejecuta las órdenes de VERA con precisión y le devuelve los resultados. Sin ai-engine, VERA no tiene manos. Sin VERA, ai-engine no tiene cerebro.
+
+La relación fundamental: VERA observa el mundo que ai-engine le entrega, toma decisiones, y le da órdenes de vuelta. AI-engine ejecuta sin cuestionar dentro de su dominio. Cuando ai-engine no puede hacer algo que VERA necesita, VERA no se detiene — trabaja con lo que tiene y propone la mejora de ai-engine para el siguiente ciclo.
+
+01 — El Protocolo de Simbiosis
+VERA y ai-engine no son sistemas separados que se comunican — son una unidad. VERA es el cerebro que piensa en el org-server; ai-engine es el sistema nervioso central que conecta ese cerebro con todo lo demás. El protocolo de comunicación entre ellos es exacto y unidireccional en cada paso.
+
+#
+QUIÉN
+QUÉ HACE
+DETALLE
+1
+AI-ENGINE
+Recopila el mundo
+Scrapers de Apify terminan su ciclo. AI-engine centraliza: posts de competidores, precios en retailers, trending signals, menciones de marca, cambios algorítmicos, eventos culturales, alertas de stock.
+2
+AI-ENGINE
+Compila y entrega
+vera-brain-feed.service.js organiza todo en el Brain Feed: resumen ejecutivo + datos crudos accesibles bajo demanda. AI-engine despierta a VERA en el org-server con el feed + la skill de ciclo.
+3
+VERA
+Percibe el mundo
+VERA recibe el Brain Feed. No lo lee linealmente — lo procesa en paralelo buscando intersecciones, anomalías, señales débiles, gaps. Esta es su Capa 1: Percepción.
+4
+VERA
+Triangula y decide
+VERA cruza señales de fuentes distintas. Aplica sus 6 capas cognitivas. Decide qué es ruido y qué es oportunidad. Determina exactamente qué acciones deben suceder y en qué orden. Esta es su autoridad — nadie más decide.
+5
+VERA
+Emite órdenes
+VERA invoca tools al Tool Dispatcher de ai-engine. Cada llamada incluye el parámetro reason — la justificación estratégica de por qué VERA tomó esa decisión. Puede invocar múltiples tools en un ciclo.
+6
+AI-ENGINE
+Ejecuta sin cuestionar
+Tool Dispatcher valida seguridad (7 capas: autonomy, allowlist, schema, policy, consent, timeout, org-scope). Si pasa: ejecuta en Supabase / Apify / flow engine / notification service. Retorna resultado preciso a VERA.
+7
+VERA
+Evalúa el resultado
+VERA recibe el resultado de cada tool. Decide si necesita más información (llama otra tool), si puede proceder, o si algo salió diferente a lo esperado y debe ajustar su plan.
+8
+VERA
+Actúa si ai-engine no puede
+Si VERA necesita una capacidad que ai-engine no tiene, no se bloquea. Busca alternativas dentro de sus tools existentes, construye el análisis con lo disponible, y crea una notificación técnica para los devs con la mejora requerida.
+9
+VERA
+Cierra con aprendizaje
+VERA escribe su journal del ciclo: qué vio, qué decidió, qué ejecutó, qué aprendió, qué queda pendiente para verificar. Este journal alimenta el contexto del siguiente ciclo.
+10
+AI-ENGINE
+Registra y persiste
+AI-engine guarda en vera_brain_feeds el feed completo, la respuesta de VERA, las acciones tomadas y el journal. Esta memoria persiste entre ciclos.
+02 — VERA Cuando AI-Engine No Puede
+Este es el principio más importante del sistema: VERA no se bloquea. Si ai-engine no tiene la capacidad que VERA necesita, VERA tiene tres movimientos disponibles.
+
+MOVIMIENTO 1 — Rodear
+VERA usa las tools existentes de forma creativa para aproximarse al resultado que necesita. Si no hay una tool para 'detectar cambio de algoritmo de Instagram', VERA busca el patrón en getIntelligenceSignals() y lo infiere.
+MOVIMIENTO 2 — Construir con lo que hay
+VERA produce el análisis más completo posible con las señales disponibles, documenta explícitamente las limitaciones encontradas en el reason de sus tool calls, y entrega el mejor resultado alcanzable.
+MOVIMIENTO 3 — Notificar a los devs
+VERA crea una notificación técnica al equipo de desarrollo con exactamente qué capacidad necesita, por qué la necesita, y qué impacto tendrá en la marca cuando esté disponible. Así ai-engine evoluciona guiado por VERA.
+
+Ejemplo real: VERA detecta que un competidor está haciendo cambios en el pie de página de su web (señal de lanzamiento inminente). AI-engine no tiene una tool específica 'detectar_launch_signal_web'. VERA: (1) usa getIntelligenceSignals() para ver si el scraper capturó algo, (2) analiza los signals de ese dominio con searchIntelligence(), (3) crea un brief estratégico de alerta con lo que pudo inferir, y (4) notifica a los devs: 'Necesito una tool triggerDeepScrape() que monitoree cambios en el HTML de dominios específicos.'
+03 — Mapa de Capacidades: VERA Dirige, AI-Engine Ejecuta
+Para cada capacidad del sistema, esta tabla muestra: cómo piensa VERA, qué tool invoca, qué ejecuta ai-engine, y qué hace VERA si ai-engine no tiene esa capacidad aún.
+
+3.1 — Mi Marca
+CAPACIDAD
+VERA PIENSA Y DECIDE
+TOOL QUE INVOCA
+AI-ENGINE EJECUTA
+SI AI-ENGINE NO PUEDE → VERA HACE
+AUTO
+Salud orgánica de marca
+(actividad, sentimiento, fatiga)
+¿Cómo estamos en el mundo ahora mismo? ¿Nuestro contenido está generando conversación real o ya perdimos momentum?
+getBrandHealthMetrics()
+Calcula engagement_rate promedio, sentiment_score, curva de fatiga por día. Retorna el estado biométrico de la marca.
+Infiere salud con getIntelligenceSignals({source:'own'}) y calcula manualmente el patrón de fatiga.
+ TOTAL 
+Temas huérfanos
+(qué deberíamos hablar y no estamos)
+El mercado está hablando de esto, la audiencia lo consume, y nosotros estamos en silencio. Eso es un gap que me corresponde llenar.
+searchIntelligence('content_gaps')
+Busca semánticamente en signals los topics activos en el nicho que no tienen cobertura de la marca propia.
+Cruza getIntelligenceSignals() de tendencias con getBrandDNA() y detecta gaps manualmente en su análisis.
+ TOTAL 
+Brand Soul Guard
+(coherencia de tono en tiempo real)
+Algo en el contenido reciente no suena como nosotros. El tono derivó. Necesito recalibrarlo antes de que se note.
+updateBrandDNA('verbal_dna', valor_corregido, reason)
+Actualiza el campo verbal_dna del brand_container en Supabase con el ajuste documentado y la razón estratégica.
+Documenta el desvío detectado en proposeStrategicRecommendation() para que el humano lo apruebe y el dev actualice el campo.
+ TOTAL 
+Monitor MAP de Precios
+(quién está quemando la marca en retailers)
+Este retailer está vendiendo por debajo del precio acordado. Eso destruye el valor percibido. Necesito alertar al equipo ahora.
+createNotification('warning', 'map_violation', ...)
+Crea notificación con retailer, SKU, precio detectado, delta vs MAP, y timestamp. Entrega a los miembros de la org.
+Propone la alerta como proposeStrategicRecommendation() con urgencia alta si no hay tool de notificación disponible.
+ TOTAL 
+Disponibilidad y stock digital
+(¿aparecemos como agotados?)
+Nuestro producto principal está marcado como agotado en Amazon. Estamos pagando anuncios para que la gente llegue a un callejón sin salida.
+updateCampaignConcept(id, {status:'paused'}, reason)
+Pausa la campaña conceptual asociada al SKU agotado. Registra el reason con la fuente de la señal.
+Crea notificación crítica al equipo con el detalle para que ellos pasen la acción al equipo de e-commerce.
+ TOTAL 
+Sentimiento biométrico
+(emociones reales: confusión, ironía, ira)
+No es solo que el sentimiento sea negativo. Es que la gente está confundida con nuestro mensaje. Eso es diferente y requiere otra respuesta.
+getIntelligenceSignals({type:'mention', analysis:'emotion'})
+Retorna signals con análisis de emoción específica (joy, confusion, irony, anger) por post o periodo.
+Analiza el texto de los signals disponibles y extrae el patrón emocional en su propio procesamiento.
+ TOTAL 
+Detección de crisis de baja intensidad
+(quejas que explotarán en 48h)
+Tres quejas sobre el mismo defecto en 6 horas. Ninguna es viral aún. Pero el patrón me dice que en 48h puede ser una crisis.
+createNotification('critical', 'crisis_pattern', ...)
+Crea alerta crítica al equipo con el patrón de quejas, fuentes, timestamps y proyección de riesgo.
+Envía proposeStrategicRecommendation() con urgencia máxima detallando el patrón y el riesgo proyectado.
+ TOTAL 
+Mejora de fichas de producto
+(actualizar con lo que el mercado realmente pide)
+Las reviews de nuestros propios clientes mencionan un beneficio que nosotros no comunicamos en la ficha del producto. Estoy dejando dinero sobre la mesa.
+updateProduct(id, {beneficios_principales, casos_de_uso}, reason)
+Actualiza la ficha del producto en Supabase con los campos mejorados y el reason estratégico documentado.
+Propone la mejora como proposeStrategicRecommendation() para aprobación humana antes de editar.
+ TOTAL 
+
+3.2 — Mi Competencia
+CAPACIDAD
+VERA PIENSA Y DECIDE
+TOOL QUE INVOCA
+AI-ENGINE EJECUTA
+SI AI-ENGINE NO PUEDE → VERA HACE
+AUTO
+Monitor de precios del rival
+(SKU vs SKU en cada retailer)
+El competidor bajó 2 dólares en Walmart. ¿Es una liquidación de inventario o el inicio de una guerra de precios? Necesito saberlo ahora para decidir si respondemos o aprovechamos su debilidad de margen.
+getIntelligenceSignals({type:'competitor_price'})
+Retorna signals de precio del competidor por SKU, retailer, timestamp y delta vs periodo anterior. AI-engine los captura vía scraper Apify.
+Con getIntelligenceSignals() general filtra por handle del competidor e infiere el patrón de precios del texto.
+ TOTAL 
+Rastreo de stock crítico del rival
+(se quedó sin su producto estrella)
+El competidor está agotado en su SKU principal en MeLi. Esta es la ventana. Tenemos aproximadamente 72h antes de que repongan.
+getIntelligenceSignals({type:'competitor_stock_out'})
+triggerFlow('content_opportunity', params)
+Retorna la señal de agotamiento con retailer y timestamp. Dispara flow de generación de contenido: 'nosotros tenemos stock, entrega hoy'.
+Con getIntelligenceSignals() detecta la mención de agotamiento en el texto. Lanza proposeStrategicRecommendation() con brief de respuesta urgente.
+ TOTAL 
+Fórmula de contenido ganador del rival
+(qué temas les está funcionando que ignoramos)
+Este post del competidor tiene 4x su engagement promedio. No fue el diseño — fue el ángulo narrativo. ¿Puedo usar ese ángulo siendo auténtica a nuestro ADN?
+getIntelligenceSignals({type:'competitor_post', sort:'engagement'})
+addKeywordToTrends(keyword, reason)
+Retorna posts del competidor ordenados por engagement con análisis de tone, topic, format. Registra la keyword detectada en el motor de tendencias.
+Analiza los signals del competidor disponibles, extrae el patrón manualmente y crea un brief con el ángulo adaptado.
+ TOTAL 
+Reviews negativas del rival como oportunidad
+(el dolor que ellos no resuelven)
+200 reviews de clientes del competidor se quejan del mismo problema: el cable se rompe a los 3 meses. Ese es exactamente el diferencial que nosotros SÍ resolvemos pero no comunicamos.
+searchIntelligence('quejas competidor cable')
+triggerFlow('content_counter', {pain_point, our_solution})
+Busca semánticamente en signals el patrón de queja. Dispara flow de contenido que ataca ese pain point sin mencionar al rival por nombre.
+Analiza el texto de los signals de reviews disponibles y propone el brief del contenido de contraataque.
+ TOTAL 
+Radar de crisis de reputación del rival
+(capturar su audiencia decepcionada)
+El competidor tiene una crisis. Su audiencia está buscando alternativas ahora mismo. Esta ventana dura horas, no días.
+getIntelligenceSignals({type:'competitor_crisis'})
+createNotification('warning', 'competitor_crisis', ...)
+triggerFlow('defensive_content', params)
+Retorna el spike de signals negativos del rival. Notifica al equipo. Dispara flow de contenido empático para la audiencia en búsqueda.
+Con getIntelligenceSignals() detecta el patrón de crisis y crea proposeStrategicRecommendation() de alta urgencia.
+ TOTAL 
+Pauta digital del rival
+(qué promesas están comprando con dinero)
+El rival está invirtiendo en esta promesa de venta en Meta. Si tiene sentido que la estén pagando, significa que está convirtiendo. ¿Podemos ser más honestos sobre lo mismo?
+getIntelligenceSignals({type:'competitor_ad'})
+updateBrandDNA('palabras_clave', nuevas_kw, reason)
+Retorna anuncios activos del competidor con promesa de venta, formato y plataforma estimada. Actualiza palabras_clave con términos detectados.
+Busca en signals el patrón de copy que se repite en las menciones del rival y lo usa para actualizar el ADN vía proposeStrategicRecommendation().
+ TOTAL 
+Activar monitoreo de nuevo competidor
+(VERA detecta una cuenta que falta monitorear)
+Esta cuenta no está en nuestro sistema de monitoreo. Tiene engagement alto en nuestro nicho y está creciendo rápido. Necesito trackearla desde ahora.
+addCompetitorToMonitoring(handle, network, reason)
+Registra el nuevo target en monitoring_targets. Apify la incluye en el siguiente ciclo de scraping. Retorna el next_scrape_at.
+Crea notificación técnica a los devs: 'Agregar @handle a monitoring_targets manualmente y al siguiente ciclo de Apify.'
+ TOTAL 
+Lanzamientos en la sombra del rival
+(cambios en su web antes del anuncio)
+Detecté un cambio en la arquitectura del menú de su e-commerce. Esto es un pre-launch. Tienen 2-3 semanas para anunciarlo. Necesito preparar la defensa.
+createDefensiveWatch(topic, 'high', reason)
+createNotification('warning', 'launch_signal', ...)
+Activa watch intensificado sobre ese dominio/topic. Reduce el intervalo de scraping. Notifica al equipo con la señal detectada.
+Activa un proposeStrategicRecommendation() con urgencia alta detallando la señal y sugiriendo el watch manual.
+ TOTAL 
+
+3.3 — Tendencias
+CAPACIDAD
+VERA PIENSA Y DECIDE
+TOOL QUE INVOCA
+AI-ENGINE EJECUTA
+SI AI-ENGINE NO PUEDE → VERA HACE
+AUTO
+Señales débiles de nicho
+(lo que vibra antes de ser masivo)
+Esta keyword subió 15% en búsquedas en 3 horas pero todavía tiene volumen bajo. Eso es exactamente el momento de actuar — antes del mainstream.
+getIntelligenceSignals({type:'trend', sort:'velocity'})
+addKeywordToTrends(keyword, reason)
+Retorna signals de tendencias ordenadas por velocity_score (aceleración, no volumen). Registra la keyword para seguimiento continuo.
+Con getIntelligenceSignals() filtra por tipo trend y calcula manualmente cuál tiene mayor delta de crecimiento en el periodo.
+ TOTAL 
+Content Gap — Océano Azul
+(lo que el mercado pide y nadie cubre)
+Hay una conversación masiva sobre este tema en el nicho. Ninguna marca del sector ha publicado nada profesional sobre esto. Si actuamos ahora, somos los dueños del tema.
+searchIntelligence('gaps contenido nicho')
+proposeStrategicRecommendation({confidence:'high', rationale:gap_analysis})
+Busca semánticamente topics con alta demanda y baja cobertura de marcas. Propone brief con confianza alta para revisión humana.
+Cruza getIntelligenceSignals() de tendencias con signals de competidores y detecta el gap en su propio análisis.
+ TOTAL 
+Sincronización con el mundo real
+(ola de calor, evento deportivo, noticias)
+Va a llover toda la semana en Monterrey. Los productos de interiores de Oster son perfectos para este momento. El contenido debe llegar HOY.
+getIntelligenceSignals({type:'cultural_context'})
+triggerFlow('contextual_content', {event, product_id})
+Retorna señales de contexto real (clima, eventos, noticias) mapeadas al nicho. Dispara flow de contenido contextual con el producto más relevante.
+Analiza los signals culturales disponibles y crea proposeStrategicRecommendation() con el brief del contenido contextual.
+ TOTAL 
+Algorithmic Watchdog
+(Instagram cambió qué prioriza hoy)
+Instagram bajó el alcance de los carruseles esta semana y subió los Reels cortos. Todos los briefs de esta semana deben priorizar ese formato.
+getIntelligenceSignals({type:'algo_change'})
+updateBrandDNA('metadata.format_priority', nuevo_formato, reason)
+Retorna el signal de cambio algorítmico con la plataforma y el formato afectado. Actualiza la prioridad de formato en el ADN de la marca.
+Infiere el cambio algorítmico del patrón de engagement detectado en signals recientes y actualiza el ADN vía proposeStrategicRecommendation().
+ TOTAL 
+Narrative Hooks
+(primeras frases que frenan el scroll)
+Este patrón de apertura tiene 3x la retención promedio en el nicho. Necesito que todos los briefs futuros empiecen desde aquí.
+searchIntelligence('hooks alta retención')
+updateBrandDNA('verbal_dna.hooks_activos', hooks, reason)
+Busca semánticamente los hooks de mayor retención en signals del nicho. Actualiza el verbal_dna con los patrones ganadores.
+Extrae los hooks de mayor engagement de getIntelligenceSignals() y propone la actualización del verbal_dna.
+ TOTAL 
+Sentiment Shift Global
+(el humor del mundo hoy: cínico, nostálgico, eufórico)
+El mundo está en modo nostalgia hoy por un evento cultural masivo. Nuestro tono del día debe resonar con eso o vamos a sonar desconectados.
+getIntelligenceSignals({type:'sentiment_shift'})
+updateBrandDNA('verbal_dna.tono_del_dia', tono, reason)
+Retorna el shift de sentimiento del ciclo. Actualiza el tono_del_dia en el verbal_dna. Todos los contenidos del ciclo lo heredan.
+Infiere el sentiment dominante del conjunto de signals del ciclo y ajusta el tono_del_dia en el ADN de forma manual.
+ TOTAL 
+
+3.4 — Flows: VERA Dirige la Generación
+CAPACIDAD
+VERA PIENSA Y DECIDE
+TOOL QUE INVOCA
+AI-ENGINE EJECUTA
+SI AI-ENGINE NO PUEDE → VERA HACE
+AUTO
+Contenido de respuesta al rival
+(reaccionar al movimiento del competidor)
+El rival acaba de publicar algo que ataca nuestro diferencial. No me voy a quedar callada. Necesito contenido que refuerce por qué nosotros somos la opción correcta — sin mencionar al rival.
+triggerFlow('content_response', {competitor_signal_id, angle, product_id})
+Dispara el flow de generación con el ángulo estratégico de VERA. Produce copies + prompts visuales dentro de AI Smart Content, listos para publicar.
+Crea un proposeStrategicRecommendation() con el brief completo del contenido para que el equipo lo produzca manualmente.
+ TOTAL 
+Contenido contextual
+(el mundo real como gancho)
+Hay una ola de calor en Monterrey. Las licuadoras de alta potencia para granizados son la oportunidad perfecta para Oster hoy.
+triggerFlow('contextual_content', {event_signal_id, product_id, geo})
+Genera contenido ligado al evento real: copy con el contexto climático, prompts visuales con el producto y el mood del momento.
+Crea brief detallado vía proposeStrategicRecommendation() con el contexto, el producto, el geo y la ventana de oportunidad.
+ TOTAL 
+Contenido defensivo
+(capturar audiencia decepcionada del rival)
+El rival tiene una crisis. Sus clientes están buscando alternativas ahora mismo. Tengo 6-8 horas de ventana.
+triggerFlow('defensive_content', {competitor_id, pain_point, our_advantage})
+Genera contenido empático orientado a la audiencia en búsqueda: no ataca al rival, posiciona nuestra propuesta como la solución natural.
+Crea proposeStrategicRecommendation() con el brief completo del contenido defensivo y su ventana de tiempo.
+ TOTAL 
+Análisis profundo bajo demanda
+(VERA solicita un scrape prioritario)
+Esta cuenta apareció en 3 señales distintas esta semana. No está en mi sistema de monitoreo y necesito entender qué está haciendo antes del próximo ciclo.
+triggerDeepScrape(target, 'profile', reason)
+Encola job de análisis profundo prioritario en Apify. Lo ejecuta antes del próximo ciclo programado. Los resultados entran al siguiente Brain Feed.
+Crea notificación técnica a los devs: 'Necesito triggerDeepScrape() para @handle — resultado urgente antes del próximo ciclo.'
+ TOTAL 
+Vigilancia defensiva activa
+(amenaza emergente identificada)
+El rival está enviando señales de lanzamiento inminente. Necesito monitoreo intensificado sobre ese topic desde ahora.
+createDefensiveWatch(topic, 'high', brand_container_id, reason)
+Activa watch: aumenta frecuencia de scraping sobre el topic/cuenta a intervalo reducido. Baja el umbral de alerta para notificación inmediata.
+Crea proposeStrategicRecommendation() con la amenaza detectada y recomienda el watch manual al equipo.
+ TOTAL 
+04 — Catálogo Técnico de Tools
+Especificación exacta de cada tool que VERA puede invocar. La columna 'VERA LA USA CUANDO' describe el razonamiento de VERA — ella decide cuándo llamarla. La columna 'AI-ENGINE EJECUTA' describe qué hace el sistema cuando recibe la orden.
+
+4.1 — Lectura e Inteligencia
+TOOL + FIRMA
+VERA LA USA CUANDO…
+AI-ENGINE EJECUTA
+RETORNA A VERA
+AUTO/ESTADO
+getBrandDNA
+(brand_container_id)
+Necesito entender quién es esta marca antes de tomar cualquier decisión del ciclo.
+Lee brand_container: arquetipo, propuesta_valor, verbal_dna, palabras_clave, palabras_prohibidas, mercado_objetivo, objetivos_estrategicos.
+{ ...campos del ADN }
+ TOTAL 
+ LIVE 
+getBrandHealthMetrics
+(brand_container_id, window_hours?)
+¿Cómo está la salud de la marca en este periodo? ¿Hay fatiga de contenido o momentum?
+Calcula engagement_rate promedio, sentiment_score, curva de fatiga por día de semana, ritmo de publicación.
+{ engagement_avg, sentiment, fatigue_curve, posting_rhythm }
+ TOTAL 
+ PENDING 
+getProducts
+(org_id, filters?)
+¿Qué productos tenemos y cuál es más relevante para este momento del mercado?
+Lista productos con fichas: nombre, descripción, beneficios, diferenciadores, tipo, características visuales, casos de uso.
+Array de productos
+ TOTAL 
+ LIVE 
+getCampaigns
+(brand_container_id, status?)
+¿Qué campañas conceptuales están activas? ¿Alguna necesita ajuste basado en lo que veo en el ciclo?
+Lista campañas conceptuales activas/programadas con objetivo, plataforma conceptual y fechas.
+Array de campañas
+ TOTAL 
+ LIVE 
+getAudiences
+(org_id)
+¿A quién le hablamos? ¿El perfil de audiencia sigue alineado con lo que el mercado me está mostrando?
+Lista audiencias conceptuales con intereses, puntos de dolor, deseos y metadata.
+Array de audiencias
+ TOTAL 
+ LIVE 
+getBodyMissions
+(brand_container_id, limit?)
+¿Qué decidí en los ciclos anteriores? ¿Qué funcionó, qué no? No repito lo que ya intenté.
+Lee historial de misiones de VERA: decisiones tomadas, acciones ejecutadas, aprendizajes documentados.
+Array de misiones con resultados
+ TOTAL 
+ MISSING 
+getIntelligenceSignals
+(brand_container_id, filters)
+Necesito leer el mundo. Competidores, tendencias, menciones, precios, reviews — filtrado por lo que importa ahora.
+Lee signals del repositorio: por tipo, fuente, rango de fechas, sentimiento, engagement. Capturados por scrapers Apify.
+Array de signals con raw_payload
+ TOTAL 
+ LIVE 
+searchIntelligence
+(query, scope?, brand_container_id)
+Tengo una hipótesis específica. Necesito buscar si el sistema ya capturó algo que la confirme o refute.
+Búsqueda semántica en el repositorio de signals de la org. Retorna los más relevantes rankeados.
+Array de resultados rankeados
+ TOTAL 
+ PENDING 
+getBrainFeed
+(feed_id, bucket?)
+El resumen ejecutivo no tiene suficiente detalle. Necesito el raw completo de este bucket para tomar la decisión correcta.
+Retorna el JSON completo del Brain Feed por bucket: competitor_intelligence, trend_signals, threats, operational_context.
+Objeto JSON del bucket
+ TOTAL 
+ PENDING 
+getPendingBriefs
+(brand_container_id, status?)
+¿Qué briefs propuse en ciclos anteriores? ¿Fueron aprobados, rechazados? Eso me dice qué tan alineada estoy con el equipo.
+Lista strategic_recommendations propuestos con estado, confianza y feedback del humano.
+Array de briefs con estado
+ TOTAL 
+ LIVE 
+getFlows
+(org_id, status?)
+¿Qué flows están activos? ¿Alguno está generando contenido que ya no alinea con el momento del mercado?
+Lista flows con nombre, tipo, estado, última ejecución, próxima ejecución programada.
+Array de flows
+ TOTAL 
+ LIVE 
+getScraperStatus
+(org_id)
+¿Mis sensores están funcionando bien? ¿Hay algún scraper fallando que me esté dejando ciega en algún canal?
+Estado de todos los scrapers Apify: último ciclo, próximo, errores recientes, señales por fuente.
+{ scrapers: [{name, last_run, next_run, errors, signals_count}] }
+ TOTAL 
+ LIVE 
+getMonitoringTargets
+(org_id)
+¿A quién estoy monitoreando? ¿Hay cuentas relevantes que faltan o targets que ya no son útiles?
+Lista monitoring_targets: cuenta, red, frecuencia, última captura, signals promedio por ciclo.
+Array de targets
+ TOTAL 
+ LIVE 
+
+4.2 — Escritura y Actualización
+TOOL + FIRMA
+VERA LA USA CUANDO…
+AI-ENGINE EJECUTA
+RETORNA A VERA
+AUTO/ESTADO
+updateBrandDNA
+(brand_container_id, field, value, reason)
+El ADN de la marca necesita actualizarse — el mercado me está mostrando que algo derivó o que hay una oportunidad de refinar.
+Actualiza el campo especificado del brand_container en Supabase. Registra el prev_value para rollback si es necesario.
+{ updated: true, field, prev_value }
+ TOTAL 
+ PENDING 
+updateProduct
+(product_id, fields, reason)
+La ficha de este producto no refleja lo que el mercado está pidiendo. Las reviews me lo están diciendo.
+Actualiza campos del producto: beneficios_principales, diferenciadores, descripcion_producto, caracteristicas_visuales, casos_de_uso.
+{ updated: true, product_id }
+ TOTAL 
+ PENDING 
+updateCampaignConcept
+(campaign_id, fields, reason)
+Esta campaña conceptual ya no está calibrada con el momento del mercado. Necesita ajuste.
+Actualiza campaña conceptual en Supabase. NUNCA toca campañas en plataformas externas (Meta Ads, Google Ads).
+{ updated: true, campaign_id }
+ TOTAL 
+ PENDING 
+updateAudienceConcept
+(audience_id, fields, reason)
+El perfil de audiencia tiene un punto de dolor nuevo que el mercado me acaba de revelar.
+Actualiza audiencia conceptual: intereses, puntos_de_dolor, deseos, descripcion. NUNCA toca audiencias en plataformas externas.
+{ updated: true, audience_id }
+ TOTAL 
+ PENDING 
+
+4.3 — Inteligencia Activa
+TOOL + FIRMA
+VERA LA USA CUANDO…
+AI-ENGINE EJECUTA
+RETORNA A VERA
+AUTO/ESTADO
+addCompetitorToMonitoring
+(handle, network, brand_container_id, reason)
+Esta cuenta es relevante para la marca y no está en mi sistema. La necesito en mi radar desde el próximo ciclo.
+Registra el nuevo target en monitoring_targets. AI-engine lo incluye en el siguiente ciclo de scraping Apify.
+{ added: true, target_id, next_scrape_at }
+ TOTAL 
+ PENDING 
+addKeywordToTrends
+(keyword, brand_container_id, geo?, reason)
+Esta keyword está acelerando en el nicho. Necesito trackearla en Google Trends, TikTok y YouTube.
+Registra la keyword en el motor de tendencias. La incluye en los análisis del siguiente ciclo de Apify.
+{ added: true, keyword_id }
+ TOTAL 
+ PENDING 
+triggerDeepScrape
+(target, type, brand_container_id, reason)
+Necesito información profunda de esta cuenta/post/URL antes del próximo ciclo programado. Es urgente.
+Encola job de análisis profundo prioritario en Apify. Ejecuta antes del próximo ciclo. Resultados entran al siguiente Brain Feed.
+{ job_id, status: 'queued', eta_minutes }
+ TOTAL 
+ PENDING 
+createDefensiveWatch
+(topic, severity, brand_container_id, reason)
+Detecté una amenaza emergente. Necesito monitoreo intensificado sobre este topic desde ahora.
+Activa watch: aumenta frecuencia de scraping en Apify, baja umbral de alerta. VERA recibe signals casi en tiempo real.
+{ watch_id, active: true, check_interval_mins }
+ TOTAL 
+ PENDING 
+removeKeywordFromTrends
+(keyword_id, reason)
+Esta keyword solo está generando ruido. No aporta señales útiles para la marca.
+Desactiva la keyword del motor de tendencias. Deja de incluirla en los análisis de Apify.
+{ removed: true, keyword_id }
+ TOTAL 
+ LIVE 
+
+4.4 — Flows y Notificaciones
+TOOL + FIRMA
+VERA LA USA CUANDO…
+AI-ENGINE EJECUTA
+RETORNA A VERA
+AUTO/ESTADO
+triggerFlow
+(flow_id, params, reason)
+Tengo la decisión tomada. El análisis está hecho. Ahora necesito que el sistema genere el contenido con este ángulo específico.
+Dispara flow interno de generación en AI Smart Content: content_response, contextual_content, defensive_content, deep_analysis.
+{ run_id, flow_id, status: 'running' }
+ TOTAL 
+ LIVE 
+pauseFlow
+(flow_id, reason)
+Este flow está generando contenido que ya no alinea con el momento del mercado. Necesito detenerlo antes de que siga produciendo ruido.
+Pausa el flow activo. Registra el reason para que el equipo entienda por qué VERA lo detuvo.
+{ paused: true, flow_id }
+ TOTAL 
+ LIVE 
+inspectRun
+(run_id)
+¿Qué produjo ese flow exactamente? Necesito evaluar si el output cumplió la intención estratégica.
+Retorna el resultado completo de una ejecución: outputs generados, errores, tiempo de ejecución, parámetros usados.
+Objeto con resultado del run
+ TOTAL 
+ LIVE 
+createNotification
+(severity, type, title, body, brand_container_id, action_url?)
+El equipo necesita saber esto ahora. No es análisis — es algo que requiere su atención o decisión.
+Crea notificación en la plataforma y la entrega a los miembros de la org. Severity: info | warning | critical.
+{ notification_id, delivered_to: [user_ids] }
+ TOTAL 
+ LIVE 
+proposeStrategicRecommendation
+(title, topic, description, confidence, rationale, brand_container_id)
+Tengo una acción que está fuera de mi dominio autónomo — necesita revisión humana antes de ejecutarse.
+Crea brief estratégico en estado 'proposed' en vera_pending_actions. El humano aprueba o rechaza.
+{ recommendation_id, status: 'proposed' }
+ TOTAL 
+ LIVE 
+05 — Lo Que VERA Puede y Lo Que Nunca Hará
+
+VERA DECIDE Y EJECUTA AUTÓNOMAMENTE
+	•	Leer todo lo que ai-engine le entregue sobre la marca, el mercado y los competidores
+	•	Actualizar el ADN de marca, fichas de productos, campañas conceptuales, audiencias conceptuales
+	•	Agregar competidores al monitoreo y keywords al motor de tendencias
+	•	Solicitar análisis profundos y activar vigilancias defensivas
+	•	Disparar flows internos de generación de contenido
+	•	Crear notificaciones info y warning al equipo
+	•	Pausar flows que estén generando ruido
+	•	Notificar a los devs qué capacidades necesita ai-engine para evolucionar
+NUNCA — NI CON AUTONOMÍA TOTAL
+	•	Publicar en canales externos (redes sociales, email, ecommerce)
+	•	Modificar audiencias o campañas en Meta Ads, Google Ads, TikTok Ads — solo las conceptuales dentro de la plataforma
+	•	Gastar dinero o comprometer presupuestos
+	•	Contactar personas o marcas externas directamente
+	•	Ver datos de otra organización (RLS hardcoded en ai-engine)
+	•	Inventar signals o datos que no existen en el feed
+	•	Tomar decisiones de crisis de reputación pública sin aprobación humana
+	•	Crear notificaciones critical sin evidencia real en los signals
+
+
+
+"VERA es el cerebro. AI-engine es el cuerpo. Sin VERA, ai-engine no sabe qué hacer. Sin ai-engine, VERA no tiene manos. Juntos, son la marca más inteligente de su categoría."
+AI Smart Content  ·  ARDE Agency S.A.S.  ·  v3.0  ·  2026

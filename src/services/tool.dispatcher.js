@@ -22,6 +22,10 @@ import * as socialTools from "../tools/social.tools.js";
 import * as scraperTools from "../tools/scraper.tools.js";
 import * as dashboardTools from "../tools/dashboard.tools.js";
 import * as strategyTools from "../tools/strategy.tools.js";
+import * as veraFeedTools from "../tools/vera-feed.tools.js";
+import * as veraActionsTools from "../tools/vera-actions.tools.js";
+import * as promptForgeTools from "../tools/prompt-forge.tools.js";
+import * as decisionTools from "../tools/decision.tools.js";
 import { validateToolCall } from "../lib/tool-call.validator.js";
 import { checkPolicy, getActionCreditCost } from "../lib/policy.engine.js";
 import { audit } from "../lib/audit-logger.js";
@@ -115,10 +119,37 @@ const TOOL_REGISTRY = {
     requiresConsent: false,
   },
 
+  // ── Flow write ────────────────────────────────────────────────────────────
+  runContentFlow: {
+    fn: ({ flowSlug, inputs, organizationId, brandContainerId }) =>
+      flowTools.runContentFlow({ flowSlug, inputs, organizationId, brandContainerId }),
+    requiresConsent: true,
+  },
+
   // ── Flow read ─────────────────────────────────────────────────────────────
   getAvailableFlows: {
-    fn: ({ filters }) => flowTools.getAvailableFlows(filters || {}),
+    fn: ({ filters, organizationId }) => flowTools.getAvailableFlows(filters || {}, organizationId),
     requiresConsent: false,
+  },
+  getFlowInputs: {
+    fn: ({ flowId, params, organizationId, brandContainerId }) =>
+      flowTools.getFlowInputs(flowId || params?.flowId, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  forgeProductionPrompt: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) =>
+      promptForgeTools.forgeProductionPrompt({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  getRunsAwaitingApproval: {
+    fn: ({ brandContainerId, organizationId }) =>
+      flowTools.getRunsAwaitingApproval(brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  approveRunStage: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) =>
+      flowTools.approveRunStage({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: true,
   },
   getFlowSchedules: {
     fn: ({ organizationId }) =>
@@ -334,15 +365,15 @@ const TOOL_REGISTRY = {
     policyAction: null,
   },
   createFlowSchedule: {
-    fn: ({ params, brandContainerId, organizationId, userId }) =>
-      actionTools.createFlowSchedule(params, brandContainerId, organizationId, userId),
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) =>
+      actionTools.createFlowSchedule({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId),
     requiresConsent: true,
     consentKey: "SCHEDULE_FLOW",
     policyAction: "createFlowSchedule",
   },
   triggerFlowRun: {
-    fn: ({ params, brandContainerId, organizationId, userId }) =>
-      actionTools.triggerFlowRun(params, brandContainerId, organizationId, userId),
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) =>
+      actionTools.triggerFlowRun({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId),
     requiresConsent: true,
     consentKey: "TRIGGER_FLOW_RUN",
     policyAction: "triggerFlowRun",
@@ -384,6 +415,158 @@ const TOOL_REGISTRY = {
   getEstrategiaTones:            { fn: ({ params, organizationId }) => dashboardTools.getEstrategiaTones({ ...(params || {}), organizationId }), requiresConsent: false },
   getEstrategiaPlatforms:        { fn: ({ params, organizationId }) => dashboardTools.getEstrategiaPlatforms({ ...(params || {}), organizationId }), requiresConsent: false },
   getEstrategiaSentimentsByBrand:{ fn: ({ params, organizationId }) => dashboardTools.getEstrategiaSentimentsByBrand({ ...(params || {}), organizationId }), requiresConsent: false },
+
+  // ── VERA Cycle Pulse — tools que Vera usa al recibir un brain feed ────────
+  // NOTA: estos wrappers aceptan params PLANOS o ANIDADOS indistintamente
+  // ({...(params||{}), ...rest}). Antes solo aceptaban `params` anidado, pero
+  // tanto el prompt de chat como los ejemplos del cycle-pulse a veces emiten
+  // los campos planos (title:..|body:..) → params quedaba undefined y la tool
+  // tiraba "title y body requeridos". Ahora funciona en ambas formas.
+  createOrgNotification: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => veraFeedTools.createOrgNotification({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  // Alias canonico v3 — el doc y el prompt nombran `createNotification`,
+  // el handler interno es createOrgNotification. Antes faltaba el registro
+  // → llamarlo fallaba en la Capa 2 (allowlist) pese a estar en el prompt.
+  createNotification: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => veraFeedTools.createOrgNotification({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  proposeStrategicRecommendation: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => veraFeedTools.proposeStrategicRecommendation({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  proposePendingAction: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => decisionTools.proposePendingAction({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  getBrainFeed: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => veraFeedTools.getBrainFeed({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+
+  // ── Aliases canonicos v3 (protocolo VERA <-> ai-engine v3) ────────────────
+  // Mismos handlers que los canonical, solo cambia el naming para que VERA
+  // pueda invocarlos con los nombres del doc v3 sin aprender los internos.
+  // Pendiente Fase B: getMonitoringTargets (canonical getMonitoringTriggers no existe).
+  getBrandDNA: {
+    fn: ({ organizationId }) => brandTools.getBrandProfile(null, organizationId),
+    requiresConsent: false,
+  },
+  getPendingBriefs: {
+    fn: ({ organizationId, status, limit }) =>
+      strategyTools.getPendingActions({ organizationId, status, limit }),
+    requiresConsent: false,
+  },
+  getFlows: {
+    fn: ({ filters }) => flowTools.getAvailableFlows(filters || {}),
+    requiresConsent: false,
+  },
+  getScraperStatus: {
+    fn: ({ organizationId }) => scraperTools.getScraperHealth(null, organizationId),
+    requiresConsent: false,
+  },
+  updateBrandDNA: {
+    fn: (params) => brandWriteTools.updateBrandContainer(params),
+    requiresConsent: true,
+    consentKey: "UPDATE_BRAND_CONTAINER",
+  },
+  updateProduct: {
+    fn: (params) => brandWriteTools.upsertProduct(params),
+    requiresConsent: true,
+    consentKey: "UPSERT_PRODUCT",
+  },
+  updateAudienceConcept: {
+    fn: (params) => brandWriteTools.upsertAudience(params),
+    requiresConsent: true,
+    consentKey: "UPSERT_AUDIENCE",
+  },
+  addCompetitorToMonitoring: {
+    fn: (safeParams) => {
+      const network = safeParams.network || safeParams.platform;
+      const handle = safeParams.handle;
+      return scraperTools.addIntelligenceEntity({
+        name: safeParams.name || handle,
+        platform: network ? String(network).toLowerCase() : undefined,
+        handle,
+        cadence_minutes: safeParams.cadence_minutes,
+      }, null, safeParams.organizationId);
+    },
+    requiresConsent: false,
+  },
+  triggerFlow: {
+    fn: ({ params, brandContainerId, organizationId, userId, flowId }) => {
+      const effectiveParams = {
+        ...(params || {}),
+        flow_id: params?.flow_id || params?.flowId || flowId,
+      };
+      return actionTools.triggerFlowRun(effectiveParams, brandContainerId, organizationId, userId);
+    },
+    requiresConsent: true,
+    consentKey: "TRIGGER_FLOW_RUN",
+    policyAction: "triggerFlowRun",
+  },
+  inspectRun: {
+    fn: ({ runId, organizationId }) =>
+      flowTools.getFlowRunOutputs(runId, null, organizationId),
+    requiresConsent: false,
+  },
+
+  // ── Tools MISSING criticas v3 (Fase B bloque 1) ───────────────────────────
+  getMonitoringTriggers: {
+    fn: ({ brandContainerId, organizationId }) =>
+      veraActionsTools.getMonitoringTriggers(brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  getMonitoringTargets: {
+    fn: ({ brandContainerId, organizationId }) =>
+      veraActionsTools.getMonitoringTriggers(brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  pauseFlow: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) =>
+      veraActionsTools.pauseFlow({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId),
+    requiresConsent: true,
+    consentKey: "PAUSE_FLOW",
+  },
+  updateCampaignConcept: {
+    fn: ({ params, brandContainerId, organizationId, ...rest }) =>
+      veraActionsTools.updateCampaignConcept({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: true,
+    consentKey: "UPDATE_CAMPAIGN_CONCEPT",
+  },
+  addKeywordToTrends: {
+    fn: ({ params, brandContainerId, organizationId, ...rest }) =>
+      veraActionsTools.addKeywordToTrends({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  removeKeywordFromTrends: {
+    fn: ({ params, brandContainerId, organizationId, ...rest }) =>
+      veraActionsTools.removeKeywordFromTrends({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+  createDefensiveWatch: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) =>
+      veraActionsTools.createDefensiveWatch({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId),
+    requiresConsent: false,
+  },
+  getBrandHealthMetrics: {
+    fn: ({ brandContainerId, organizationId, windowHours }) =>
+      veraActionsTools.getBrandHealthMetrics(brandContainerId, organizationId, windowHours),
+    requiresConsent: false,
+  },
+  searchIntelligence: {
+    fn: ({ params, brandContainerId, organizationId, ...rest }) =>
+      veraActionsTools.searchIntelligence({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+    timeout: 20000,
+  },
+  triggerDeepScrape: {
+    fn: ({ params, brandContainerId, organizationId, ...rest }) =>
+      veraActionsTools.triggerDeepScrape({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
 };
 
 export const AVAILABLE_TOOL_NAMES = Object.keys(TOOL_REGISTRY);
@@ -408,6 +591,7 @@ export async function dispatchTool(toolName, params, secCtx) {
   const {
     organizationId, userId, approvedIntents, allowedTools = [],
     costController, consentMode = "require", orgName = "la organización",
+    brandContainerId = null,
   } = secCtx;
   const auditCtx = { organizationId, userId, conversationId: secCtx.conversationId };
 
@@ -510,7 +694,15 @@ export async function dispatchTool(toolName, params, secCtx) {
     emitToolActivity(secCtx.conversationId, toolName).catch(() => {});
   }
 
+  // Inyectamos organizationId/userId siempre, y brandContainerId de la
+  // conversacion (si lo hay y Vera no lo paso explicito). Antes brandContainerId
+  // NO se inyectaba en el chat → las tools caian a resolveBrandContainer = la
+  // marca mas antigua, operando sobre la marca equivocada en orgs multi-marca.
+  // El cycle-pulse ya lo inyectaba; ahora ambos caminos son consistentes.
   const safeParams = { ...params, organizationId, userId };
+  if (brandContainerId && !safeParams.brandContainerId && !safeParams.brand_container_id) {
+    safeParams.brandContainerId = brandContainerId;
+  }
   const t0 = Date.now();
 
   // Algunas tools (ej: runScraperTest) declaran timeout propio más largo

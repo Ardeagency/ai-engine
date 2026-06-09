@@ -26,12 +26,16 @@ async def fetch_post(post_uuid: str) -> dict | None:
 
 
 async def fetch_pending(limit: int = 50) -> list[dict]:
+    # Filtramos por ai_analyzed_at IS NULL para evitar el conflicto semántico
+    # con is_processed (que el trigger SQL classify_brand_post marca SIEMPRE en
+    # true tras el INSERT — por eso este endpoint antes no veía nada nuevo).
     async with httpx.AsyncClient(timeout=15) as cli:
         r = await cli.get(
             f"{SUPABASE_URL}/rest/v1/brand_posts",
             headers=HEADERS,
             params={
-                "is_processed": "is.false",
+                "ai_analyzed_at": "is.null",
+                "content": "not.is.null",
                 "select": "id,content,metrics,followers_snapshot",
                 "order": "captured_at.desc",
                 "limit": str(limit),
@@ -64,6 +68,7 @@ async def update_post(post_uuid: str, analysis: dict) -> dict:
         "risk_level": risk.get("level"),
         "flags": risk.get("flags", []),
         "is_processed": True,
+        "ai_analyzed_at": "now()",
         "classification_log": f"analyzer v1 | lang={analysis.get('language')} | impact={impact.get('impact_score')}",
         "enrichment": {
             "tone_vector": analysis.get("tone"),

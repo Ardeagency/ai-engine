@@ -47,7 +47,8 @@ import {
 } from "../tools/social.tools.js";
 import { runAlignmentForBrand } from "./audience-alignment.service.js";
 import { runCampaignPerformanceForBrand } from "./campaign-performance.service.js";
-import { analyzeAndPersistPost } from "./content-analysis.service.js";
+import { syncMetaAdInsightsForBrand } from "./sync-meta-ad-insights.service.js";
+import { analyzeAndPersistPost, runContentAnalysisBackfill } from "./content-analysis.service.js";
 import { generateMissionsForBrand } from "./mission-generator.service.js";
 import { runBrandIndexer } from "./brand-indexer.service.js";
 import { runThreatDetection } from "./threat-detector.service.js";
@@ -402,7 +403,11 @@ async function persistNewPosts(posts, entity) {
       metrics,
       media_assets,
       enrichment,
+      // Sin followers_snapshot, post_patterns.engagement_rate = 0 y
+      // discover_emerging_patterns nunca detecta nada (filtra por avg > 1.5x baseline).
+      followers_snapshot: post.author?.followers_count || null,
       is_competitor: true,
+      post_source:   "competitor",
       captured_at:   post.timestamp,
     };
 
@@ -516,6 +521,8 @@ async function getTriggersToRun() {
       "meta_ads_audiences_sync", "audience_alignment_analysis",
       "brand_audience_heatmap_compute", "mission_generation",
       "brand_indexer", "threat_detection", "meta_ad_library_sync",
+      "meta_campaign_ad_insights",
+      "trends_run",
     ])
     .order("priority", { ascending: false })
     .order("next_run_at", { ascending: true })
@@ -560,27 +567,42 @@ async function updateTriggerAfterRun(triggerId, status, nextRunAt) {
 
 // ── URL Watchers (via url_watchers table) ────────────────────────────────────
 
+// Cadencia de los URL watchers (web). Editable por env; default 12h.
+// Antes: se scrapeaba TODO watcher en cada poll (~15min) -> ~384 fetch/dia con 4 watchers.
+const URL_WATCH_CADENCE_HOURS = Number(process.env.URL_WATCH_CADENCE_HOURS) || 12;
+
 async function checkUrlWatchers() {
+  const cutoff = new Date(Date.now() - URL_WATCH_CADENCE_HOURS * 3_600_000).toISOString();
   const { data: watchers } = await supabase
     .from("url_watchers")
     .select("id, url, last_hash, entity_id, brand_container_id, label")
     .eq("is_active", true)
-    .order("last_checked_at", { ascending: true }) // procesar primero los más antiguos
+    .or(`last_checked_at.is.null,last_checked_at.lt.${cutoff}`) // GATE: solo los vencidos
+    .order("last_checked_at", { ascending: true, nullsFirst: true })
     .limit(50);
 
   if (!watchers?.length) return;
 
   for (const watcher of watchers) {
     await delay(jitter(2000));
+    const now = new Date().toISOString();
     const result = await scrapeUrl(watcher.url);
-    if (!result.ok || result.hash === watcher.last_hash) continue;
+    if (!result.ok) {
+      // fetch fallido: marcar revisado igual para respetar la cadencia (no machacar URL muerta)
+      await supabase.from("url_watchers").update({ last_checked_at: now }).eq("id", watcher.id);
+      continue;
+    }
 
-    console.log(`url-watcher: cambio detectado — ${watcher.label || watcher.url}`);
-
+    // SIEMPRE avanzar last_checked_at (+ last_hash) -> respeta el gate y rota la cola
+    const changed = result.hash !== watcher.last_hash;
     await supabase
       .from("url_watchers")
-      .update({ last_hash: result.hash, last_checked_at: new Date().toISOString() })
+      .update({ last_hash: result.hash, last_checked_at: now })
       .eq("id", watcher.id);
+
+    if (!changed) continue;
+
+    console.log(`url-watcher: cambio detectado — ${watcher.label || watcher.url}`);
 
     if (watcher.entity_id) {
       const now = new Date().toISOString();
@@ -786,6 +808,15 @@ export async function runCompetitorScraper(brandContainerId = null) {
 
   let totalNew = 0;
 
+  // ── Pre-pass: batch de social triggers por (organizationId, platform) ──────
+  // Evita 1 run Apify por entity. Devuelve un Map keyed por trigger.id con los
+  // posts ya scrapeados, para que el loop principal solo persista sin re-scrapear.
+  // batchOkTriggers = set de trigger.id cuyos batches terminaron sin error
+  // (si NO está aquí, el batch falló → no debemos auto-desactivar la entity).
+  const { postsByTrigger: socialBatchResults, batchOkTriggers } = await _runSocialBatchPass(
+    triggers.filter(t => t.sensor_type === "social")
+  );
+
   for (const trigger of triggers) {
     const entity     = trigger.intelligence_entities;
     const sensorRunId = await openSensorRun(
@@ -812,7 +843,9 @@ export async function runCompetitorScraper(brandContainerId = null) {
         trigger.sensor_type === "mission_generation" ||
         trigger.sensor_type === "brand_indexer" ||
         trigger.sensor_type === "threat_detection" ||
-        trigger.sensor_type === "meta_ad_library_sync"
+        trigger.sensor_type === "meta_ad_library_sync" ||
+        trigger.sensor_type === "meta_campaign_ad_insights" ||
+        trigger.sensor_type === "trends_run"
       ) {
         await runOwnedAnalyticsSensor(trigger, entity, sensorRunId);
         await delay(jitter(2000));
@@ -842,31 +875,9 @@ export async function runCompetitorScraper(brandContainerId = null) {
       let posts = [];
 
       if (trigger.sensor_type === "social") {
-        // Plataforma: prioridad 1) metadata.platform, 2) detectPlatform (DB-backed) para URLs,
-        // 3) fallback 'instagram' SOLO para handles puros (preserva comportamiento legacy).
-        let platform = entity.metadata?.platform;
-        const isUrl = rawHandle.startsWith("http://") || rawHandle.startsWith("https://");
-
-        if (!platform && isUrl) {
-          try {
-            platform = await _apifyDetectPlatform(rawHandle);
-          } catch (e) {
-            console.warn(`scraper [social]: detectPlatform falló para URL "${rawHandle}" — ${e.message}`);
-          }
-        }
-
-        if (!platform) {
-          // Handle puro sin metadata.platform → asumir instagram (legacy default)
-          platform = "instagram";
-          console.log(`scraper [social]: ${rawHandle} sin platform explícita, asumiendo instagram`);
-        }
-
-        await delay(jitter(2000)); // pausa anti-flood entre entidades
-
-        // ── Apify integration (post-cleanup v2) ────────────────────────────
-        // Reemplazó scrapers Playwright locales. Cobra a entity.organization_id
-        // según pricing de scraper_actors. Cache global TTL respetado.
-        posts = await _scrapeViaApify(platform, handle, entity.organization_id);
+        // Los posts ya fueron scrapeados en el batch pre-pass (1 run Apify por
+        // (org, platform) en vez de 1 por entity). Aquí solo recogemos del Map.
+        posts = socialBatchResults.get(trigger.id) || [];
 
       } else if (trigger.sensor_type === "marketplace") {
         // Amazon: rawHandle es el ASIN (ej: "B0BV7XQ9V9") o query de búsqueda
@@ -927,18 +938,18 @@ export async function runCompetitorScraper(brandContainerId = null) {
       });
 
       // Auto-deactivate: si el scrape devolvió 0 items, incrementar counter.
-      // Tras 3 runs consecutivos vacíos → marcar entity inactiva (probable que
-      // la marca no exista en esa red social).
+      // Solo aplica a triggers cuyo batch corrió OK. Si el batch falló (timeout,
+      // error de actor) el 0 es falso negativo — no penalizamos la entity.
       try {
-        if (posts.length === 0) {
+        const batchRanOk = trigger.sensor_type !== "social" || batchOkTriggers.has(trigger.id);
+        if (posts.length === 0 && batchRanOk) {
           const { data: deact } = await supabase.rpc("mark_empty_platform_inactive", {
             p_entity_id: entity.id, p_threshold: 3,
           });
           if (deact?.action === "deactivated") {
             console.warn(`scraper: ${entity.name} auto-desactivado tras ${deact.consecutive_empty} runs vacíos (threshold=${deact.effective_threshold}) en ${deact.platform}`);
           }
-        } else {
-          // Reset counter si hay resultados (recovery)
+        } else if (posts.length > 0) {
           await supabase.rpc("reset_empty_run_counter", { p_entity_id: entity.id });
         }
       } catch (e) {
@@ -977,6 +988,32 @@ export async function runCompetitorScraper(brandContainerId = null) {
   }
 
   console.log(`scraper: ciclo completo — ${triggers.length} triggers, ${totalNew} señales nuevas`);
+
+  // ─── VERA BRAIN FEED: despertar a Vera al final del ciclo ─────────────────
+  // Para cada brand_container que tuvo al menos 1 trigger en este ciclo,
+  // chequear si todos sus sensores están "fresh" y disparar el feed a Vera.
+  // Idempotente vía UNIQUE(brand_container_id, cycle_id) en vera_brain_feeds.
+  // Deshabilitar con VERA_BRAIN_FEED_ENABLED=false.
+  if (process.env.VERA_BRAIN_FEED_ENABLED !== "false") {
+    try {
+      const brandsTouched = new Set(triggers.map(t => t.brand_container_id).filter(Boolean));
+      if (brandsTouched.size > 0) {
+        const { deliverCycleFeed, isCycleComplete } = await import("./vera-brain-feed.service.js");
+        const cycleId = crypto.randomUUID();
+        for (const bid of brandsTouched) {
+          const ready = await isCycleComplete(bid);
+          if (!ready) continue;
+          // Fire-and-forget — no bloqueamos el siguiente ciclo del scheduler
+          deliverCycleFeed(bid, cycleId).catch(e =>
+            console.warn(`vera-brain-feed: brand=${bid} cycle=${cycleId} falló — ${e.message}`)
+          );
+        }
+      }
+    } catch (e) {
+      console.warn(`vera-brain-feed: hook falló (non-fatal) — ${e.message}`);
+    }
+  }
+
   return { triggers_run: triggers.length, new_signals: totalNew };
 }
 
@@ -1051,28 +1088,12 @@ async function writeCycleSnapshot(brandContainerId, triggers, newSignals) {
 
 let _scraperTimer = null;
 
-// ── Session keepalive autónomo ────────────────────────────────────────────────
-// Mantiene las sesiones de Instagram/TikTok/Facebook activas sin intervención humana.
-// Corre cada 12h dentro del proceso del scheduler — mucho más ligero que un scrape real.
-// La lógica interna del keepalive respeta los intervalos mínimos por plataforma
-// (Instagram cada 48h, TikTok cada 24h, Facebook cada 72h).
-let _keepaliveTimer = null;
-const KEEPALIVE_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12 horas
-
-async function _runSessionKeepalive() {
-  try {
-    const { keepAliveSessions } = await import("../lib/session-manager.js");
-    const result = await keepAliveSessions();
-    const refreshed = result.refreshed?.length || 0;
-    const skipped   = result.skipped?.length   || 0;
-    const failed    = result.failed?.length     || 0;
-    if (refreshed > 0 || failed > 0) {
-      console.log(`scraper: keepalive sesiones — refrescadas: ${refreshed}, saltadas: ${skipped}, fallidas: ${failed}`);
-    }
-  } catch (e) {
-    console.warn(`scraper: keepalive sesiones falló (non-fatal) — ${e.message}`);
-  }
-}
+// ── Session keepalive: REMOVIDO (2026-06-01) ─────────────────────────────────
+// El keepalive de cookies locales (Instagram/TikTok/Facebook via Playwright
+// stealth) era legado del modelo PRE-Apify. El scraping se migro a Apify (cloud,
+// ver apify.client.js) y ya NO hay sesiones de browser locales que mantener.
+// El codigo viejo importaba `../lib/session-manager.js` (modulo inexistente) y
+// solo emitia "Cannot find module ... (non-fatal)" cada 12h. Eliminado.
 
 export function startScraperScheduler(intervalMinutes = 10) {
   // El scheduler hace polling cada `intervalMinutes` (default: 10 min).
@@ -1096,25 +1117,14 @@ export function startScraperScheduler(intervalMinutes = 10) {
     scheduleNext();
   }, 90 * 1000);
 
-  // Keepalive de sesiones — corre cada 12h para mantener cookies frescas
-  // Sin esto, las sesiones de Instagram/TikTok expirarían en 45-90 días
-  _keepaliveTimer = setInterval(_runSessionKeepalive, KEEPALIVE_INTERVAL_MS);
-  // Primera ejecución 5 min después del boot (deja que el servidor se estabilice)
-  setTimeout(_runSessionKeepalive, 5 * 60 * 1000);
-
   const pollMin = base / 60_000;
   console.log(`scraper: scheduler iniciado (polling cada ~${pollMin} min para monitoring_triggers vencidos)`);
-  console.log(`scraper: keepalive de sesiones activo (cada 12h)`);
 }
 
 export function stopScraperScheduler() {
   if (_scraperTimer) {
     clearTimeout(_scraperTimer);
     _scraperTimer = null;
-  }
-  if (_keepaliveTimer) {
-    clearInterval(_keepaliveTimer);
-    _keepaliveTimer = null;
   }
   console.log("scraper: scheduler detenido");
 }
@@ -1189,6 +1199,19 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
         status:                  result.status || null,
       };
 
+    } else if (sensorType === "meta_campaign_ad_insights") {
+      // FEAT-023 — sync ad-level insights diario para dashboard "Mis Campañas".
+      // Ventana last_7d para capturar atribuciones tardías (Meta puede actualizar
+      // conversions hasta 7d después). Idempotente vía UNIQUE constraint.
+      const result = await syncMetaAdInsightsForBrand(brandContainerId, organizationId, { datePreset: "last_7d" });
+      stats = {
+        campaigns_processed: result.campaigns_processed || 0,
+        ads_upserted:        result.ads_upserted || 0,
+        errors:              result.errors || 0,
+        skipped_no_token:    result.skipped_no_token || 0,
+        skipped_no_data:     result.skipped_no_data || 0,
+      };
+
     } else if (sensorType === "ga4_audience_demographics") {
       const result = await getGa4AudienceDemographics({ brandContainerId, organizationId, range: "30d" });
       const updated = await persistAudienceDemographics(brandContainerId, "ga4", result);
@@ -1248,6 +1271,16 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
         throw new Error(`brand_indexer: ${result.error}`);
       }
 
+      // Analiza contenido pendiente (pilares/tono) de posts propios - rule-based, IG+FB.
+      // Los posts own los sincroniza el sync de Meta (Netlify), que no analiza inline.
+      try {
+        const _ca = await runContentAnalysisBackfill(brandContainerId, 300);
+        stats.content_analyzed = _ca.analyzed;
+        stats.content_pending  = _ca.processed;
+      } catch (_e) {
+        console.warn(`brand_indexer: content-analysis backfill - ${_e.message}`);
+      }
+
     } else if (sensorType === "threat_detection") {
       const result = await runThreatDetection(brandContainerId, organizationId);
       stats = {
@@ -1265,6 +1298,40 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
         ads_inserted:         result.inserted,
         ads_updated:          result.updated,
         ads_filtered_out:     result.filtered_out,
+      };
+
+    } else if (sensorType === "trends_run") {
+      // Trends engine: cap de queries derivado del plan de la org.
+      // creator=10, team=20, agency=30. Fallback 10 (creator) si no hay plan.
+      let maxQ = 10;
+      try {
+        const { data: sub } = await supabase
+          .from("subscriptions")
+          .select("plans!inner(trends_max_queries)")
+          .eq("organization_id", organizationId)
+          .in("status", ["trial", "active", "past_due"])
+          .maybeSingle();
+        if (sub?.plans?.trends_max_queries) maxQ = sub.plans.trends_max_queries;
+      } catch (e) {
+        console.warn(`scraper [trends_run]: plan lookup falló (${e.message}) — usando default ${maxQ}`);
+      }
+      // Override por env solo si está explícito y es menor (defensa, no escala arriba)
+      const envCap = parseInt(process.env.TRENDS_MAX_QUERIES_PER_RUN || "0", 10);
+      if (envCap > 0 && envCap < maxQ) maxQ = envCap;
+
+      const url  = `http://127.0.0.1:8001/trends/run/${brandContainerId}?mock=false&max_queries=${maxQ}`;
+      const r    = await fetch(url, { method: "POST", signal: AbortSignal.timeout(10 * 60 * 1000) });
+      if (!r.ok) throw new Error(`trends/run HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      const result = await r.json();
+      stats = {
+        plan_max_queries:  maxQ,
+        queries:           result.queries,
+        signals_raw:       result.signals_raw,
+        signals_filtered:  result.signals_filtered,
+        signals_scored:    result.scored,
+        briefs_generated:  result.briefs,
+        cost_usd:          result.total_cost_usd,
+        cycle_id:          result.cycle_id,
       };
     }
 
@@ -1889,7 +1956,7 @@ async function _enrichTopPostsWithIgComments(posts, entity) {
 // ════════════════════════════════════════════════════════════════════════════
 // APIFY INTEGRATION (sustituye scrapers Playwright locales)
 // ════════════════════════════════════════════════════════════════════════════
-import { runActor as _apifyRunActor, detectPlatform as _apifyDetectPlatform } from "../lib/apify.client.js";
+import { runActor as _apifyRunActor, runActorBatch as _apifyRunActorBatch, detectPlatform as _apifyDetectPlatform } from "../lib/apify.client.js";
 
 async function _scrapeViaApify(network, handle, organizationId) {
   if (!organizationId) {
@@ -1906,6 +1973,160 @@ async function _scrapeViaApify(network, handle, organizationId) {
       console.warn(`scraper [apify]: error en ${network}/${handle} — ${e.message}`);
     }
     return [];
+  }
+}
+
+/**
+ * Batch: ejecuta 1 run de Apify con N handles del mismo platform y organizationId.
+ * Devuelve Map<handle, post[]> ya en formato legacy. Usado por runCompetitorScraper
+ * para evitar N runs seriados cuando varios triggers comparten plataforma+org.
+ */
+/**
+ * Pre-pass del ciclo: agrupa los triggers social por (organizationId, platform)
+ * y ejecuta 1 batch de Apify por grupo, en paralelo entre grupos. Devuelve
+ * Map<trigger_id, posts[]> que el loop principal consume sin re-scrapear.
+ *
+ * Resolución de platform por trigger:
+ *   1) entity.metadata.platform (lo normal)
+ *   2) detectPlatform(rawHandle) si es URL
+ *   3) fallback 'instagram' (legacy, solo handles puros sin metadata)
+ *
+ * Resolución de handle: misma normalización que el loop legacy (URL → path).
+ */
+async function _runSocialBatchPass(socialTriggers) {
+  const postsByTrigger = new Map();
+  const batchOkTriggers = new Set();
+  if (!socialTriggers || !socialTriggers.length) return { postsByTrigger, batchOkTriggers };
+
+  // Agrupar triggers por (organization_id, platform). Cada grupo = 1 batch run.
+  // groupKey -> { organizationId, platform, items: [{ trigger, entity, handle }] }
+  const groups = new Map();
+
+  for (const trigger of socialTriggers) {
+    const entity = trigger.intelligence_entities;
+    if (!entity) continue;
+    const rawHandle = entity.target_identifier;
+    if (!rawHandle) continue;
+
+    // Normalizar handle (igual lógica que el loop legacy)
+    let handle = rawHandle;
+    try {
+      if (rawHandle.startsWith("http://") || rawHandle.startsWith("https://")) {
+        const url  = new URL(rawHandle);
+        const path = url.pathname.replace(/^\/+|\/+$/g, "");
+        handle = path.replace(/^@/, "");
+      } else {
+        handle = rawHandle.replace(/^@+/, "");
+      }
+    } catch { /* mantener rawHandle */ }
+
+    // Resolver platform
+    let platform = entity.metadata?.platform;
+    const isUrl  = rawHandle.startsWith("http://") || rawHandle.startsWith("https://");
+    if (!platform && isUrl) {
+      try { platform = await _apifyDetectPlatform(rawHandle); }
+      catch (e) { console.warn(`scraper [social/batch]: detectPlatform falló para "${rawHandle}" — ${e.message}`); }
+    }
+    if (!platform) platform = "instagram";
+
+    const orgId = entity.organization_id;
+    if (!orgId) {
+      console.warn(`scraper [social/batch]: ${entity.name} sin organization_id — skip`);
+      continue;
+    }
+
+    const key = `${orgId}::${platform}`;
+    if (!groups.has(key)) groups.set(key, { organizationId: orgId, platform, items: [] });
+    groups.get(key).items.push({ trigger, entity, handle });
+  }
+
+  if (!groups.size) return { postsByTrigger, batchOkTriggers };
+  console.log(`scraper: batch pre-pass — ${groups.size} grupo(s) (org × platform)`);
+
+  // Ejecutar todos los grupos en PARALELO. Cada grupo = 1 run Apify.
+  await Promise.all(
+    [...groups.values()].map(async (g) => {
+      const handles = g.items.map(it => it.handle);
+      let byHandle, ok = true;
+      try {
+        byHandle = await _scrapeViaApifyBatch(g.platform, handles, g.organizationId);
+      } catch (e) {
+        // _scrapeViaApifyBatch ya loguea; este catch es defensa extra.
+        ok = false;
+        byHandle = new Map();
+      }
+      // _scrapeViaApifyBatch devuelve Map vacío en error — distinguimos
+      // entre "Map vacío por error" y "Map vacío porque no había posts" mirando
+      // si HAY al menos 1 trigger con posts en este grupo.
+      const totalItems = [...byHandle.values()].reduce((s, arr) => s + (arr?.length || 0), 0);
+      if (totalItems === 0 && ok) {
+        // Batch terminó OK pero 0 items totales — probable timeout silencioso o
+        // todos los handles muertos. NO marcamos como ok para evitar auto-deact masivo.
+        ok = false;
+      }
+
+      const byHandleLC = new Map();
+      for (const [h, posts] of byHandle.entries()) {
+        byHandleLC.set(String(h).toLowerCase(), posts);
+      }
+      for (const { trigger, handle } of g.items) {
+        const posts = byHandleLC.get(String(handle).toLowerCase()) || [];
+        postsByTrigger.set(trigger.id, posts);
+        if (ok) batchOkTriggers.add(trigger.id);
+      }
+    })
+  );
+
+  return { postsByTrigger, batchOkTriggers };
+}
+
+// Alerta throttled cuando Apify bloquea la cuenta (limite mensual excedido / 403).
+// Antes esto fallaba en SILENCIO (marcaba success con 0 posts) -> Vera ciega sin avisar.
+let _lastApifyBlockAlert = 0;
+async function _alertApifyAccountBlocked(organizationId, rawMsg) {
+  const now = Date.now();
+  if (now - _lastApifyBlockAlert < 12 * 3_600_000) return; // throttle: 1 alerta / 12h
+  _lastApifyBlockAlert = now;
+  const msg = String(rawMsg || "").replace(/\s+/g, " ").slice(0, 200);
+  try {
+    await supabase.from("org_notifications").insert({
+      organization_id: organizationId,
+      severity: "critical",
+      type: "scraping_blocked",
+      title: "Scraping detenido - limite de Apify excedido",
+      body: `Apify bloqueo los scrapers (cuenta sin presupuesto mensual). Vera esta sin data fresca de redes/competencia hasta que se suba el limite en la cuenta de Apify. Detalle: ${msg}`,
+      metadata: { source: "apify", code: "account_blocked" },
+    });
+    console.error("scraper: ALERTA scraping_blocked creada (Apify monthly limit). Sube el limite en la cuenta Apify.");
+  } catch (e) {
+    console.warn(`scraper: no se pudo crear alerta scraping_blocked - ${e.message}`);
+  }
+}
+
+async function _scrapeViaApifyBatch(network, handles, organizationId) {
+  if (!organizationId) {
+    console.warn(`scraper [apify-batch]: organizationId vacío para network="${network}" — skip`);
+    return new Map();
+  }
+  if (!Array.isArray(handles) || !handles.length) return new Map();
+  try {
+    const r = await _apifyRunActorBatch({ organizationId, platform: network, handles });
+    const out = new Map();
+    for (const [h, items] of Object.entries(r.itemsByHandle || {})) {
+      out.set(h, (items || []).map(it => _apifyToLegacyPost(network, it)).filter(Boolean));
+    }
+    console.log(`scraper [apify-batch]: ${network} × ${handles.length} handles → ${r.totalItems} items, $${r.usdCost?.toFixed(4)} (${r.credits} cr)`);
+    return out;
+  } catch (e) {
+    if (e.code === "INSUFFICIENT_CREDITS" || e.code === "DAILY_CAP_REACHED") {
+      console.warn(`scraper [apify-batch]: ${e.code} para org=${organizationId} (${e.message}) — skip batch`);
+    } else if (/platform-feature-disabled|usage hard limit|hard limit exceeded|\b403\b/i.test(e.message || "")) {
+      console.error(`scraper [apify-batch]: APIFY ACCOUNT BLOQUEADO (${network}) — ${String(e.message).replace(/\s+/g, " ").slice(0, 160)}`);
+      await _alertApifyAccountBlocked(organizationId, e.message);
+    } else {
+      console.warn(`scraper [apify-batch]: error en ${network} [${handles.join(",")}] — ${e.message}`);
+    }
+    return new Map();
   }
 }
 
@@ -1934,9 +2155,13 @@ function _apifyToLegacyPost(network, it) {
     tagged_users: (it.taggedUsers || []).map(u => typeof u === "string" ? u : (u.username || u.full_name)).filter(Boolean),
     display_url: it.displayUrl, video_url: it.videoUrl, images: it.images || [],
     accessibility_caption: it.alt, is_video: it.type === "Video",
-    timestamp: it.timestamp || new Date().toISOString(),
+    // Apify IG/FB scrapers no exponen followers count por post (solo en
+    // endpoint /profile separado, requeriría otro run). TT/YT/X sí lo traen.
+    // Por ahora author sin followers — engagement_rate quedará 0 en IG.
+    author: { username: it.ownerUsername, verified: !!it.ownerVerified },
     // Pasamos latestComments adjunto al post para que persistNewPosts los persista en brand_post_comments
     _latest_comments: (it.latestComments || []).slice(0, 10),
+    timestamp: it.timestamp || new Date().toISOString(),
   };
   if (network === "youtube") return {
     external_id: String(it.id), network: "youtube",

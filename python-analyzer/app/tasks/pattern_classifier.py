@@ -50,70 +50,171 @@ def _check_learned_vocab(text_low: str, dimension: str) -> tuple[str, float] | N
     return None
 
 
-# ── DICCIONARIOS ────────────────────────────────────────────────────────────
+# ── DICCIONARIOS (ES + EN) ──────────────────────────────────────────────────
+# Mantener equilibrio: cada concepto debe tener ≥3 términos por idioma porque
+# competidores globales (Nike/Coca-Cola/Liquid Death/Monster/Red Bull) postean
+# en inglés mientras nuestros clientes locales en español. Sin esto, los EN
+# caen al default "casual/informativo" y perdemos señal de tono y tema.
+
 CONFRONTATIONAL_WORDS = {
-    "vs", "against", "contra", "versus", "fight", "challenge", "ridiculous",
-    "wrong", "no es verdad", "false", "fake", "misleading", "shame",
-    "stop", "basta", "es hora de", "wake up",
+    # ES
+    "contra", "versus", "no es verdad", "es hora de", "basta", "déjate de",
+    # EN
+    "vs", "against", "fight", "challenge", "ridiculous", "wrong", "false",
+    "fake", "misleading", "shame", "stop", "wake up", "enough", "call out",
+    "expose", "no more", "break the", "tired of", "say no",
 }
 IRONIC_MARKERS = {
-    "obviously", "claro que", "yeah right", "sí, claro", "no me digas",
-    "great job", "wonderful", "amazing", "perfect", "of course"  # combinado con NEG
+    # ES
+    "claro que", "sí, claro", "no me digas", "qué casualidad", "obviamente",
+    # EN
+    "obviously", "yeah right", "great job", "wonderful", "amazing", "perfect",
+    "of course", "what a surprise", "shocking", "who would have thought",
+    "totally normal", "real mature",
 }
 NOSTALGIC_MARKERS = {
-    "remember when", "back in the day", "te acuerdas", "throwback", "tbt",
-    "those were", "antiguos", "old school", "classic", "original",
+    # ES
+    "te acuerdas", "antiguos", "los noventas", "los 90", "los 2000",
+    "como en los", "throwback", "memorias",
+    # EN
+    "remember when", "back in the day", "tbt", "throwback", "those were",
+    "old school", "classic", "original", "the good old", "vintage",
+    "nostalgia", "way back", "decades ago",
 }
 ASPIRATIONAL_MARKERS = {
-    "live the", "be the", "achieve", "become", "élite", "premium", "lujo",
-    "luxury", "exclusive", "limited edition", "luxe",
+    # ES
+    "élite", "premium", "lujo", "exclusivo", "edición limitada", "para los que",
+    "supera tus", "sé el mejor", "alcanza", "logra", "conviértete",
+    # EN
+    "live the", "be the", "achieve", "become", "luxury", "luxe", "exclusive",
+    "limited edition", "elite", "premium", "be your best", "unleash",
+    "push limits", "rise above", "next level", "world class", "legendary",
+    "iconic", "greatness", "champion", "winning", "be more", "go further",
+    "transcend", "elevate",
 }
 INTIMATE_MARKERS = {
-    "i feel", "siento", "me cuesta", "honestly", "vulnerab", "between us",
-    "personal", "real talk", "verdad sea dicha",
+    # ES
+    "siento", "me cuesta", "vulnerab", "personal", "verdad sea dicha",
+    "para ser sincero", "entre tú y yo", "lo confieso", "me cuesta admitir",
+    # EN
+    "i feel", "honestly", "vulnerab", "between us", "personal", "real talk",
+    "tbh", "to be honest", "truth is", "i'll admit", "deep down",
+    "from the heart", "no filter",
 }
 FUN_FACT_MARKERS = {
-    "did you know", "sabías", "fun fact", "data:", "según", "studies show",
-    "research shows", "estudios", "estadística", "fact:",
+    # ES
+    "sabías", "según", "estudios", "estadística", "dato curioso", "datos:",
+    "investigaciones", "los expertos", "se ha demostrado",
+    # EN
+    "did you know", "fun fact", "data:", "studies show", "research shows",
+    "fact:", "according to", "scientists found", "new study", "experts say",
+    "stats", "actually,",
 }
 TUTORIAL_MARKERS = [
     r"\bstep\s*\d", r"\bpaso\s*\d", r"^\d+\.\s", r"\bfirst\b.*\bthen\b",
     r"\bprimero\b.*\bluego\b", r"\bhow\s+to\b", r"\bcómo\b", r"\btutorial\b",
+    r"\bguide\b", r"\bguía\b", r"\bhere\'s\s+how\b", r"\baquí\s+te\s+muestro\b",
+    r"\beasy\s+steps\b", r"\bpasos\s+fáciles\b",
 ]
 PROMO_MARKERS = [
     r"\d+%\s*(off|descuento|dto)", r"\$\d+", r"\bsale\b", r"\boferta\b",
     r"\bcupón\b", r"\bcoupon\b", r"\bnow\s+only\b", r"\bedición\s+limitada\b",
     r"\bblack\s+friday\b", r"\bcyber\s+monday\b",
+    r"\bdeals?\b", r"\bdiscount\b", r"\bfree\s+shipping\b", r"\bbuy\s+now\b",
+    r"\bshop\s+now\b", r"\bcompra\s+ya\b", r"\bdisponible\s+ya\b",
+    r"\blimited\s+time\b", r"\btiempo\s+limitado\b", r"\bdrops?\b",
+    r"\bavailable\s+(today|now|on)\b",
 ]
 COMPARISON_MARKERS = [
     r"\bvs\b", r"\bversus\b", r"\bA\s+vs\s+B\b", r"\bbetter\s+than\b",
     r"\bmejor\s+que\b", r"\bunlike\b", r"\ba\s+diferencia\s+de\b",
+    r"\bcompared\s+to\b", r"\bin\s+comparison\b", r"\boutperforms?\b",
+    r"\bbeats?\b\s+\w+", r"\bsupera\b", r"\bgana\s+contra\b",
 ]
 COMEDY_MARKERS = {
-    "lol", "lmao", "haha", "jaja", "jeje", "🤣", "😂", "💀", "prank",
-    "joke", "broma", "comedy", "humor",
+    # ES
+    "jaja", "jeje", "broma", "humor", "muerto de risa", "qué bobada",
+    "estoy muerto", "no puedo más", "me mató",
+    # EN
+    "lol", "lmao", "lmfao", "rofl", "haha", "🤣", "😂", "💀", "💀💀",
+    "prank", "joke", "comedy", "i can't", "i'm dead", "killed me",
+    "no way", "this is gold", "send help", "weird flex",
 }
 EVENT_LIVE_MARKERS = {
-    "live", "en vivo", "happening now", "right now", "today only", "tonight",
-    "this weekend", "este fin", "festival", "concert", "GP", "race day",
+    # ES
+    "en vivo", "ahora mismo", "hoy", "esta noche", "este fin",
+    "festival", "concierto", "evento", "carrera de hoy", "partido de hoy",
+    # EN
+    "live", "happening now", "right now", "today only", "tonight",
+    "this weekend", "festival", "concert", "race day", "game day",
+    "game time", "tipoff", "kickoff", "tip-off", "matchday",
+    "watch live", "streaming now", "GP", "f1 race",
 }
 PARTNERSHIP_MARKERS = {
-    "x ", "x@", " x ", "with @", "con @", "feat", "ft.", "powered by",
-    "in partnership", "alianza con", "presented by",
+    # ES
+    "con @", "junto a", "presentado por", "alianza con", "en colaboración",
+    "colab", "x@", "feat",
+    # EN
+    "x ", " x ", "with @", "feat", "ft.", "powered by", "in partnership",
+    "presented by", "collab", "collaboration with", "presents",
+    "teaming up", "alongside", "brought to you by",
 }
 SPORT_EXTREME_TOKENS = {
+    # Sport extremo
     "snowboard", "skate", "surf", "downhill", "freeride", "extreme",
     "skydive", "wingsuit", "parkour", "bmx", "motocross", "drift",
     "cliff", "vert", "trick", "stunt", "racing", "rally", "f1", "moto",
+    # Mainstream sports (EN) — Nike/Coca-Cola los usan mucho
+    "basketball", "football", "soccer", "tennis", "baseball", "nba", "nfl",
+    "fifa", "world cup", "champions league", "olympic", "olympics",
+    "athlete", "training", "workout", "match", "tournament", "playoffs",
+    "finals", "grand slam", "marathon", "sprint", "championship",
+    # Mainstream sports (ES)
+    "baloncesto", "fútbol", "tenis", "béisbol", "mundial", "champions",
+    "olímpicos", "atleta", "entrenamiento", "partido", "torneo", "maratón",
 }
 LIFESTYLE_MARKERS = {
-    "morning routine", "rutina", "vibe", "mood", "energy", "wellness",
-    "self care", "balance", "mindful", "everyday", "cotidiano",
+    # ES
+    "rutina", "vibras", "estado de ánimo", "energía", "bienestar",
+    "autocuidado", "equilibrio", "consciente", "cotidiano", "día a día",
+    # EN
+    "morning routine", "vibe", "vibes", "mood", "energy", "wellness",
+    "self care", "balance", "mindful", "everyday", "lifestyle",
+    "daily", "rituals", "wellbeing", "feel good", "good vibes",
+    "self-love", "main character", "soft life",
 }
 TESTIMONIAL_MARKERS = [
+    # ES
     r"\b(verified|comprado|cliente)\b", r"\breview\b", r"\bopin\w+",
     r"\b(yo\s+lo|yo\s+la)\s+probé\b", r"\b(highly\s+recommend|recomiendo)\b",
+    # EN
+    r"\b5\s*stars?\b", r"\b\d{4,}\s*reviews?\b", r"\bi\s+tried\b",
+    r"\bi\s+tested\b", r"\bworth\s+(the|every)\b", r"\bgame\s+changer\b",
+    r"\blife\s+changing\b", r"\bobsess(ed|ing)\b",
+    r"\b(buy|get)\s+this\b", r"\bafter\s+\d+\s+(weeks|months|days)\b",
 ]
+
+# ── Triggers de tono celebratorio/alegre/entusiasta (EN+ES) ─────────────────
+# Antes solo cabía en "default casual" porque ninguna regla matcheaba estos
+# posts típicos de marca (felicitaciones a deportistas, lanzamientos hype, etc.)
+CELEBRATORY_MARKERS = {
+    # ES
+    "felicidades", "felicitaciones", "lo lograron", "campeones", "victoria",
+    "triunfo", "ganadores", "icónico", "histórico", "increíble",
+    # EN
+    "congrats", "congratulations", "champions", "victory", "wins", "winners",
+    "iconic", "historic", "legendary", "incredible", "amazing",
+    "the goat", "g.o.a.t", "best ever", "record-breaking", "world record",
+    "first ever", "made history",
+}
+HYPE_MARKERS = {
+    # ES
+    "no puedes perdértelo", "imperdible", "épico", "alucinante", "brutal",
+    # EN
+    "let's go", "let's gooo", "let's f-ing go", "lfg", "hype", "fire",
+    "insane", "crazy", "wild", "next level", "unreal", "this is huge",
+    "world class", "absolutely",
+}
 
 
 def _has_any(text_low: str, words) -> int:
@@ -149,50 +250,71 @@ def classify_tone(post: dict) -> tuple[str, float]:
     formality = tv.get("formality", 0.5)
     authority = tv.get("authority", 0.5)
 
-    # 1. Urgente: alta urgencia o promo agresiva
-    if urgency > 0.5 or intent.get("buying_intent", 0) > 0.5:
-        return ("urgente", 0.85)
+    # Orden de prioridad: específicos primero, urgente/casual al final como red.
+    # Antes "urgente" estaba en #1 con threshold bajo (urgency>0.5 OR buying>0.5)
+    # → atrapaba todo post con "new"/"buy"/"drops". Lo bajamos al final y
+    # subimos su exigencia (urgency>0.7 Y otra señal).
 
-    # 2. Confrontacional / Provocador
+    # 1. Confrontacional / Provocador (Liquid Death cuando responde acusaciones)
     confront = _has_any(text_low, CONFRONTATIONAL_WORDS)
     if confront >= 2 or (confront >= 1 and sentiment_score < -0.4):
         return ("confrontacional", min(1.0, 0.5 + confront * 0.15))
 
-    # 3. Irónico / Sarcástico (Liquid Death tier)
+    # 2. Irónico / Sarcástico
     ironic_hits = _has_any(text_low, IRONIC_MARKERS)
     if ironic_hits >= 1 and (sentiment_label == "NEG" or sentiment_score < -0.3):
-        # Inversión sentimental = ironía
         if "💀" in text or "🙄" in text or "😏" in text:
             return ("sarcástico", 0.78)
         return ("irónico", 0.72)
 
-    # 4. Nostálgico
+    # 3. Nostálgico
     if _has_any(text_low, NOSTALGIC_MARKERS) >= 1:
         return ("nostálgico", 0.80)
 
-    # 5. Aspiracional (con flag premium/luxe en taxonomía)
+    # 4. Íntimo (primera persona, founder talk, vulnerable)
+    # SUBIDO antes de urgente: "Hi Tim. It's Mike the LD founder" no es urgente.
+    intim_hits = _has_any(text_low, INTIMATE_MARKERS)
+    if intim_hits >= 1:
+        return ("íntimo", min(1.0, 0.7 + intim_hits * 0.1))
+
+    # 5. Celebratorio (felicitación a deportista, victoria, hito histórico)
+    # SUBIDO: marcas postean MUCHO celebraciones de atletas/equipos.
+    cele_hits = _has_any(text_low, CELEBRATORY_MARKERS)
+    if cele_hits >= 1 and sentiment_score > 0.15:
+        return ("celebratorio", min(1.0, 0.65 + cele_hits * 0.1))
+
+    # 6. Aspiracional (premium/elite/luxury)
     if _has_any(text_low, ASPIRATIONAL_MARKERS) >= 1:
         return ("aspiracional", 0.75)
-
-    # 6. Íntimo (primera persona vulnerable)
-    if _has_any(text_low, INTIMATE_MARKERS) >= 1:
-        return ("íntimo", 0.78)
 
     # 7. Humorístico
     if dominant_emo in ("amusement",) or _has_any(text_low, COMEDY_MARKERS) >= 2:
         return ("humorístico", 0.80)
 
-    # 8. Motivacional (persuasión alta + sentiment positivo + emoción joy/optimism)
+    # 8. Motivacional (persuasión + positivo)
     if persuasion > 0.5 and sentiment_score > 0.3:
         return ("motivacional", 0.72)
 
-    # 9. Optimista (sentiment alto positivo + future-oriented)
+    # 9. Optimista (sentiment alto + future-oriented)
     if sentiment_score > 0.6 and any(w in text_low for w in ["future", "futuro", "tomorrow", "mañana", "we will", "iremos", "we can", "podemos"]):
         return ("optimista", 0.82)
 
     # 10. Alegre (emotion=joy + enthusiasm + sentiment +)
     if dominant_emo == "joy" or (enthusiasm > 0.5 and sentiment_score > 0.4):
         return ("alegre", 0.75)
+
+    # 11. Entusiasta (hype/fire markers)
+    hype_hits = _has_any(text_low, HYPE_MARKERS)
+    if hype_hits >= 1:
+        return ("entusiasta", min(1.0, 0.65 + hype_hits * 0.1))
+
+    # 12. Urgente: BAJADO al final + threshold más exigente.
+    # Antes: urgency>0.5 OR buying>0.5 (sobre-disparaba). Ahora: urgency>0.7
+    # OR (buying>0.6 Y promo/launch keywords). Posts genéricos con "new"/"buy"
+    # caerán mejor en producto_launch o promo_oferta.
+    has_promo_signal = bool(re.search(r"\b(buy now|shop now|sale|oferta|drops?|now only)\b", text_low))
+    if urgency > 0.7 or (intent.get("buying_intent", 0) > 0.6 and has_promo_signal):
+        return ("urgente", 0.85)
 
     # 11. Educativo (formal + alta autoridad sin push de venta)
     if formality > 0.55 and authority > 0.5 and intent.get("buying_intent", 0) < 0.3:
@@ -221,12 +343,25 @@ def classify_topic(post: dict, network: str) -> tuple[str, float]:
     intent = post.get("intent", {})
     pn = post.get("platform_native", {})
 
-    # 1. Promo / Oferta
-    if _has_any(text_low, PROMO_MARKERS) >= 1 or intent.get("buying_intent", 0) > 0.6:
+    # 0. Deportes (atletas, equipos, partidos) — PRIORIDAD ALTA porque
+    # Nike/Coca-Cola/Monster/Red Bull postean MUCHO sobre deportistas y
+    # sino caía al default "informativo".
+    sport_hits = _has_any(text_low, SPORT_EXTREME_TOKENS)
+    if sport_hits >= 2:
+        return ("deportes", min(1.0, 0.6 + sport_hits * 0.1))
+
+    # 1. Promo / Oferta (requiere PROMO_MARKERS explícito, no solo buying_intent)
+    promo_hit = _has_any(text_low, PROMO_MARKERS) if isinstance(PROMO_MARKERS, set) else _has_any_regex(text, PROMO_MARKERS)
+    if promo_hit >= 1 or (intent.get("buying_intent", 0) > 0.7 and "$" in text):
         return ("promo_oferta", 0.85)
 
     # 2. Producto / Launch
-    if any(w in text_low for w in ["new", "launching", "drops", "available", "lanzamos", "estrenamos", "presentando"]):
+    if any(w in text_low for w in [
+        "new ", "launching", "drops", "available", "now available",
+        "introducing", "presenting", "meet the", "say hello to",
+        "lanzamos", "estrenamos", "presentando", "te presentamos",
+        "ya disponible", "nuevo en", "esta colección", "this collection",
+    ]):
         return ("producto_launch", 0.80)
 
     # 3. Tutorial
@@ -267,8 +402,17 @@ def classify_topic(post: dict, network: str) -> tuple[str, float]:
         return ("comedia_pranks", 0.75)
 
     # 12. Comunidad / fans
-    if any(w in text_low for w in ["fam", "community", "comunidad", "fans", "you guys", "ustedes", "todos vamos"]):
+    if any(w in text_low for w in [
+        "fam", "community", "comunidad", "fans", "you guys", "ustedes",
+        "todos vamos", "shoutout", "shout out", "thank you all", "gracias a todos",
+        "our community", "you all", "the team",
+    ]):
         return ("comunidad_fans", 0.65)
+
+    # 12b. Deportes (single hit) — fallback si solo 1 token de SPORT (la #0 ya
+    # capturó los multi-hit con más confianza).
+    if _has_any(text_low, SPORT_EXTREME_TOKENS) >= 1:
+        return ("deportes", 0.65)
 
     # 13. Testimonial
     if _has_any_regex(text, TESTIMONIAL_MARKERS):

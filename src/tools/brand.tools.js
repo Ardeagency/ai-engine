@@ -20,34 +20,31 @@ export async function getBrandContainers(organizationId) {
 export async function getBrandProfile(brandContainerId, organizationId) {
   const bc = await resolveBrandContainer(brandContainerId, organizationId);
 
-  const { data: brand, error: brandErr } = await supabase
-    .from("brands")
+  // El ADN vive directo en brand_containers (la tabla "brands" legacy ya no existe).
+  // resolveBrandContainer solo trae { id, nombre_marca } — hacemos una segunda query
+  // para traer todos los campos del ADN.
+  const { data: dna, error } = await supabase
+    .from("brand_containers")
     .select(
-      "id, nicho_mercado, arquetipo_personalidad, tono_comunicacion, estilo_escritura, " +
-      "palabras_clave, palabras_prohibidas, objetivos_marca, enfoque_marca"
+      "id, nombre_marca, mercado_objetivo, idiomas_contenido, " +
+      "nicho_core, sub_nichos, arquetipo, propuesta_valor, mision_vision, " +
+      "verbal_dna, visual_dna, palabras_clave, palabras_prohibidas, objetivos_estrategicos"
     )
-    .eq("project_id", bc.id)
+    .eq("id", bc.id)
     .maybeSingle();
-  if (brandErr) throw brandErr;
+  if (error) throw error;
 
-  return { brand_container: bc, brand: brand || null };
+  return { brand_container: dna || bc, brand: null };
 }
 
 export async function getAudiences(brandContainerId, organizationId) {
   const bc = await resolveBrandContainer(brandContainerId, organizationId);
 
-  const { data: brands } = await supabase
-    .from("brands")
-    .select("id")
-    .eq("project_id", bc.id);
-
-  const brandIds = (brands || []).map((b) => b.id);
-  if (!brandIds.length) return [];
-
+  // audience_personas apunta directo a brand_container_id (sin tabla brands intermedia).
   const { data, error } = await supabase
-    .from("audiences")
+    .from("audience_personas")
     .select("id, name, description, awareness_level, dolores, deseos, estilo_lenguaje")
-    .in("brand_id", brandIds);
+    .eq("brand_container_id", bc.id);
 
   if (error) throw error;
   return Array.isArray(data) ? data : [];
@@ -123,14 +120,7 @@ export async function getOrgOverview(organizationId) {
     };
   }
 
-  // 2. Obtener brand_ids de tabla brands (intermedia) para audiences
-  const { data: brandRows } = await supabase
-    .from("brands")
-    .select("id")
-    .in("project_id", brandIds);
-  const innerBrandIds = (brandRows || []).map((b) => b.id);
-
-  // 3. Conteos en paralelo
+  // 2. Conteos en paralelo (audience_personas apunta directo a brand_container_id)
   const [
     { count: productsCount },
     { count: audiencesCount },
@@ -142,9 +132,7 @@ export async function getOrgOverview(organizationId) {
     { data: integrationsList },
   ] = await Promise.all([
     supabase.from("products").select("id", { count: "exact", head: true }).in("brand_container_id", brandIds),
-    innerBrandIds.length
-      ? supabase.from("audiences").select("id", { count: "exact", head: true }).in("brand_id", innerBrandIds)
-      : Promise.resolve({ count: 0 }),
+    supabase.from("audience_personas").select("id", { count: "exact", head: true }).in("brand_container_id", brandIds),
     supabase.from("brand_entities").select("id", { count: "exact", head: true }).in("brand_container_id", brandIds),
     supabase.from("campaigns").select("id", { count: "exact", head: true }).in("brand_container_id", brandIds),
     supabase.from("brand_integrations").select("id", { count: "exact", head: true })

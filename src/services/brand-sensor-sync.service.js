@@ -33,15 +33,34 @@ const BRAND_WIDE_SENSORS = [
   { sensor_type: "ga4_audience_demographics",      cadence: "daily",    cadence_value: "1", priority: 6 },
   { sensor_type: "meta_ads_audiences_sync",        cadence: "daily",    cadence_value: "1", priority: 5 },
   { sensor_type: "meta_campaign_audience_demographics", cadence: "daily", cadence_value: "1", priority: 5 },
+  { sensor_type: "meta_campaign_ad_insights",      cadence: "daily",    cadence_value: "1", priority: 6 },
   { sensor_type: "audience_alignment_analysis",    cadence: "daily",    cadence_value: "1", priority: 4 },
   { sensor_type: "brand_audience_heatmap_compute", cadence: "daily",    cadence_value: "1", priority: 5 },
   { sensor_type: "mission_generation",             cadence: "interval", cadence_value: "5", priority: 7 },
   { sensor_type: "brand_indexer",                  cadence: "daily",    cadence_value: "1", priority: 4 },
   { sensor_type: "threat_detection",               cadence: "daily",    cadence_value: "1", priority: 6 },
   { sensor_type: "meta_ad_library_sync",           cadence: "daily",    cadence_value: "1", priority: 5 },
+  // Trends engine — pipeline Apify+NewsAPI+OpenAI+Sonnet que genera briefs
+  // estratégicos. Costo ~$0.08-0.15 por ciclo, daily es suficiente.
+  { sensor_type: "trends_run",                     cadence: "daily",    cadence_value: "1", priority: 7 },
 ];
 
 let _interval = null;
+
+// Resuelve cadencia del sensor `trends_run` desde plans.trends_cadence_days.
+// Plan agency = daily, team = 2 días, creator = 7 días. Fallback 7 (lo más
+// conservador) si la org no tiene plan activo.
+async function _resolveTrendsCadence(organizationId) {
+  const { data: sub } = await supabase
+    .from("subscriptions")
+    .select("plans!inner(trends_cadence_days)")
+    .eq("organization_id", organizationId)
+    .in("status", ["trial", "active", "past_due"])
+    .maybeSingle();
+  const days = sub?.plans?.trends_cadence_days ?? 7;
+  // cadence_value en minutos para soportar valores arbitrarios sin nuevo type
+  return { cadence: "interval", cadence_value: String(days * 24 * 60) };
+}
 
 async function ensureSensorsForBrand(brandContainerId, organizationId) {
   let created = 0, existed = 0;
@@ -61,6 +80,15 @@ async function ensureSensorsForBrand(brandContainerId, organizationId) {
       continue;
     }
 
+    // Para trends_run, derivar cadencia del plan de la org (no del array estático).
+    let cadence = s.cadence;
+    let cadenceValue = s.cadence_value;
+    if (s.sensor_type === "trends_run") {
+      const resolved = await _resolveTrendsCadence(organizationId);
+      cadence = resolved.cadence;
+      cadenceValue = resolved.cadence_value;
+    }
+
     // Escalonar next_run_at por 2 min para evitar stampede
     const nextRunAt = new Date(Date.now() + i * 2 * 60_000).toISOString();
     const { error } = await supabase.from("monitoring_triggers").insert({
@@ -68,8 +96,8 @@ async function ensureSensorsForBrand(brandContainerId, organizationId) {
       organization_id:    organizationId,
       entity_id:          null,
       sensor_type:        s.sensor_type,
-      cadence:            s.cadence,
-      cadence_value:      s.cadence_value,
+      cadence,
+      cadence_value:      cadenceValue,
       priority:           s.priority,
       status:             "active",
       next_run_at:        nextRunAt,

@@ -442,18 +442,32 @@ export async function updateMonitoringTrigger(params, brandContainerId, organiza
  */
 export async function addIntelligenceEntity(params, brandContainerId, organizationId) {
   const bc = await resolveBrandContainer(brandContainerId, organizationId);
-  const { name, platform, handle, cadence_minutes = 60 } = params;
+  const { name, platform, handle, cadence_minutes } = params;
 
   if (!name || !platform || !handle) {
     throw new Error("name, platform y handle son requeridos");
   }
 
-  const VALID_PLATFORMS = ["instagram", "tiktok", "youtube", "facebook", "amazon"];
+  const VALID_PLATFORMS = ["instagram", "tiktok", "youtube", "facebook", "amazon", "x"];
   if (!VALID_PLATFORMS.includes(platform.toLowerCase())) {
     throw new Error(`platform debe ser: ${VALID_PLATFORMS.join(", ")}`);
   }
 
-  if (cadence_minutes < 15) {
+  // Cadencia: si no la pasa el llamador, derivar del plan de la org.
+  // creator=9h, team=6h, agency=3h. Fallback 6h (team) si la org no tiene plan activo.
+  let effectiveCadenceMinutes = cadence_minutes;
+  if (!effectiveCadenceMinutes) {
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("plans!inner(scraping_cadence_hours)")
+      .eq("organization_id", organizationId)
+      .in("status", ["trial", "active", "past_due"])
+      .maybeSingle();
+    const hours = sub?.plans?.scraping_cadence_hours ?? 6;
+    effectiveCadenceMinutes = hours * 60;
+  }
+
+  if (effectiveCadenceMinutes < 15) {
     throw new Error("cadencia mínima: 15 minutos");
   }
 
@@ -492,7 +506,7 @@ export async function addIntelligenceEntity(params, brandContainerId, organizati
     entity_id:          newEntity.id,
     sensor_type:        domain === "marketplace" ? "marketplace" : "social",
     cadence:            "interval",
-    cadence_value:      String(cadence_minutes),
+    cadence_value:      String(effectiveCadenceMinutes),
     priority:           5,
     status:             "active",
     next_run_at:        now,
@@ -508,8 +522,8 @@ export async function addIntelligenceEntity(params, brandContainerId, organizati
     entity:     newEntity.name,
     platform,
     handle:     handle.replace(/^@/, ""),
-    cadence:    `cada ${cadence_minutes} minutos`,
-    message:    `✅ Entidad "${name}" agregada. Será monitoreada cada ${cadence_minutes} minutos.`,
+    cadence:    `cada ${effectiveCadenceMinutes} minutos`,
+    message:    `✅ Entidad "${name}" agregada. Será monitoreada cada ${effectiveCadenceMinutes} minutos.`,
   };
 }
 

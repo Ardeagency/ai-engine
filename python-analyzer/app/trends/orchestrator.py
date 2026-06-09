@@ -175,20 +175,58 @@ async def _run_collector(query: TrendQuery, brand_container_id: str,
 
 async def _collect_all(queries: list[TrendQuery], brand_container_id: str,
                         organization_id: str, cycle_id: str) -> list[RawSignal]:
-    """Dispatch concurrente con semáforo. Devuelve flat list."""
-    sem = asyncio.Semaphore(CONCURRENCY)
+    """Agrupa queries por provider y usa collect_batch cuando el collector
+    soporta batch (1 Apify run con N queries). Fallback a 1×1 para collectors
+    sin batch.
 
-    async def _bound(q: TrendQuery) -> list[RawSignal]:
-        async with sem:
-            return await _run_collector(q, brand_container_id,
-                                          organization_id, cycle_id)
+    Antes: 1 Apify run por query → 30 queries = 30 runs.
+    Ahora: 1 Apify run por provider → 30 queries = ~4 runs (uno por provider).
+    """
+    from .collectors import get_collector
+    from collections import defaultdict
 
-    results = await asyncio.gather(*[_bound(q) for q in queries],
-                                     return_exceptions=True)
+    # 1. Agrupar queries por provider (primer target_api)
+    by_provider: dict[str, list[TrendQuery]] = defaultdict(list)
+    for q in queries:
+        if not q.target_apis:
+            continue
+        by_provider[q.target_apis[0]].append(q)
+
+    # 2. Para cada provider, decidir batch vs 1×1
     out: list[RawSignal] = []
+    sem = asyncio.Semaphore(CONCURRENCY)  # paralelismo entre providers
+
+    async def _run_provider(provider: str, qs: list[TrendQuery]) -> list[RawSignal]:
+        async with sem:
+            coll = get_collector(provider)
+            if coll is None:
+                log.warning("no collector for provider=%s", provider)
+                return []
+            try:
+                grouped = await coll.collect_batch(
+                    qs,
+                    brand_container_id=brand_container_id,
+                    organization_id=organization_id,
+                    cycle_id=cycle_id,
+                )
+            except Exception as e:
+                log.warning("collect_batch failed provider=%s err=%s",
+                            provider, str(e)[:200])
+                return []
+            sigs_out: list[RawSignal] = []
+            for q in qs:
+                for s in grouped.get(q.keyword, []):
+                    s.query_id = s.query_id or q.keyword
+                    sigs_out.append(s)
+            return sigs_out
+
+    results = await asyncio.gather(
+        *[_run_provider(p, qs) for p, qs in by_provider.items()],
+        return_exceptions=True,
+    )
     for r in results:
         if isinstance(r, Exception):
-            log.warning("collect_all: query failed err=%s", r)
+            log.warning("collect_all (batch): provider failed err=%s", r)
             continue
         out.extend(r)
     return out

@@ -48,22 +48,79 @@ export async function buildOrgContext(organizationId, brandContainerId = null) {
   if (brandContainerId) {
     const { data: bc } = await supabase
       .from("brand_containers")
-      .select("id, nombre_marca, mercado_objetivo, idiomas_contenido")
+      .select("id, nombre_marca, mercado_objetivo, idiomas_contenido, nicho_core, sub_nichos, arquetipo, propuesta_valor, creative_brief, verbal_dna, visual_dna, palabras_clave, palabras_prohibidas, objetivos_estrategicos")
       .eq("id", brandContainerId)
       .eq("organization_id", organizationId)
       .maybeSingle();
 
     if (bc) {
-      const { data: brand } = await supabase
-        .from("brands")
-        .select(
-          "id, nicho_mercado, arquetipo_personalidad, tono_comunicacion, " +
-          "estilo_escritura, palabras_clave, objetivos_marca"
-        )
-        .eq("project_id", brandContainerId)
-        .maybeSingle();
+      // Shape legacy (consumidores aun pueden esperar brand_identity).
+      const brand_identity = {
+        nicho_mercado:          bc.nicho_core || null,
+        arquetipo_personalidad: bc.arquetipo  || null,
+        tono_comunicacion:      bc.verbal_dna?.tono   || null,
+        estilo_escritura:       bc.verbal_dna?.estilo || null,
+        palabras_clave:         bc.palabras_clave || [],
+        objetivos_marca:        bc.objetivos_estrategicos || null,
+      };
 
-      ctx.active_brand = { ...bc, brand_identity: brand || null };
+      // ── Reduccion creativa para prompts del LLM generador ────────────
+      // Antes pasabamos verbal_dna+visual_dna+palabras_clave crudos al prompt:
+      // el LLM tomaba todo literal (verbo_rotacion_pool entero como copy,
+      // sub_nichos como nombres de variantes, default_scene_anchor blueprint
+      // exacto). Los frames salian todos identicos.
+      //
+      // Ahora separamos en 3 buckets:
+      //   creative_brief    — sintesis corta (~280 chars) que VA al system
+      //                       prompt como inspiracion principal
+      //   hard_constraints  — reglas duras inviolables (paleta, never list,
+      //                       prohibido, formato estricto). VAN al system
+      //                       prompt como REGLAS
+      //   soft_inspiration  — contexto creativo (tono, manifesto, signature).
+      //                       VA marcado como "contexto, no instruccion"
+      //
+      // Los campos crudos (verbal_dna, visual_dna completos) siguen en bc
+      // para herramientas que los necesiten explicitamente (vera-brain-feed,
+      // brand-indexer). Pero NO se inyectan crudos en system prompts.
+
+      const briefFallback = (bc.propuesta_valor || '').trim().slice(0, 280) || null;
+      const creativeBrief = (bc.creative_brief || '').trim() || briefFallback;
+
+      const vDna = bc.verbal_dna || {};
+      const visDna = bc.visual_dna || {};
+
+      const hard_constraints = {
+        paleta:               visDna.paleta || null,
+        never:                Array.isArray(visDna.never) ? visDna.never : [],
+        palabras_prohibidas:  Array.isArray(bc.palabras_prohibidas) ? bc.palabras_prohibidas : [],
+        formato:              vDna.formato || null,
+        tipografia_prohibido: visDna.tipografia?.prohibido || null,
+      };
+
+      const soft_inspiration = {
+        tono:               Array.isArray(vDna.tono) ? vDna.tono : [],
+        pilares:            Array.isArray(vDna.pilares) ? vDna.pilares : [],
+        manifiesto:         vDna.manifiesto_core || null,
+        tagline:            vDna.tagline || null,
+        verbos_inspiracion: Array.isArray(vDna.verbos_inspiracion || vDna.verbo_rotacion_pool)
+          ? (vDna.verbos_inspiracion || vDna.verbo_rotacion_pool).slice(0, 6)
+          : [],
+        estetica:           visDna.estetica || null,
+        preferred_moods:    Array.isArray(visDna.preferred_moods || visDna.trend_compatibility?.preferred)
+          ? (visDna.preferred_moods || visDna.trend_compatibility.preferred).slice(0, 5)
+          : [],
+        signature_hints:    Array.isArray(visDna.signature_hints || visDna.signature_elements)
+          ? (visDna.signature_hints || visDna.signature_elements).slice(0, 4)
+          : [],
+      };
+
+      ctx.active_brand = {
+        ...bc,
+        brand_identity,
+        creative_brief: creativeBrief,
+        hard_constraints,
+        soft_inspiration,
+      };
 
       try {
         const integrations = await getIntegrations(brandContainerId, organizationId);
@@ -130,11 +187,29 @@ export async function buildFullBrandContext(brandContainerId, organizationId) {
     } catch (_) { return []; }
   }
 
+  // Ultimo brand DNA narrativo (manifiesto generado por gpt-4o, ver
+  // brand-dna-generator.service.js). Se inyecta como bloque destacado
+  // al inicio del contexto serializado de la marca — es la voz/identidad
+  // que Vera debe asumir.
+  async function getLatestBrandDna() {
+    try {
+      const { data } = await supabase
+        .from("brand_dna_generations")
+        .select("dna_text, generated_at, model_used")
+        .eq("brand_container_id", brandContainerId)
+        .eq("organization_id", organizationId)
+        .order("generated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data || null;
+    } catch (_) { return null; }
+  }
+
   // Ejecutar todas las consultas en paralelo
   const [
     products, services, audiences, campaigns,
     entities, intelligenceEntities, trendTopics,
-    recentRuns, activeSchedules,
+    recentRuns, activeSchedules, brandDna,
   ] = await Promise.allSettled([
     getProducts(brandContainerId, organizationId).catch(() => []),
     getServices(),
@@ -147,10 +222,12 @@ export async function buildFullBrandContext(brandContainerId, organizationId) {
     getFlowSchedules(brandContainerId, organizationId)
       .then((s) => s.filter((x) => x.status === "active"))
       .catch(() => []),
+    getLatestBrandDna(),
   ]).then((results) => results.map((r) => r.status === "fulfilled" ? r.value : []));
 
   return {
     brandName,
+    brandDna,
     products,
     services,
     audiences,

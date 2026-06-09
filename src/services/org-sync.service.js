@@ -25,8 +25,19 @@ const SYNC_INTERVAL_MS = parseInt(process.env.ORG_SYNC_INTERVAL_MS || "300000", 
 const ACTIVE_STATUSES  = new Set(["healthy", "provisioning", "starting"]);
 
 let _syncInterval = null;
+let _isRunning    = false;
 
 async function runOrgSync() {
+  // Lock per-proceso: si ya hay un ciclo en curso, descartar este trigger.
+  // Evita race condition entre el setInterval automático y disparadores manuales
+  // (POST /internal/sync-orgs) que pueden ver la DB en el mismo estado pre-provisioning
+  // y provocar dos createOrgServer paralelos → 409 "server name is already used".
+  if (_isRunning) {
+    console.log("org-sync: ciclo ya en curso, descartando trigger");
+    return;
+  }
+  _isRunning = true;
+
   try {
     // 1. Obtener todas las organizaciones
     const { data: orgs, error: orgsErr } = await supabase
@@ -70,6 +81,8 @@ async function runOrgSync() {
     }
   } catch (e) {
     console.error("org-sync: error inesperado:", e.message);
+  } finally {
+    _isRunning = false;
   }
 }
 

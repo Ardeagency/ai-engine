@@ -45,3 +45,9 @@ backups/
 
 # Otros runtime
 *.tmp
+
+# backups y artefactos de recovery (no versionar)
+*.bak
+*.bak-*
+*.bak.*
+recovered-defaults*

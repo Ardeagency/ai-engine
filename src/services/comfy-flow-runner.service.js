@@ -124,6 +124,74 @@ async function resolveIdentities(entityIds) {
   return ids.map(id => by[id]).filter(Boolean);
 }
 
+// Curado de producto para prompting: solo campos visualmente relevantes, sin dumpear la fila cruda.
+function curateProduct(p) {
+  if (!p) return null;
+  const arr = (a) => (Array.isArray(a) && a.length ? a : undefined);
+  const out = {
+    nombre_producto: p.nombre_producto || undefined,
+    tipo_producto: p.tipo_producto || undefined,
+    descripcion: p.descripcion_producto || undefined,
+    beneficios_principales: arr(p.beneficios_principales),
+    diferenciadores: arr(p.diferenciadores),
+    caracteristicas_visuales: arr(p.caracteristicas_visuales),
+    materiales_composicion: arr(p.materiales_composicion),
+    variantes: arr((p.variantes || []).map(v => (typeof v === "string" ? v : (v && (v.nombre || v.name)))).filter(Boolean)),
+  };
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined));
+}
+
+const _PRODUCT_FIELDS = "entity_id, nombre_producto, tipo_producto, descripcion_producto, beneficios_principales, diferenciadores, caracteristicas_visuales, materiales_composicion, variantes";
+const _UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Resuelve la DATA del producto (no solo la imagen) desde el input para alimentar el prompt.
+// Acepta entity_ids (uuid) o URLs de imagen (las mapea via product_images -> products).
+async function resolveProductData(inputs = {}) {
+  const raw = [...(inputs.productos || []), ...(inputs.entity_ids || [])].filter(Boolean);
+  if (!raw.length) return [];
+  const ids = raw.filter(v => typeof v === "string" && _UUID_RE.test(v));
+  const urls = raw.filter(v => typeof v === "string" && v.startsWith("http"));
+  const rows = [];
+  if (ids.length) {
+    const { data } = await supabase.from("products").select(_PRODUCT_FIELDS).in("entity_id", ids);
+    (data || []).forEach(p => rows.push(p));
+  }
+  if (urls.length) {
+    const { data: imgs } = await supabase.from("product_images").select("product_id, image_url").in("image_url", urls);
+    const pids = [...new Set((imgs || []).map(i => i.product_id).filter(Boolean))];
+    if (pids.length) {
+      const { data } = await supabase.from("products").select("id, " + _PRODUCT_FIELDS).in("id", pids);
+      (data || []).forEach(p => rows.push(p));
+    }
+  }
+  const seen = new Set(); const curated = [];
+  for (const p of rows) {
+    const k = p.nombre_producto || p.entity_id || p.id;
+    if (k && !seen.has(k)) { seen.add(k); const c = curateProduct(p); if (c && Object.keys(c).length) curated.push(c); }
+  }
+  return curated;
+}
+
+// Referencias de estilo a nivel ORG (visual_references). Las instala un DEV; el usuario NO las elige.
+// Devuelve hasta n URLs de imagen usables, ordenadas por prioridad.
+async function resolveOrgReferences(organizationId, n = 2) {
+  if (!organizationId) return [];
+  const { data } = await supabase.from("visual_references")
+    .select("image_url, bucket, object_path, priority")
+    .eq("organization_id", organizationId).eq("usable_for_generation", true)
+    .order("priority", { ascending: true, nullsFirst: false }).limit(n);
+  return (data || [])
+    .map(r => r.image_url || (r.bucket && r.object_path ? `${process.env.SUPABASE_URL}/storage/v1/object/public/${r.bucket}/${r.object_path}` : null))
+    .filter(Boolean);
+}
+
+// Brief creativo CURADO de la marca (NUNCA verbal_dna/visual_dna crudos -> feedback brand-spec-no-dump).
+async function getBrandBrief(brandContainerId) {
+  if (!brandContainerId) return null;
+  const { data } = await supabase.from("brand_containers").select("creative_brief").eq("id", brandContainerId).maybeSingle();
+  return data?.creative_brief || null;
+}
+
 const MODEL_MAP = { KIE_NanoBananaPro_Image: "nano-banana-pro", KIE_NanoBanana2_Image: "nano-banana-2", KIE_GPTImage2_I2I: "gpt-image-2", KIE_GPTImage2_T2I: "gpt-image-2", KIE_Kling3_Video: "kling-3.0", KIE_Seedance2_Video: "seedance-2" };
 function modelFor(ct) { return MODEL_MAP[ct] || (String(ct).startsWith("KIE_") ? String(ct).replace("KIE_", "").toLowerCase() : ct); }
 // Costo en creditos por modelo (CALIBRAR contra pricing real de KIE). 1 credito ~= 1 USD.
@@ -141,8 +209,17 @@ function findGenNode(api, nodeId, depth = 0) {
 
 async function persistOutputs(job, def, worker, outputs, apiGraph, realCost, identities) {
   const bc = job.brand_container_id, inp = job.inputs || {}, userId = job.user_id || null;
-  const { data: run } = await supabase.from("flow_runs").insert({ flow_id: def.contentFlowId, organization_id: job.organization_id, brand_id: bc, user_id: userId, status: "completed" }).select("id").maybeSingle();
-  const runId = run?.id || null;
+  // Studio: el frontend ya creo el run (output_run_id) -> REUSAR, no crear otro ni recobrar.
+  const preRun = job.output_run_id || null;
+  let runId = preRun;
+  if (preRun) {
+    // El cron cleanup_empty_flow_runs puede borrar el run mientras comfy genera (runs largos);
+    // re-crearlo (upsert por id) para que los outputs no queden huerfanos ni el insert falle por FK.
+    await supabase.from("flow_runs").upsert({ id: preRun, flow_id: def.contentFlowId, organization_id: job.organization_id, brand_id: bc, user_id: userId, status: "completed" }, { onConflict: "id" }).then(() => {}, () => {});
+  } else {
+    const { data: run } = await supabase.from("flow_runs").insert({ flow_id: def.contentFlowId, organization_id: job.organization_id, brand_id: bc, user_id: userId, status: "completed" }).select("id").maybeSingle();
+    runId = run?.id || null;
+  }
   // briefing
   const briefInputs = { ...inp }; delete briefInputs.productos; delete briefInputs.referencias_estilo;
   if (Array.isArray(identities) && identities.length) briefInputs.identities = identities;
@@ -151,7 +228,9 @@ async function persistOutputs(job, def, worker, outputs, apiGraph, realCost, ide
   const entityMap = inp.entity_map || {};
   let count = 0, cost = 0;
   for (const [nid, o] of Object.entries(outputs || {})) {
-    const media = [...(o.images || []).map(x => ({ ...x, ot: "image", ct: "image/png" })), ...(o.gifs || []).map(x => ({ ...x, ot: "video", ct: "image/gif" })), ...(o.videos || []).map(x => ({ ...x, ot: "video", ct: "video/mp4" }))];
+    // SaveVideo emite el .mp4 bajo la clave `images` (con animated:true) -> detectar por extension.
+    const _isVid = (fn) => /\.(mp4|webm|mov)$/i.test(String(fn || ""));
+    const media = [...(o.images || []).map(x => ({ ...x, ot: _isVid(x.filename) ? "video" : "image", ct: _isVid(x.filename) ? "video/mp4" : "image/png" })), ...(o.gifs || []).map(x => ({ ...x, ot: "video", ct: "image/gif" })), ...(o.videos || []).map(x => ({ ...x, ot: "video", ct: "video/mp4" }))];
     for (const m of media) {
       if (m.type !== "output") continue;
       try {
@@ -162,7 +241,7 @@ async function persistOutputs(job, def, worker, outputs, apiGraph, realCost, ide
         const model = gen ? modelFor(gen.class_type) : "comfy";
         cost += (CREDIT_RATE[model] ?? CREDIT_RATE.default);
         const prefix = String(m.filename).split("_")[0];
-        await supabase.from("runs_outputs").insert({
+        const { error: insErr } = await supabase.from("runs_outputs").insert({
           output_type: m.ot === "video" ? "video" : "ai_content", status: "completed", provider: "comfy",
           storage_path: `production-outputs/${objPath}`, organization_id: job.organization_id, brand_container_id: bc, run_id: runId,
           prompt_used: gen?.inputs?.prompt || null, models: [model],
@@ -170,6 +249,7 @@ async function persistOutputs(job, def, worker, outputs, apiGraph, realCost, ide
           reference_image_url: (inp.productos && inp.productos[0]) || null, entity_id: entityMap[prefix] || inp.entity_id || null,
           metadata: { node: nid, flow_slug: job.flow_slug, variant: prefix },
         });
+        if (insErr) throw new Error("runs_outputs insert: " + insErr.message);  // antes no se chequeaba -> count++ falso
         count++;
       } catch (e) { console.warn("persist", m.filename, e.message); }
     }
@@ -177,7 +257,14 @@ async function persistOutputs(job, def, worker, outputs, apiGraph, realCost, ide
   if (count > 0) {
     const finalCost = (typeof realCost === "number" && realCost > 0) ? realCost : cost;  // costo REAL de KIE (diff balance); estimado solo fallback
     try { await supabase.rpc("observe_flow_credit", { p_flow_id: def.contentFlowId, p_amount: finalCost }); } catch (e) { console.warn("observe_flow_credit:", e.message); }
-    try { await supabase.rpc("use_credits", { p_organization_id: job.organization_id, p_user_id: userId, p_credits_needed: Math.ceil(finalCost), p_operation_type: "comfy_flow", p_description: `${job.flow_slug} (${count} outputs, ${finalCost} cr ${(typeof realCost==="number"&&realCost>0)?"real":"est"})` }); } catch (e) { console.warn("use_credits:", e.message); }
+    // Cobro SOLO si el runner creo el run; si vino del Studio (preRun) el frontend ya dedujo en deduct_credits_and_create_run.
+    if (!preRun) {
+      try { await supabase.rpc("use_credits", { p_organization_id: job.organization_id, p_user_id: userId, p_credits_needed: Math.ceil(finalCost), p_operation_type: "comfy_flow", p_description: `${job.flow_slug} (${count} outputs, ${finalCost} cr ${(typeof realCost==="number"&&realCost>0)?"real":"est"})` }); } catch (e) { console.warn("use_credits:", e.message); }
+    }
+  }
+  // Studio: marcar el run reusado como completado (el frontend lo dejo 'running' esperando outputs).
+  if (preRun && count > 0) {
+    await supabase.from("flow_runs").update({ status: "completed" }).eq("id", preRun).then(() => {}, () => {});
   }
   return runId;
 }
@@ -187,15 +274,33 @@ async function processJob(job) {
   try {
     const def = await loadFlowDef(job.flow_slug);
     let bindings = { ...(def.bindings || {}) };
-    // FEAT-034: prompts dinamicos por tenant -> set_widget bindings
+    const identities = await resolveIdentities(job.inputs?.productos || []);
+    // FEAT-034b: prompts dinamicos por tenant con CONTEXTO REAL -> set_widget bindings.
+    // Resuelve la DATA del producto (desde URLs/entity_ids del input) + brief curado de la marca,
+    // para que el prompt se construya sobre el producto real, no solo el golden de ejemplo.
     if (Array.isArray(def.promptSlots) && def.promptSlots.length) {
-      const ctx = { product: job.inputs?.product || {}, brandBrief: job.inputs?.brand_brief, hardConstraints: job.inputs?.hard_constraints };
+      const products = await resolveProductData(job.inputs || {});
+      const ctx = {
+        product: products[0] || job.inputs?.product || {},
+        products,
+        brandBrief: job.inputs?.brand_brief || await getBrandBrief(job.brand_container_id),
+        hardConstraints: job.inputs?.hard_constraints || null,
+        // variables de diversidad que el usuario eligio en el Studio (escenario/props/movimiento)
+        userDirection: {
+          escenario: job.inputs?.escenario || null,
+          props: job.inputs?.props || null,
+          movimiento_video: job.inputs?.movimiento_video || null,
+        },
+      };
       const { bindings: pb } = await resolvePromptBindings(def.promptSlots, ctx);
       bindings = { ...bindings, ...pb };
     }
-    const identities = await resolveIdentities(job.inputs?.productos || []);
     const dispatchInputs = { ...(job.inputs || {}) };
     if (identities.length) dispatchInputs.productos = identities.map(i => i.image_url).filter(Boolean);
+    // Referencias de estilo: SIEMPRE de la org (dev-installed en visual_references), nunca del usuario.
+    const orgRefs = await resolveOrgReferences(job.organization_id, 2);
+    dispatchInputs.referencias_estilo = orgRefs;
+    if (orgRefs.length < 2) console.warn(`comfy-runner: org ${job.organization_id} tiene ${orgRefs.length} referencias usables (<2) -> el batch de referencias puede fallar la validacion`);
     const creditsBefore = await kieCredits();
     // FEAT-036: reservar cupo KIE (1 token por nodo KIE_* = 1 createTask) antes de
     // dispatchar, compartiendo bucket con el frontend. Sin cupo tras el presupuesto =>
@@ -255,11 +360,50 @@ export function startComfyFlowRunner() {
 export function stopComfyFlowRunner() { if (_timer) { clearTimeout(_timer); _timer = null; } }
 
 // Helper para encolar (lo usan webhook y la tool de VERA)
-export async function enqueueComfyFlow({ organizationId, brandContainerId, scheduleId, flowSlug, inputs, source = "user" }) {
-  const { data, error } = await supabase.from("comfy_flow_jobs").insert({
+export async function enqueueComfyFlow({ organizationId, brandContainerId, scheduleId, flowSlug, inputs, source = "user", outputRunId = null }) {
+  const row = {
     organization_id: organizationId, brand_container_id: brandContainerId, schedule_id: scheduleId,
     flow_slug: flowSlug, inputs: inputs || {}, source,
-  }).select("id").maybeSingle();
+  };
+  if (outputRunId) row.output_run_id = outputRunId;  // run pre-creado por el frontend (Studio): el runner lo REUSA
+  const { data, error } = await supabase.from("comfy_flow_jobs").insert(row).select("id").maybeSingle();
   if (error) throw new Error(error.message);
   return data?.id;
+}
+
+// Puente Studio (frontend) -> ComfyUI. El Studio ya creo el flow_run (deduct_credits_and_create_run,
+// creditos cobrados) y postea aqui su webhookBody (payload del form + rpc_build_manual_context).
+// Validamos el run como capability (existe + 'running' + de la org), resolvemos el slug del flow comfy
+// y encolamos un job que REUSA ese run -> el poll del Studio encuentra los outputs en su propio runId.
+const _norm = (v) => (Array.isArray(v) ? v : (v ? [v] : []))
+  .map(p => (typeof p === "string" ? p : (p && (p.entity_id || p.id || p.image_url || p.url)))).filter(Boolean);
+
+export async function enqueueStudioComfyRun(body = {}) {
+  const meta = body.meta || {};
+  const runId = meta.run_id, organizationId = meta.organization_id, flowId = meta.flow_id;
+  const brandContainerId = meta.brand_container_id || null;
+  if (!runId || !organizationId || !flowId) { const e = new Error("meta.run_id/organization_id/flow_id requeridos"); e.status = 400; throw e; }
+
+  const { data: run } = await supabase.from("flow_runs").select("id, status, organization_id").eq("id", runId).maybeSingle();
+  if (!run || run.organization_id !== organizationId) { const e = new Error("run no encontrado para la org"); e.status = 403; throw e; }
+  if (run.status !== "running") { const e = new Error(`run en estado '${run.status}', se esperaba 'running'`); e.status = 409; throw e; }
+
+  const { data: cfd } = await supabase.from("comfy_flow_definitions").select("slug").eq("content_flow_id", flowId).maybeSingle();
+  if (!cfd?.slug) { const e = new Error("el flow no es ComfyUI (sin comfy_flow_definitions)"); e.status = 400; throw e; }
+
+  const sc = body.schedule_config || {};
+  const productos = _norm(body.productos);
+  const inputs = {
+    productos: productos.length ? productos : (sc.entity_ids || []),
+    entity_ids: sc.entity_ids || [],
+    aspect_ratio: body.aspect_ratio || sc.aspect_ratio || "1:1",
+    referencias_estilo: _norm(body.referencias_estilo),
+    // variables de diversidad elegidas en el Studio (alimentan al prompter dinamico)
+    escenario: body.escenario || null,
+    props: body.props || null,
+    movimiento_video: body.movimiento_video || null,
+  };
+
+  const jobId = await enqueueComfyFlow({ organizationId, brandContainerId, flowSlug: cfd.slug, inputs, source: "studio", outputRunId: runId });
+  return { jobId, runId, flowSlug: cfd.slug };
 }

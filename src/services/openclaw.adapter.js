@@ -12,6 +12,7 @@
  */
 import { getOrgEntry } from "./openclaw.registry.js";
 import { processAttachments } from "./media-processor.service.js";
+import { renderEnabledToolsBlock } from "../lib/tool-catalog.js";
 
 const OPENCLAW_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS) || 60_000;
 const SESSION_TTL_MS      = 2 * 60 * 60 * 1000; // 2 horas
@@ -86,17 +87,11 @@ function _buildEnrichedMessage({ message, attachmentsContext, viewModel, toolRes
 
   if (Array.isArray(viewModel?.capabilities) && viewModel.capabilities.length) {
     const level = viewModel?.autonomy?.level ?? "actual";
-    parts.push(
-      `[HERRAMIENTAS DISPONIBLES EN ESTE TURNO]\n` +
-      `Estas son las ÚNICAS tools que puedes invocar ahora mismo.\n\n` +
-      `REGLA CRÍTICA: si el usuario pide algo y la tool necesaria NO aparece en esta lista, ` +
-      `NO digas "no sé hacerlo" ni "no tengo acceso". Di explícitamente: ` +
-      `"Esa capacidad no está habilitada en mi nivel de autonomía actual (**${level}**). ` +
-      `El usuario puede ajustar el nivel en Configuración → Organización → Nivel de autonomía."\n\n` +
-      `Tools habilitadas: ${viewModel.capabilities.join(", ")}\n\n` +
-      `Sintaxis para invocar: [[TOOL:nombre|param1:valor1|param2:valor2]]\n` +
-      `El sistema resuelve organizationId y brandContainerId automáticamente — no los pases.`
-    );
+    // Renderizado desde el catalogo unico (lib/tool-catalog.js): cada tool que
+    // necesita params se muestra con su forma exacta; el resto por nombre.
+    // Antes aqui se volcaba solo `capabilities.join(", ")` (nombres pelados),
+    // y Vera adivinaba el shape de params → errores.
+    parts.push(renderEnabledToolsBlock(viewModel.capabilities, level));
   }
 
   // Historial reciente — se inyecta desde la DB para que OpenClaw no repita
@@ -142,7 +137,7 @@ function _buildEnrichedMessage({ message, attachmentsContext, viewModel, toolRes
 
   if (toolResults?.length) {
     const resultsText = toolResults
-      .map((r) => `  • ${r.tool}: ${JSON.stringify(r.result ?? r.error).slice(0, 800)}`)
+      .map((r) => `  • ${r.tool}: ${JSON.stringify(r.result ?? r.error).slice(0, 4000)}`)
       .join("\n");
     parts.push(`[RESULTADOS ADICIONALES]\n${resultsText}`);
   }
@@ -151,24 +146,62 @@ function _buildEnrichedMessage({ message, attachmentsContext, viewModel, toolRes
     parts.push(`[ARCHIVOS ADJUNTOS DEL USUARIO]\n${attachmentsContext}`);
   }
 
-  // Permisos de formato — Vera tiene libertad Markdown completa.
-  // El frontend (VeraView.renderMarkdown) renderiza tablas, code blocks con syntax
-  // highlighting, mermaid, math, listas, headings, blockquotes, imágenes y links.
-  // Decirle explícitamente al modelo qué puede usar evita auto-restricción.
+  // Permisos de formato + protocolo de componentes interactivos.
+  // El frontend (VeraView.renderMarkdown) renderiza markdown vía marked+DOMPurify
+  // y los bloques propios [CLARIFY] [PILLS] [STEPS] [METRICS] [ACTIONS] vía
+  // VeraView._renderInteractiveBlock. Decirle al modelo la sintaxis exacta evita
+  // que invente variantes que el render no reconoce.
   parts.push(
     `[FORMATO DE RESPUESTA]\n` +
-    `Tienes libertad total de formato Markdown. Úsalo cuando aporte claridad y haga la respuesta más útil:\n` +
-    `• Tablas Markdown (GFM) para comparaciones y datos tabulares\n` +
-    `• Bloques de código con lenguaje (\`\`\`js, \`\`\`sql, \`\`\`json, etc.) — se renderizan con syntax highlighting\n` +
-    `• Diagramas Mermaid para flujos, jerarquías y mapas mentales:\n` +
-    `  \`\`\`mermaid\n  graph LR\n    A[Marca] --> B[Tendencia]\n  \`\`\`\n` +
-    `• Listas (- / 1.), checklists (- [ ]), headings (# ## ###), blockquotes (>), separadores (---)\n` +
-    `• Bold (**texto**), italic (*texto*), strikethrough (~~texto~~), inline \`code\`\n` +
-    `• Imágenes ![alt](url) y links [texto](url)\n` +
-    `• Math con LaTeX entre $$ ... $$ si calculas métricas\n` +
-    `• Bloques especiales: \`\`\`chart (visualizaciones SVG) y \`\`\`buttons (quick replies)\n\n` +
-    `NO uses HTML con <script> ni atributos de evento (onclick, onerror) — el cliente los bloquea.\n` +
-    `Elige el formato más útil para la pregunta. No te limites a párrafos; aprovecha el formato.`
+    `Tienes libertad total de formato. Usa Markdown estándar cuando aporte claridad:\n` +
+    `• Tablas GFM, bloques de código con lenguaje, listas, headings, blockquotes, separadores\n` +
+    `• Bold (**texto**), italic (*texto*), inline \`code\`, links [texto](url)\n` +
+    `• Diagramas Mermaid (\`\`\`mermaid), visualizaciones (\`\`\`chart), quick replies (\`\`\`buttons)\n` +
+    `• Widgets HTML completos con \`\`\`html — HTML + CSS + JS en un bloque. Se ejecuta ` +
+    `en iframe sandbox null-origin (sin acceso a la sesión del usuario). Puedes usar ` +
+    `Chart.js, ECharts, D3, cualquier CDN público. El iframe se auto-redimensiona.\n` +
+    `• Artifacts interactivos con \`\`\`artifact — igual que \`\`\`html pero con barra ` +
+    `de título y botón de pantalla completa. Úsalo para dashboards, calculadoras o ` +
+    `herramientas complejas que el usuario vaya a usar más de una vez.\n\n` +
+    `PROTOCOLO DE COMPONENTES INTERACTIVOS\n` +
+    `Cuando necesites que el usuario aclare algo, usa [CLARIFY] en lugar de hacer preguntas en prosa:\n\n` +
+    `[CLARIFY]\n` +
+    `PREGUNTA: ¿Cuál es tu objetivo principal?\n` +
+    `- CARD | 🎯 | Crecer audiencia | Llegar a nuevos seguidores\n` +
+    `- CARD | 💰 | Vender productos | Convertir seguidores en compradores\n` +
+    `- CARD | ❤️ | Fidelizar comunidad | Engagement con audiencia existente\n` +
+    `[/CLARIFY]\n\n` +
+    `Para opciones rápidas tipo selección múltiple:\n` +
+    `[PILLS]\n` +
+    `LABEL: ¿Cuántos posts al mes?\n` +
+    `- 8–12 posts\n` +
+    `- 16–20 posts\n` +
+    `- +30 posts\n` +
+    `[/PILLS]\n\n` +
+    `Para procesos o instrucciones paso a paso:\n` +
+    `[STEPS]\n` +
+    `1. Primer paso del proceso\n` +
+    `2. Segundo paso\n` +
+    `3. Tercer paso\n` +
+    `[/STEPS]\n\n` +
+    `Para mostrar números o métricas clave:\n` +
+    `[METRICS]\n` +
+    `- Alcance estimado | 45K | cuentas únicas/mes\n` +
+    `- Engagement rate | 4.2% | promedio del sector\n` +
+    `[/METRICS]\n\n` +
+    `Para sugerir acciones concretas al usuario al final de un análisis:\n` +
+    `[ACTIONS]\n` +
+    `- Generar brief de contenido para el mes\n` +
+    `- Analizar competencia en Instagram\n` +
+    `[/ACTIONS]\n\n` +
+    `REGLAS DE USO:\n` +
+    `• Usa [CLARIFY] cuando necesites información del usuario antes de proceder — nunca hagas preguntas en párrafo si puedes usar cards.\n` +
+    `• Usa [PILLS] para selecciones rápidas de 2-5 opciones cortas.\n` +
+    `• Usa [STEPS] para cualquier proceso secuencial de 3+ pasos.\n` +
+    `• Usa [METRICS] cuando presentes 2+ números o KPIs juntos.\n` +
+    `• Usa [ACTIONS] al final de análisis largos para sugerir el siguiente paso.\n` +
+    `• Los bloques van en su propio párrafo, nunca dentro de una oración.\n` +
+    `• NO uses HTML con <script> ni atributos de evento (onclick, onerror).`
   );
 
   // Delimitadores explícitos — previene prompt injection
@@ -214,28 +247,140 @@ function _safeJsonParse(jsonStr) {
 
 function _extractToolCallMarkers(text) {
   const tool_calls = [];
-  const pattern    = /\[\[TOOL:([a-zA-Z_]+)(?:\|([^\]]*))?\]\]/g;
-  let match;
+  let cleanText = "";
+  const N = text.length;
+  let i = 0;
 
-  while ((match = pattern.exec(text)) !== null) {
-    const toolName  = match[1].trim();
-    const paramsRaw = match[2] || "";
-    const params    = {};
-    if (paramsRaw) {
-      paramsRaw.split("|").forEach((pair) => {
-        const colonIdx = pair.indexOf(":");
-        if (colonIdx !== -1) {
-          const key = pair.slice(0, colonIdx).trim();
-          const val = pair.slice(colonIdx + 1).trim();
-          if (key) params[key] = val;
-        }
-      });
+  while (i < N) {
+    const idx = text.indexOf("[[TOOL:", i);
+    if (idx === -1) { cleanText += text.slice(i); break; }
+    cleanText += text.slice(i, idx);
+
+    // 1) Tool name: chars validos despues de "[[TOOL:"
+    let j = idx + 7; // length of "[[TOOL:"
+    let nameEnd = j;
+    while (nameEnd < N && /[a-zA-Z0-9_]/.test(text[nameEnd])) nameEnd++;
+    const toolName = text.slice(j, nameEnd);
+    j = nameEnd;
+
+    // 2) Cuerpo: cero params -> "]]", o params -> "|...]]"
+    if (text[j] === "]" && text[j + 1] === "]") {
+      tool_calls.push({ name: toolName, params: {} });
+      i = j + 2; continue;
     }
+    if (text[j] !== "|") {
+      // marker mal formado; preservar el "[" en cleanText y avanzar 1 char
+      cleanText += "[";
+      i = idx + 1;
+      continue;
+    }
+
+    // 3) Leer params hasta "]]" balanceado al nivel 0 (respetando {}, [], "")
+    let depth = 0;
+    let inStr = false;
+    let escape = false;
+    const pStart = j + 1;
+    let pEnd = -1;
+    let k = j + 1;
+    while (k < N) {
+      const c = text[k];
+      if (escape) { escape = false; k++; continue; }
+      if (inStr) {
+        if (c === "\\") escape = true;
+        else if (c === "\"") inStr = false;
+        k++; continue;
+      }
+      if (c === "\"") { inStr = true; k++; continue; }
+      if (c === "{" || c === "[") { depth++; k++; continue; }
+      if (c === "}") { if (depth > 0) depth--; k++; continue; }
+      if (c === "]") {
+        if (depth > 0) { depth--; k++; continue; }
+        // depth 0 -> chequear si es "]]" cierre del marker
+        if (text[k + 1] === "]") { pEnd = k; break; }
+        k++; continue;
+      }
+      k++;
+    }
+    if (pEnd === -1) {
+      // No hay cierre -> tratar como texto y avanzar 1
+      cleanText += "[";
+      i = idx + 1;
+      continue;
+    }
+
+    const paramsRaw = text.slice(pStart, pEnd);
+    const params = {};
+
+    // 4) Split params en pairs por "|" a nivel 0
+    const pairs = _splitTopLevel(paramsRaw, "|");
+    for (const pair of pairs) {
+      const colonIdx = _firstTopLevelChar(pair, ":");
+      if (colonIdx === -1) continue;
+      const key = pair.slice(0, colonIdx).trim();
+      const valRaw = pair.slice(colonIdx + 1).trim();
+      if (!key) continue;
+      // Si el valor parece JSON (objeto o array) intentar parse; si no, string
+      let val = valRaw;
+      if ((valRaw.startsWith("{") && valRaw.endsWith("}")) ||
+          (valRaw.startsWith("[") && valRaw.endsWith("]"))) {
+        try { val = JSON.parse(valRaw); } catch { /* keep as raw string */ }
+      }
+      params[key] = val;
+    }
+
     tool_calls.push({ name: toolName, params });
+    i = pEnd + 2; // skip "]]"
   }
 
-  const cleanText = text.replace(/\[\[TOOL:[^\]]*\]\]/g, "").trim();
-  return { tool_calls, cleanText };
+  return { tool_calls, cleanText: cleanText.trim() };
+}
+
+// Split de un string por separador `sep` solo al nivel 0 (respeta {}, [], "")
+function _splitTopLevel(s, sep) {
+  const parts = [];
+  let depth = 0;
+  let inStr = false;
+  let escape = false;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (escape) { escape = false; continue; }
+    if (inStr) {
+      if (c === "\\") escape = true;
+      else if (c === "\"") inStr = false;
+      continue;
+    }
+    if (c === "\"") { inStr = true; continue; }
+    if (c === "{" || c === "[") { depth++; continue; }
+    if (c === "}" || c === "]") { if (depth > 0) depth--; continue; }
+    if (c === sep && depth === 0) {
+      parts.push(s.slice(start, i));
+      start = i + 1;
+    }
+  }
+  if (start <= s.length) parts.push(s.slice(start));
+  return parts;
+}
+
+// Indice del primer caracter `ch` a nivel 0 (respeta {}, [], "")
+function _firstTopLevelChar(s, ch) {
+  let depth = 0;
+  let inStr = false;
+  let escape = false;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (escape) { escape = false; continue; }
+    if (inStr) {
+      if (c === "\\") escape = true;
+      else if (c === "\"") inStr = false;
+      continue;
+    }
+    if (c === "\"") { inStr = true; continue; }
+    if (c === "{" || c === "[") { depth++; continue; }
+    if (c === "}" || c === "]") { if (depth > 0) depth--; continue; }
+    if (c === ch && depth === 0) return i;
+  }
+  return -1;
 }
 
 /**
@@ -719,7 +864,12 @@ export async function callOpenClaw({
       });
     }
 
-    return normalized;
+    // enriched_input_length: largo en caracteres del envelope completo que se
+    // mando al modelo (system+context+history+message). ai.service.js lo usa
+    // para estimar input_tokens (chars/4) y cobrar dinamicamente via
+    // use_credits_numeric. El modelo y conteo real de tokens vive aguas abajo
+    // en el anthropic-proxy del org-server; aca solo aproximamos.
+    return { ...normalized, enriched_input_length: enrichedMessage.length };
   } catch (e) {
     console.error(
       `openclaw.adapter: agente "${agentId}" (org "${organizationId}" [${orgEntry.type}]) falló:`,
@@ -729,6 +879,7 @@ export async function callOpenClaw({
       text:             "El agente no pudo procesar la solicitud en este momento. Por favor intenta nuevamente.",
       tool_calls:       [],
       requires_consent: false,
+      enriched_input_length: enrichedMessage.length,
     };
   }
 }

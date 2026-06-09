@@ -51,7 +51,7 @@ const RISK = {
 
 // target_table sugerida por action_type (informativa; el executor despacha por action_type)
 function _targetTable(at) {
-  if (at.includes("brief")) return "content_briefs";
+  if (at.includes("brief")) return "campaign_briefs";
   if (at.includes("campaign")) return "campaigns";
   if (at.includes("audience")) return "audiences";
   if (at.includes("persona")) return "audience_personas";

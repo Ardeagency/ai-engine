@@ -177,11 +177,9 @@ export async function buildFullBrandContext(brandContainerId, organizationId) {
       const { data } = await supabase
         .from("services")
         .select(
-          "nombre_servicio, descripcion_servicio, duracion_estimada, precio_base, moneda, " +
-          "beneficios_principales, diferenciadores, casos_de_uso, entregables, " +
-          "metodologia_pasos, url_servicio"
+          "nombre_servicio, descripcion_servicio, moneda, entregables, metodologia_pasos"
         )
-        .eq("brand_container_id", brandContainerId)
+        .eq("organization_id", organizationId)
         .limit(15);
       return data ?? [];
     } catch (_) { return []; }

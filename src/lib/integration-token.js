@@ -8,6 +8,7 @@
  *   - Si la org no tiene nivel "parcial" o "total", las tools no se habilitan (tool-phases.js).
  */
 import { supabase } from "./supabase.js";
+import { decryptToken } from "./integration-token-vault.js";
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 
@@ -82,6 +83,13 @@ export async function getIntegrationToken(brandContainerId, organizationId, plat
       ),
       { statusCode: 404, noIntegration: true }
     );
+  }
+
+  // Descifrar tokens (almacenados cifrados via integration-token-vault).
+  // Si ya estan en claro o la llave no aplica, decryptToken lanza y se conserva el valor.
+  try { integ.access_token = decryptToken(integ.access_token); } catch (_) { /* keep as-is */ }
+  if (integ.refresh_token) {
+    try { integ.refresh_token = decryptToken(integ.refresh_token); } catch (_) { /* keep as-is */ }
   }
 
   // Refrescar token de Google si está por vencer (< 5 minutos)

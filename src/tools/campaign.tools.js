@@ -11,8 +11,8 @@ export async function getCampaigns(brandContainerId, organizationId) {
   const { data, error } = await supabase
     .from("campaigns")
     .select(
-      "id, nombre_campana, descripcion_interna, contexto_temporal, " +
-      "objetivos_estrategicos, angulos_venta, cta, created_at"
+      "id, nombre_campana, descripcion_interna, platform_objective, status, " +
+      "cta, cta_url, starts_at, ends_at, created_at"
     )
     .eq("brand_container_id", bc.id)
     .order("created_at", { ascending: false })
@@ -28,9 +28,9 @@ export async function getCampaignDetail(campaignId, brandContainerId, organizati
   const { data, error } = await supabase
     .from("campaigns")
     .select(
-      "id, nombre_campana, descripcion_interna, contexto_temporal, " +
-      "objetivos_estrategicos, angulos_venta, oferta_principal, tono_modificador, " +
-      "cta, cta_url, created_at, audience_id"
+      "id, nombre_campana, descripcion_interna, platform_objective, status, " +
+      "cta, cta_url, starts_at, ends_at, budget_total, budget_currency, " +
+      "cached_roas, cached_spend, persona_id, created_at"
     )
     .eq("id", campaignId)
     .eq("brand_container_id", bc.id)

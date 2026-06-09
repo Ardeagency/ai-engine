@@ -165,7 +165,7 @@ export async function proposeAction({
         title:      _buildNotifTitle(actionType),
         message:    _buildNotifMessage(veraReasoning),
         type:       "info",
-        link_to:    `https://app.aismartcontent.io/pending-actions/${action.id}`,
+        link_to:    null, // navegacion pendiente: sin ruta org/ valida aun, evitar link roto
       });
 
       // Linkear notif al action

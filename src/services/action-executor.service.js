@@ -113,6 +113,9 @@ async function _dispatchByActionType(action) {
     case "update_monitoring_trigger":
       return await _executeUpdateMonitoringTrigger(action);
 
+    case "create_brief":
+      return await _executeCreateBrief(action);
+
     // ── pending — Fase III/IV completas ──────────────────────────────────
     case "publish_instagram_post":
     case "publish_facebook_post":
@@ -182,6 +185,26 @@ async function _executeUpdateMonitoringTrigger(action) {
     .single();
   if (error) throw new Error(`monitoring_triggers update: ${error.message}`);
   return { table: "monitoring_triggers", row_id: data.id, operation: "update" };
+}
+
+// BAJO — crea un brief de contenido conceptual en campaign_briefs.
+async function _executeCreateBrief(action) {
+  if (!action.brand_container_id) throw new Error("create_brief requiere brand_container_id");
+  const p = _cleanPayload(action.proposed_payload);
+  const row = {
+    organization_id: action.organization_id,
+    brand_container_id: action.brand_container_id,
+    nombre: p.nombre || p.title || p.titulo || "Brief de contenido (Vera)",
+    descripcion_interna: p.descripcion_interna || p.description || p.descripcion || action.vera_reasoning || null,
+    objetivo_comercial: p.objetivo_comercial || p.objetivo || null,
+    tono_modificador: p.tono || p.tono_modificador || null,
+    cta: p.cta || null,
+    status: "draft",
+    is_conceptual_only: true,
+  };
+  const { data, error } = await supabase.from("campaign_briefs").insert(row).select("id").single();
+  if (error) throw new Error(`campaign_briefs insert: ${error.message}`);
+  return { table: "campaign_briefs", row_id: data.id, operation: "insert" };
 }
 
 async function _executeCreateAudience(action) {

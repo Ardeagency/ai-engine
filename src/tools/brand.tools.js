@@ -56,7 +56,7 @@ export async function getBrandEntities(brandContainerId, organizationId) {
   const { data, error } = await supabase
     .from("brand_entities")
     .select("id, entity_type, name, description, price, currency")
-    .eq("brand_container_id", bc.id);
+    .eq("organization_id", organizationId);
 
   if (error) throw error;
   return Array.isArray(data) ? data : [];
@@ -71,7 +71,7 @@ export async function getProducts(brandContainerId, organizationId) {
       "id, nombre_producto, descripcion_producto, precio_producto, moneda, " +
       "beneficios_principales, diferenciadores, casos_de_uso"
     )
-    .eq("brand_container_id", bc.id)
+    .eq("organization_id", organizationId)
     .limit(20);
 
   if (error) throw error;

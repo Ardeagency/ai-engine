@@ -663,19 +663,22 @@ export async function dispatchTool(toolName, params, secCtx) {
         await costController.deductCredits(creditCost);
       }
     } else {
-      // require (parcial): comportamiento estándar — necesita APPROVE_ACTION
+      // require (parcial): comportamiento estándar — necesita APPROVE_ACTION.
+      // Deriva la consentKey del nombre del tool si no está definida en el registry
+      // (evita APPROVE_ACTION:undefined y mantiene el check consistente end-to-end).
+      const consentKey = tool.consentKey || toolName.toUpperCase();
       const hasConsent = approvedIntents instanceof Set
-        ? approvedIntents.has(tool.consentKey)
+        ? approvedIntents.has(consentKey)
         : false;
 
       if (!hasConsent) {
-        audit.consentGate(auditCtx, tool.consentKey);
+        audit.consentGate(auditCtx, consentKey);
         throw Object.assign(
           new Error(
             `La acción "${toolName}" requiere confirmación humana. ` +
-            `Aprueba: APPROVE_ACTION:${tool.consentKey}`
+            `Aprueba: APPROVE_ACTION:${consentKey}`
           ),
-          { statusCode: 403, requiresConsent: true, consentKey: tool.consentKey }
+          { statusCode: 403, requiresConsent: true, consentKey }
         );
       }
 

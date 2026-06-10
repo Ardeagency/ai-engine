@@ -515,7 +515,7 @@ ${renderAutonomousToolList([...AUTONOMOUS_TOOLS], { feedId })}
 - ¿Repito algo que ya no funciono? Antes de proponer algo similar revisa "Lecciones medidas" arriba + getBodyMissions, y consulta que rinde DE VERDAD con getEstrategiaTones / getEstrategiaTopics / getEstrategiaPlatforms (params:{postSource:"brand", windowDays:90}).
 Emite SOLO lo que pase esta autocritica. Si nada pasa, 0 acciones es la respuesta correcta.
 
-Procede. Cierra con 2-3 lineas para tu journal: que viste, que decidiste, que verificas en el proximo ciclo.`;
+**SALIDA CONCISA (critico — generar texto largo te hace exceder el limite de tiempo y el ciclo se pierde vacio):** Razona las 6 capas INTERNAMENTE; NO escribas el analisis extenso ni tablas en tu respuesta. Tu salida visible = SOLO los marcadores [[TOOL:...]] de tus acciones + un journal de MAXIMO 3 lineas (que viste, que decidiste, que verificas). Procede ya.`;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

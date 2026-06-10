@@ -16,6 +16,7 @@ import { supabase } from "../lib/supabase.js";
 import { dispatchTool } from "../services/tool.dispatcher.js";
 import { getOrgAutonomy } from "../lib/autonomy.js";
 import { TOOLS_BY_PHASE } from "../lib/tool-phases.js";
+import { TOOL_SCHEMAS } from "../lib/tool-call.validator.js";
 import { audit } from "../lib/audit-logger.js";
 
 // Cache de auth por token — TTL corto, evita pegarle a la DB en cada call
@@ -127,6 +128,25 @@ export const mcpDispatch = async (req, res) => {
   }
 };
 
+const _AUTO_RESOLVED = new Set(["brandContainerId", "brand_container_id", "organizationId"]);
+const _TYPE_MAP = { uuid: "string", object: "object", boolean: "boolean", string: "string" };
+// Convierte el spec de TOOL_SCHEMAS (param->tipo) a un JSON Schema que el MCP
+// server expone a Vera. brandContainerId/organizationId se auto-resuelven del
+// token, asi que NUNCA son required. Los selectores uuid (entityId, feed_id,
+// flowId, runId, campaignId) y el payload "params" si son required.
+function _buildInputSchema(toolName) {
+  const spec = TOOL_SCHEMAS[toolName] || {};
+  const properties = {};
+  const required = [];
+  for (const [param, t] of Object.entries(spec)) {
+    properties[param] = { type: _TYPE_MAP[t] || "string", description: `${param} (${t})` };
+    if (!_AUTO_RESOLVED.has(param) && (t === "uuid" || param === "params")) required.push(param);
+  }
+  const schema = { type: "object", properties, additionalProperties: true };
+  if (required.length) schema.required = required;
+  return schema;
+}
+
 // ── GET /mcp/list-tools ───────────────────────────────────────────────────────
 // Devuelve la lista de tools habilitadas para la org según su nivel actual.
 // El MCP server local llama esto al startup y cuando se invalida cache.
@@ -144,13 +164,16 @@ export const mcpListTools = async (req, res) => {
     return res.status(500).json({ ok: false, error: `autonomy lookup failed: ${e.message}` });
   }
 
-  const phaseTools = TOOLS_BY_PHASE[autonomy.phase] ?? TOOLS_BY_PHASE.A;
+  const phaseTools = [...new Set(TOOLS_BY_PHASE[autonomy.phase] ?? TOOLS_BY_PHASE.A)];
+  const tool_schemas = {};
+  for (const name of phaseTools) tool_schemas[name] = _buildInputSchema(name);
   return res.json({
     ok: true,
     level: autonomy.level,
     phase: autonomy.phase,
     org_name: autonomy.orgName,
     tools: phaseTools,
+    tool_schemas,
     cache_ttl_seconds: 60,
   });
 };

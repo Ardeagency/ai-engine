@@ -176,12 +176,12 @@ const server = new Server(
 // list_tools — dinámico, consulta al control plane y filtra por nivel actual
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   try {
-    const { tools = [], level = "?" } = await callListTools();
+    const { tools = [], level = "?", tool_schemas = {} } = await callListTools();
     return {
       tools: tools.map((toolName) => ({
         name: toolName,
         description: `[nivel: ${level}] ${getDescription(toolName)}`,
-        inputSchema: {
+        inputSchema: tool_schemas[toolName] || {
           type: "object",
           properties: {},
           additionalProperties: true,

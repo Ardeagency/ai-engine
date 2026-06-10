@@ -16,7 +16,7 @@ const MAX_TOOL_CALLS_PER_ROUND = 5;
 
 // Esquema de validación por tool: campo → tipo esperado
 // "uuid" = string UUID | "object" = plain object | "boolean" = bool | "string" = string
-const TOOL_SCHEMAS = {
+export const TOOL_SCHEMAS = {
   getBrandContainers:      {},
   getBrandProfile:         { brandContainerId: "uuid" },
   getAudiences:            { brandContainerId: "uuid" },

@@ -678,15 +678,24 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
   };
 
   // ── CAPA 1: Campana CONCEPTUAL = el trigger (objetivo: que transmitir / como / que decir) ──
+  const campRow = {
+    organization_id: organizationId,
+    brand_container_id: bcid,
+    nombre_campana: name,
+    descripcion_interna: goal,
+    status: "conceptual",
+  };
+  // Objetivo de campana (etapa de embudo / platform objective) — opcional.
+  const _obj = params.platform_objective || params.objetivo;
+  if (_obj) campRow.platform_objective = _obj;
+  // PRESUPUESTO OPCIONAL: si la campana es de contenido organico NO lleva presupuesto;
+  // si lleva, define el camino hacia pauta paga. Default moneda COP (agencia).
+  if (params.budget_total != null && params.budget_total !== "") campRow.budget_total = Number(params.budget_total);
+  if (params.budget_daily != null && params.budget_daily !== "") campRow.budget_daily = Number(params.budget_daily);
+  if (campRow.budget_total != null || campRow.budget_daily != null) campRow.budget_currency = params.budget_currency || "COP";
   const { data: campaign, error: campErr } = await supabase
     .from("campaigns")
-    .insert({
-      organization_id: organizationId,
-      brand_container_id: bcid,
-      nombre_campana: name,
-      descripcion_interna: goal,
-      status: "conceptual",
-    })
+    .insert(campRow)
     .select("id")
     .single();
   if (campErr) throw new Error(`buildStrategy: campaign insert ${campErr.message}`);

@@ -55,7 +55,7 @@ export const TOOL_SCHEMAS = {
   listStrategies: { brand_container_id: "uuid" },
   createStickyNote: { strategy_id: "uuid", content: "string", reason: "string" },
   createGroup: { strategy_id: "uuid", title: "string", reason: "string" },
-  buildStrategy: { brand_container_id: "uuid", name: "string", goal: "string", reason: "string" },
+  buildStrategy: { brand_container_id: "uuid", name: "string", goal: "string", reason: "string", objetivo: "string", budget_total: "string", budget_daily: "string" },
   proposeExternalAction: { action_type: "string", target_table: "string", vera_reasoning: "string" },
 
   // ── Aliases canonicos v3 (mismas validaciones que los canonical correspondientes) ──

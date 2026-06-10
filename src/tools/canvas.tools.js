@@ -27,7 +27,7 @@ import { resolveBrandContainer } from "../lib/brand-resolver.js";
 const NODE_TYPES = new Set([
   "product", "service", "place",
   "audience", "brief", "flow",
-  "campaign", "campaign-concept", "campaign-real",
+  "campaign",
   "sticky", "group",
 ]);
 
@@ -38,17 +38,17 @@ const VERA_STATES = new Set([
 
 // Mismas reglas que CC_CONNECTION_RULES en CanvasStore.js
 const CONNECTION_RULES = {
-  product:            ["brief", "flow", "campaign-concept", "campaign"],
-  service:            ["brief", "flow", "campaign-concept", "campaign"],
-  place:              ["brief", "flow", "campaign-concept", "campaign"],
-  audience:           ["flow", "campaign-concept", "campaign-real", "campaign"],
-  brief:              ["flow", "campaign-concept", "campaign-real", "campaign"],
-  flow:               ["campaign-concept", "campaign-real", "campaign"],
-  "campaign-concept": ["campaign-real"],
-  "campaign-real":    [],
-  campaign:           [],
-  sticky:             [],
-  group:              [],
+  // Pipeline de la estrategia (solo hacia adelante):
+  // campana CONCEPTUAL (trigger) -> audiencia -> identities -> produccion -> campana REAL (cierre)
+  campaign:  ["audience"],                              // campana conceptual -> a quien
+  audience:  ["product", "service", "place", "brief", "flow"],  // a quien -> con que / produccion
+  product:   ["brief", "flow"],
+  service:   ["brief", "flow"],
+  place:     ["brief", "flow"],
+  brief:     ["flow", "campaign"],                      // produccion -> campana real (cierre del loop)
+  flow:      ["campaign"],
+  sticky:    [],
+  group:     [],
 };
 
 // Acciones que tocan el mundo EXTERIOR (Meta/Google/Insta/spend).
@@ -649,7 +649,7 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
 
   const trace = [];
 
-  // 1. Crear strategy
+  // 1. Crear la estrategia (el pizarron)
   const strategyRes = await createStrategy(
     { brand_container_id: bcid, name, description: goal, reason, icon: "fa-rocket", color: "purple" },
     bcid, organizationId, userId,
@@ -657,16 +657,43 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
   const strategyId = strategyRes.strategy_id;
   trace.push({ step: "createStrategy", id: strategyId });
 
-  // 2. Seleccionar top 3 productos
-  const { data: products } = await supabase
-    .from("products")
-    .select("id, nombre_producto, created_at")
-    .eq("organization_id", organizationId)
-    .order("created_at", { ascending: false })
-    .limit(3);
-  trace.push({ step: "selectProducts", count: (products || []).length });
+  const placements = [];
+  const edges = [];
+  const _place = async (node_type, node_id, x, y, why) => {
+    const res = await placeNodeOnCanvas(
+      { strategy_id: strategyId, node_type, node_id, position_x: x, position_y: y, reason: why },
+      bcid, organizationId, userId,
+    );
+    placements.push({ type: node_type, id: node_id, placement_id: res.placement_id });
+    return res.placement_id;
+  };
+  const _connect = async (sT, sI, tT, tI) => {
+    try {
+      const e = await connectNodes(
+        { strategy_id: strategyId, source_type: sT, source_id: sI, target_type: tT, target_id: tI, reason: `buildStrategy '${name}'` },
+        bcid, organizationId, userId,
+      );
+      if (e?.edge_id) edges.push(e.edge_id);
+    } catch (e) { /* regla/idempotencia; seguimos */ }
+  };
 
-  // 3. Seleccionar 1 audiencia activa
+  // ── CAPA 1: Campana CONCEPTUAL = el trigger (objetivo: que transmitir / como / que decir) ──
+  const { data: campaign, error: campErr } = await supabase
+    .from("campaigns")
+    .insert({
+      organization_id: organizationId,
+      brand_container_id: bcid,
+      nombre_campana: name,
+      descripcion_interna: goal,
+      status: "conceptual",
+    })
+    .select("id")
+    .single();
+  if (campErr) throw new Error(`buildStrategy: campaign insert ${campErr.message}`);
+  trace.push({ step: "createConceptualCampaign", id: campaign.id });
+  await _place("campaign", campaign.id, 100, 220, `buildStrategy: campana conceptual (objetivo) de '${name}'`);
+
+  // ── CAPA 2: Audiencia = a quien va dirigida ──
   const { data: audiences } = await supabase
     .from("audience_personas")
     .select("id, name, created_at")
@@ -674,8 +701,29 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
     .order("created_at", { ascending: false })
     .limit(1);
   trace.push({ step: "selectAudience", id: audiences?.[0]?.id || null });
+  let audId = null;
+  if (audiences?.[0]) {
+    audId = audiences[0].id;
+    await _place("audience", audId, 500, 220, `buildStrategy: audiencia objetivo`);
+    await _connect("campaign", campaign.id, "audience", audId);   // objetivo -> a quien
+  }
 
-  // 4. Crear brief proposed
+  // ── CAPA 3: Identities = productos que la campana usa para producir contenido ──
+  const { data: products } = await supabase
+    .from("products")
+    .select("id, nombre_producto, created_at")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: false })
+    .limit(3);
+  trace.push({ step: "selectProducts", count: (products || []).length });
+  let py = 100;
+  for (const p of products || []) {
+    await _place("product", p.id, 900, py, `buildStrategy: ${p.nombre_producto}`);
+    if (audId) await _connect("audience", audId, "product", p.id);  // a quien -> con que
+    py += 200;
+  }
+
+  // ── CAPA 4: Produccion = brief (plan creativo) ──
   const { data: brief, error: briefErr } = await supabase
     .from("campaign_briefs")
     .insert({
@@ -691,78 +739,21 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
     .single();
   if (briefErr) throw new Error(`buildStrategy: brief insert ${briefErr.message}`);
   trace.push({ step: "createBrief", id: brief.id });
-
-  // 5. Layout en grid (columnas: productos | audiencia | brief)
-  const placements = [];
-  let y = 100;
-  for (const p of products || []) {
-    const res = await placeNodeOnCanvas(
-      { strategy_id: strategyId, node_type: "product", node_id: p.id, position_x: 100, position_y: y, reason: `buildStrategy '${name}': ${p.nombre_producto}` },
-      bcid, organizationId, userId,
-    );
-    placements.push({ type: "product", id: p.id, placement_id: res.placement_id });
-    y += 220;
-  }
-
-  let audPid = null;
-  if (audiences?.[0]) {
-    const res = await placeNodeOnCanvas(
-      { strategy_id: strategyId, node_type: "audience", node_id: audiences[0].id, position_x: 500, position_y: 200, reason: `buildStrategy: audiencia objetivo` },
-      bcid, organizationId, userId,
-    );
-    audPid = res.placement_id;
-    placements.push({ type: "audience", id: audiences[0].id, placement_id: res.placement_id });
-  }
-
-  const briefRes = await placeNodeOnCanvas(
-    { strategy_id: strategyId, node_type: "brief", node_id: brief.id, position_x: 900, position_y: 200, reason: `buildStrategy: brief central` },
-    bcid, organizationId, userId,
-  );
-  placements.push({ type: "brief", id: brief.id, placement_id: briefRes.placement_id });
-
-  // 5b. Crear campana conceptual (destino del embudo) y colocarla
-  const { data: campaign, error: campErr } = await supabase
-    .from("campaigns")
-    .insert({
-      organization_id: organizationId,
-      brand_container_id: bcid,
-      nombre_campana: name,
-      status: "conceptual",
-    })
-    .select("id")
-    .single();
-  if (campErr) throw new Error(`buildStrategy: campaign insert ${campErr.message}`);
-  trace.push({ step: "createCampaign", id: campaign.id });
-
-  const campRes = await placeNodeOnCanvas(
-    { strategy_id: strategyId, node_type: "campaign", node_id: campaign.id, position_x: 1300, position_y: 200, reason: `buildStrategy: campana destino` },
-    bcid, organizationId, userId,
-  );
-  placements.push({ type: "campaign", id: campaign.id, placement_id: campRes.placement_id });
+  const briefPid = await _place("brief", brief.id, 1300, 220, `buildStrategy: brief de produccion`);
+  for (const p of products || []) await _connect("product", p.id, "brief", brief.id);  // con que -> produccion
 
   trace.push({ step: "placeNodes", count: placements.length });
-
-  // 6. Embudo: producto -> brief, brief -> campana, audiencia -> campana
-  const edges = [];
-  const _connect = async (sT, sI, tT, tI) => {
-    try {
-      const e = await connectNodes(
-        { strategy_id: strategyId, source_type: sT, source_id: sI, target_type: tT, target_id: tI, reason: `buildStrategy '${name}'` },
-        bcid, organizationId, userId,
-      );
-      if (e?.edge_id) edges.push(e.edge_id);
-    } catch (e) { /* regla/idempotencia; seguimos */ }
-  };
-  for (const p of products || []) await _connect("product", p.id, "brief", brief.id);
-  await _connect("brief", brief.id, "campaign", campaign.id);
-  if (audiences?.[0]) await _connect("audience", audiences[0].id, "campaign", campaign.id);
   trace.push({ step: "connectEdges", count: edges.length });
 
-  // 7. Marcar el brief como "creando" para que pulse en el frontend
+  // Marcar el brief como "creando" para que pulse en el frontend
   await setVeraState(
-    { placement_id: briefRes.placement_id, state: "creando", reasoning: `buildStrategy: redactando brief de '${name}'` },
+    { placement_id: briefPid, state: "creando", reasoning: `buildStrategy: redactando brief de '${name}'` },
     bcid, organizationId,
   ).catch(() => null);
+
+  // CAPA 5 (campana REAL / publicada) NO se crea aqui: es el estado publicado en
+  // Meta/Google. Se conecta como nodo de cierre (brief/flow -> campaign) cuando la
+  // campana se publica, para que Vera mida impacto vs plan y aprenda.
 
   return {
     success: true,
@@ -770,8 +761,9 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
     name,
     placements,
     edges,
+    conceptual_campaign_id: campaign.id,
     brief_id: brief.id,
     trace,
-    message: `Estrategia '${name}' construida: ${placements.length} nodos, ${edges.length} conexiones`,
+    message: `Estrategia '${name}': pipeline conceptual->audiencia->identities->brief (${placements.length} nodos, ${edges.length} conexiones). La campana real cierra al publicar.`,
   };
 }

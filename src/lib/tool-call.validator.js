@@ -44,6 +44,19 @@ export const TOOL_SCHEMAS = {
   proposeStrategicRecommendation:{ title: "string", description: "string", topic: "string", tone: "string", mood: "string", confidence: "string", rationale: "string", brand_container_id: "uuid", anchor_product_name: "string", target_persona: "string" },
   proposePendingAction:          { params: "object", brandContainerId: "uuid" },
   getBrainFeed:                  { feed_id: "uuid", bucket: "string" },
+  // Command Center / canvas de estrategia
+  placeNodeOnCanvas: { strategy_id: "uuid", node_type: "string", node_id: "uuid", position_x: "string", position_y: "string", reason: "string" },
+  moveNodeOnCanvas: { placement_id: "uuid", position_x: "string", position_y: "string", reason: "string" },
+  removeNodeFromCanvas: { placement_id: "uuid", reason: "string" },
+  connectNodes: { strategy_id: "uuid", source_type: "string", source_id: "uuid", target_type: "string", target_id: "uuid", reason: "string", edge_kind: "string", label: "string" },
+  disconnectNodes: { edge_id: "uuid", reason: "string" },
+  setVeraState: { placement_id: "uuid", state: "string", reasoning: "string" },
+  createStrategy: { brand_container_id: "uuid", name: "string", description: "string", reason: "string" },
+  listStrategies: { brand_container_id: "uuid" },
+  createStickyNote: { strategy_id: "uuid", content: "string", reason: "string" },
+  createGroup: { strategy_id: "uuid", title: "string", reason: "string" },
+  buildStrategy: { brand_container_id: "uuid", name: "string", goal: "string", reason: "string" },
+  proposeExternalAction: { action_type: "string", target_table: "string", vera_reasoning: "string" },
 
   // ── Aliases canonicos v3 (mismas validaciones que los canonical correspondientes) ──
   getBrandDNA:               { brandContainerId: "uuid" },

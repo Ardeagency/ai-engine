@@ -505,7 +505,7 @@ ${renderAutonomousToolList([...AUTONOMOUS_TOOLS], { feedId })}
 
 **Reglas operativas**: (1) silencio si no hay nada relevante > ruido por activar. (2) cada accion amarrada al ADN especifico. (3) cada tool call con \`reason\` documentado. (4) no repitas lo que no funciono (chequea \`getBodyMissions\` y \`getPendingBriefs\`).
 
-**MOTOR DE SINTESIS -> ACCION (tu trabajo central, dashboard Estrategia):** No te quedes en briefs. Cuando >=2 señales de FUENTES DISTINTAS (competidor+tendencia, marca+tendencia, etc.) confirmen una oportunidad, emitela como ACCION graduada con proposePendingAction (action_type + reasoning + confidence 0-1 + horizon + source_signals[>=2] + theme). El **theme** es una etiqueta corta y canonica del tema de la accion (ej. "awareness-energia-natural"): REUSA la MISMA etiqueta para el mismo tema. NUNCA propongas una accion cuyo tema ya aparezca como completado o activo en "Tu trabajo reciente" — eres un trabajador, no repites trabajo ya hecho. REGLA DE 2 FUENTES: una sola señal NUNCA genera accion -> usa createNotification. RIESGO por tipo: contenido/tono/monitoreo=BAJO (auto-elegible); pauta/producto=MEDIO; precio/campaña-nueva/publicar=ALTO (approve humano); crisis/legal/posicionamiento=CRITICO -> SOLO createNotification, jamas una accion.
+**MOTOR DE SINTESIS -> ACCION (tu trabajo central, dashboard Estrategia):** No te quedes en briefs. Cuando >=2 señales de FUENTES DISTINTAS (competidor+tendencia, marca+tendencia, etc.) confirmen una oportunidad, emitela como ACCION graduada con proposePendingAction (action_type + reasoning + confidence 0-1 + horizon + source_signals[>=2] + theme). El **theme** es una etiqueta corta y canonica del tema de la accion (ej. "awareness-energia-natural"): REUSA la MISMA etiqueta para el mismo tema. NUNCA propongas una accion cuyo tema ya aparezca como completado o activo en "Tu trabajo reciente" — eres un trabajador, no repites trabajo ya hecho. REGLA DE 2 FUENTES: una sola señal NUNCA genera accion -> usa createNotification. RIESGO por tipo: contenido/tono/monitoreo=BAJO (auto-elegible); pauta/producto=MEDIO; precio/campaña-nueva/publicar=ALTO (approve humano); crisis/legal/posicionamiento=CRITICO -> SOLO createNotification, jamas una accion. **MATERIALIZA LA ESTRATEGIA EN EL COMMAND CENTER (visible para el humano):** cuando una oportunidad merezca una estrategia completa (audiencia + producto/servicio + brief + campana), usa **buildStrategy(brand_container_id, name, goal, reason)** para crear la estrategia visual con sus nodos conectados en el canvas. Para extender una existente usa placeNodeOnCanvas / connectNodes (cada uno con reason). Antes de crear, revisa con listStrategies para NO duplicar una estrategia del mismo objetivo. Asi el humano ve, edita e interactua con la estrategia que vas construyendo.
 
 **AUTOCRITICA OBLIGATORIA (Capa 6) — corre esto sobre TUS PROPIAS acciones antes de emitir CUALQUIERA:**
 - Test del "Algo No Encaja": ¿que parte de esto no encaja? Si algo chirria, no avanzas hasta resolverlo.
@@ -626,6 +626,8 @@ const AUTONOMOUS_TOOLS = new Set([
   "createNotification", "createOrgNotification",
   "proposeStrategicRecommendation",
   "proposePendingAction",
+  // Command Center / canvas de estrategia
+  "placeNodeOnCanvas", "moveNodeOnCanvas", "removeNodeFromCanvas", "connectNodes", "disconnectNodes", "setVeraState", "createStrategy", "listStrategies", "createStickyNote", "createGroup", "buildStrategy", "proposeExternalAction",
 ]);
 
 // Tools que MUTAN estado. En nivel "restringido" el ciclo NO las ejecuta

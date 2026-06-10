@@ -26,6 +26,7 @@ import * as veraFeedTools from "../tools/vera-feed.tools.js";
 import * as veraActionsTools from "../tools/vera-actions.tools.js";
 import * as promptForgeTools from "../tools/prompt-forge.tools.js";
 import * as decisionTools from "../tools/decision.tools.js";
+import * as canvasTools from "../tools/canvas.tools.js";
 import { validateToolCall } from "../lib/tool-call.validator.js";
 import { checkPolicy, getActionCreditCost } from "../lib/policy.engine.js";
 import { audit } from "../lib/audit-logger.js";
@@ -441,6 +442,19 @@ const TOOL_REGISTRY = {
     fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => decisionTools.proposePendingAction({ ...(params || {}), ...rest }, brandContainerId, organizationId),
     requiresConsent: false,
   },
+  // ── Command Center / Canvas de estrategia (Vera materializa estrategias visuales) ──
+  placeNodeOnCanvas: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.placeNodeOnCanvas({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  moveNodeOnCanvas: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.moveNodeOnCanvas({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  removeNodeFromCanvas: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.removeNodeFromCanvas({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  connectNodes: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.connectNodes({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  disconnectNodes: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.disconnectNodes({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  setVeraState: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.setVeraState({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  createStrategy: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.createStrategy({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  listStrategies: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.listStrategies({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  createStickyNote: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.createStickyNote({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  createGroup: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.createGroup({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  buildStrategy: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.buildStrategy({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
+  proposeExternalAction: { fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => canvasTools.proposeExternalAction({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId), requiresConsent: false },
   getBrainFeed: {
     fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => veraFeedTools.getBrainFeed({ ...(params || {}), ...rest }, brandContainerId, organizationId),
     requiresConsent: false,

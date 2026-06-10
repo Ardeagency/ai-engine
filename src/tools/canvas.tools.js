@@ -650,7 +650,7 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
 
   // 1. Crear strategy
   const strategyRes = await createStrategy(
-    { brand_container_id: bcid, name, description: goal, reason, icon: "fa-rocket", color: "white" },
+    { brand_container_id: bcid, name, description: goal, reason, icon: "fa-rocket", color: "purple" },
     bcid, organizationId, userId,
   );
   const strategyId = strategyRes.strategy_id;
@@ -659,7 +659,7 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
   // 2. Seleccionar top 3 productos
   const { data: products } = await supabase
     .from("products")
-    .select("id, name, created_at")
+    .select("id, nombre_producto, created_at")
     .eq("organization_id", organizationId)
     .order("created_at", { ascending: false })
     .limit(3);
@@ -668,7 +668,7 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
   // 3. Seleccionar 1 audiencia activa
   const { data: audiences } = await supabase
     .from("audience_personas")
-    .select("id, persona_name, created_at")
+    .select("id, name, created_at")
     .eq("brand_container_id", bcid)
     .order("created_at", { ascending: false })
     .limit(1);
@@ -676,17 +676,15 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
 
   // 4. Crear brief proposed
   const { data: brief, error: briefErr } = await supabase
-    .from("strategic_recommendations")
+    .from("campaign_briefs")
     .insert({
       organization_id: organizationId,
       brand_container_id: bcid,
-      topic: name,
-      title: name,
-      description: goal,
-      status: "proposed",
-      confidence_score: 0.5,
-      rationale: reason,
-      metadata: { created_by_vera_macro: true, strategy_id: strategyId },
+      nombre: name,
+      descripcion_interna: goal,
+      objetivo_comercial: goal,
+      status: "draft",
+      is_conceptual_only: true,
     })
     .select("id")
     .single();
@@ -698,7 +696,7 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
   let y = 100;
   for (const p of products || []) {
     const res = await placeNodeOnCanvas(
-      { strategy_id: strategyId, node_type: "product", node_id: p.id, position_x: 100, position_y: y, reason: `buildStrategy '${name}': ${p.name}` },
+      { strategy_id: strategyId, node_type: "product", node_id: p.id, position_x: 100, position_y: y, reason: `buildStrategy '${name}': ${p.nombre_producto}` },
       bcid, organizationId, userId,
     );
     placements.push({ type: "product", id: p.id, placement_id: res.placement_id });

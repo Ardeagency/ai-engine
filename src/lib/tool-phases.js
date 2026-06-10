@@ -144,6 +144,8 @@ export const PHASE_B_TOOLS = [
   // Fase B bloque 3: ultimas 2 tools MISSING v3 (cobertura 26/26)
   "getBrandHealthMetrics",
   "searchIntelligence",
+  // Command Center / canvas de estrategia (Vera materializa estrategias)
+  "placeNodeOnCanvas","moveNodeOnCanvas","removeNodeFromCanvas","connectNodes","disconnectNodes","setVeraState","createStrategy","listStrategies","createStickyNote","createGroup","buildStrategy","proposeExternalAction",
 ];
 
 export const PHASE_C_TOOLS = [

@@ -132,7 +132,7 @@ const execFileAsync = promisify(execFile);
 const PORT      = ${ORG_BRIDGE_PORT};
 const ORG_TOKEN = process.env.ORG_TOKEN;
 const ORG_ID    = process.env.ORG_ID;
-const TIMEOUT   = Number(process.env.OPENCLAW_TIMEOUT_MS) || 120000;
+const TIMEOUT   = Number(process.env.OPENCLAW_TIMEOUT_MS) || 300000;
 
 const server = http.createServer(async (req, res) => {
   const send = (status, data) => {
@@ -159,6 +159,7 @@ const server = http.createServer(async (req, res) => {
           '--message',    message,
           '--session-id', sessionId,
           '--json',
+          '--timeout-seconds', '280',
         ];
         const result = await execFileAsync('openclaw', args, {
           env: { ...process.env },
@@ -190,7 +191,7 @@ ORG_TOKEN=${orgToken}
 ANTHROPIC_API_KEY=${anthropicApiKey}
 ANTHROPIC_BASE_URL=http://127.0.0.1:${anthropicProxyPort}
 OPENCLAW_GATEWAY_TOKEN=${openclawGatewayToken}
-OPENCLAW_TIMEOUT_MS=120000
+OPENCLAW_TIMEOUT_MS=300000
 `;
   const envB64 = Buffer.from(envFile).toString("base64");
 
@@ -520,7 +521,7 @@ ORG_ID=${orgId}
 ORG_TOKEN=${orgToken}
 ANTHROPIC_API_KEY=${anthropicApiKey}
 OPENCLAW_GATEWAY_TOKEN=${openclawGatewayToken}
-OPENCLAW_TIMEOUT_MS=120000
+OPENCLAW_TIMEOUT_MS=300000
 ENV_EOF
 chmod 600 /opt/openclaw-bridge/.env
 systemctl restart openclaw-bridge

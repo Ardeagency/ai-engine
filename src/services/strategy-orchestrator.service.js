@@ -75,3 +75,25 @@ export async function deriveStrategyState(strategyId) {
 
   return { ...base, state, productions: productions.length, completed, published: totalPublished, prodIds };
 }
+
+/**
+ * F2: lista las estrategias activas de una marca con su estado derivado, para que
+ * el brain-feed se las entregue a Vera y ella ejecute el siguiente paso de cada una
+ * (Vera elige el flow/decision en runtime; el orquestador solo da el estado).
+ */
+export async function listActiveStrategiesWithState(brandContainerId, limit = 8) {
+  const { data: strategies } = await supabase
+    .from("canvas_strategies")
+    .select("id, name, updated_at")
+    .eq("brand_container_id", brandContainerId)
+    .order("updated_at", { ascending: false })
+    .limit(limit);
+  const out = [];
+  for (const st of strategies || []) {
+    try {
+      const s = await deriveStrategyState(st.id);
+      out.push({ id: st.id, name: st.name, state: s.state, productions: s.productions, completed: s.completed, published: s.published, brief_id: (s.briefIds || [])[0] || null, campaign_id: (s.campaignIds || [])[0] || null });
+    } catch (_) { /* estrategia rota; saltar */ }
+  }
+  return out;
+}

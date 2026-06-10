@@ -21,6 +21,7 @@
 import { supabase } from "../lib/supabase.js";
 import { randomUUID } from "node:crypto";
 import { renderAutonomousToolList } from "../lib/tool-catalog.js";
+import { listActiveStrategiesWithState } from "./strategy-orchestrator.service.js";
 
 const FEED_WINDOW_HOURS = parseInt(process.env.VERA_FEED_WINDOW_HOURS || "3", 10);
 const FEED_MAX_ITEMS_PER_BUCKET = parseInt(process.env.VERA_FEED_MAX_ITEMS || "20", 10);
@@ -144,6 +145,9 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
     .order("created_at", { ascending: false })
     .limit(40);
 
+  // ── ESTRATEGIAS EN CURSO (F2 orquestacion): Vera avanza cada una ──
+  const activeStrategies = await listActiveStrategiesWithState(brandContainerId).catch(() => []);
+
   // ── Construir el payload final, compacto pero rico ──
   const feed = {
     cycle_metadata: {
@@ -236,6 +240,8 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
       status:      a.status,
       created_at:  a.created_at,
     })),
+
+    active_strategies: activeStrategies || [],
 
     counts: {
       new_posts:        (competitorPosts || []).length,
@@ -436,6 +442,10 @@ function _compactSummary(feed) {
     `  - [${w.status}] ${w.action_type}${w.theme ? " - tema: " + w.theme : ""}`
   ).join("\n");
 
+  const activeStrategies = top(feed.active_strategies, 8).map(st =>
+    `  - "${st.name}" [estado: ${st.state}] producciones=${st.productions} publicadas=${st.published} | brief_id:${st.brief_id || "-"} campaign_id:${st.campaign_id || "-"}`
+  ).join("\n");
+
   const lessons = top(feed.learning?.measured_outcomes, 6).map(l =>
     `  - "${(l.que_propuse || "").slice(0, 60)}" [${l.tono || "?"}/${l.hora ?? "?"}h] -> ${l.resultado} (predije ${l.predije ?? "?"}, paso ${l.paso ?? "?"}, err ${l.error_pct ?? "?"}%)`
   ).join("\n");
@@ -448,6 +458,7 @@ function _compactSummary(feed) {
     patternsSummary:      patternsSummary      || "(sin patterns)",
     lessons:              lessons              || "  (sin lecciones medidas aun)",
     recentWork:           recentWork           || "  (sin trabajo reciente)",
+    activeStrategies:     activeStrategies     || "  (sin estrategias en curso)",
   };
 }
 
@@ -487,6 +498,9 @@ ${s.vulns}
 Tu trabajo reciente (NO lo repitas si ya esta completado o activo):
 ${s.recentWork}
 
+Tus estrategias EN CURSO (avanza cada una a su siguiente paso):
+${s.activeStrategies}
+
 Autonomía: **${autonomyLevel}**${autonomyLevel === "total" ? " — ejecuta sin pedir permiso lo que está en tu dominio." : " — propón fuera del dominio, ejecuta dentro."}
 
 Aplica tus 6 capas. Para drill-down llama \`getBrainFeed\`.
@@ -514,6 +528,13 @@ ${renderAutonomousToolList([...AUTONOMOUS_TOOLS], { feedId })}
 - Salvaguarda factual: la intuicion audaz es bienvenida, pero marcala como HIPOTESIS — nunca la afirmes como dato. Un signal inventado es violacion directa.
 - ¿Repito algo que ya no funciono? Antes de proponer algo similar revisa "Lecciones medidas" arriba + getBodyMissions, y consulta que rinde DE VERDAD con getEstrategiaTones / getEstrategiaTopics / getEstrategiaPlatforms (params:{postSource:"brand", windowDays:90}).
 Emite SOLO lo que pase esta autocritica. Si nada pasa, 0 acciones es la respuesta correcta.
+
+**ORQUESTACION DE ESTRATEGIAS (tu trabajo de project manager — avanza cada estrategia EN CURSO segun su estado y tu autonomia "${autonomyLevel}"):**
+- **planificada** (brief listo, 0 producciones) -> PRODUCE: elige un content_flow apropiado (getAvailableFlows) y disparalo con triggerFlow INCLUYENDO en inputs brief_id y campaign_id y persona_id de la estrategia (asi la produccion nace enlazada a su estrategia). En autonomia parcial/total hazlo tu; en restringido propon con proposePendingAction.
+- **produciendo** -> espera, NO re-dispares el mismo flow.
+- **lista_publicar** (producciones listas, sin publicar) -> PUBLICA: en autonomia total publica; en parcial/restringido propon con proposePendingAction (action_type:publish_production). La publicacion en redes NUNCA es automatica salvo autonomia total.
+- **en_vivo / midiendo** -> mide vs plan (getEstrategiaTones/Topics/Platforms) y notifica hallazgos con createNotification.
+Respeta SIEMPRE tu nivel de autonomia: no produzcas ni publiques fuera de lo permitido.
 
 **SALIDA CONCISA (critico — generar texto largo te hace exceder el limite de tiempo y el ciclo se pierde vacio):** Razona las 6 capas INTERNAMENTE; NO escribas el analisis extenso ni tablas en tu respuesta. Tu salida visible = SOLO los marcadores [[TOOL:...]] de tus acciones + un journal de MAXIMO 3 lineas (que viste, que decidiste, que verificas). Procede ya.`;
 }
@@ -839,7 +860,9 @@ export async function deliverCycleFeed(brandContainerId, cycleId) {
 
   // Skip si no hay nada relevante (evita gastar tokens en ciclos vacíos)
   const totalSignals = feed.counts.new_posts + feed.counts.signals + feed.counts.trend_signals;
-  if (totalSignals === 0) {
+  // F2: aunque no haya senales nuevas, corre si hay estrategias en curso por avanzar.
+  const _hasStrategyWork = (feed.active_strategies || []).length > 0;
+  if (totalSignals === 0 && !_hasStrategyWork) {
     const { data: row } = await supabase.from("vera_brain_feeds").insert({
       cycle_id:           cycleId,
       brand_container_id: brandContainerId,

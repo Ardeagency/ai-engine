@@ -159,7 +159,6 @@ const server = http.createServer(async (req, res) => {
           '--message',    message,
           '--session-id', sessionId,
           '--json',
-          '--timeout-seconds', '280',
         ];
         const result = await execFileAsync('openclaw', args, {
           env: { ...process.env },

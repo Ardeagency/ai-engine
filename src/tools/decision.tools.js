@@ -15,6 +15,7 @@ import { supabase } from "../lib/supabase.js";
 // Vocabulario permitido (debe coincidir con el CHECK de vera_pending_actions.action_type)
 const ALLOWED = new Set([
   "publish_instagram_post","publish_facebook_post","schedule_instagram_post","schedule_facebook_post",
+  "publish_production",
   "update_brand_container","create_brand_color","update_brand_color","delete_brand_color",
   "create_brand_font","update_brand_font","delete_brand_font","create_brand_rule","update_brand_rule","delete_brand_rule",
   "create_product","update_product","delete_product","create_service","update_service","delete_service",
@@ -45,7 +46,7 @@ const RISK = {
   schedule_instagram_post:"MEDIO", schedule_facebook_post:"MEDIO",
   // ALTO — precio / campaña nueva / publicar / shopify price (approve con edicion)
   launch_campaign:"ALTO", create_campaign:"ALTO", pause_campaign:"ALTO",
-  publish_instagram_post:"ALTO", publish_facebook_post:"ALTO",
+  publish_instagram_post:"ALTO", publish_facebook_post:"ALTO", publish_production:"ALTO",
   update_shopify_variant_price:"ALTO", create_shopify_discount:"ALTO", create_shopify_price_rule:"ALTO",
 };
 

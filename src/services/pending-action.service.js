@@ -75,6 +75,24 @@ function _buildNotifMessage(reasoning) {
   return firstLine.slice(0, 200) + (firstLine.length > 200 ? "..." : "");
 }
 
+// ── Dedup: tipo + objetivo + tema ───────────────────────────────────────────
+// Vera es un trabajador: no repite trabajo ya hecho. dedup_key combina
+// action_type + (target_id||target_table) + slug(theme). Sin tema -> sin dedup.
+function _slugTheme(s) {
+  return String(s || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+function _buildDedupKey(actionType, targetId, targetTable, theme) {
+  const themeSlug = _slugTheme(theme);
+  if (!themeSlug) return null;
+  const objetivo = targetId || targetTable || "";
+  return `${actionType}|${objetivo}|${themeSlug}`;
+}
+
 // ── proposeAction ───────────────────────────────────────────────────────────
 /**
  * @param {object} opts
@@ -103,6 +121,7 @@ export async function proposeAction({
   veraConfidence = null,
   sourceSignalId = null,
   sourceJobId = null,
+  theme = null,
 }) {
   if (!veraReasoning || !String(veraReasoning).trim()) {
     throw new Error("vera_reasoning es obligatorio — VERA debe justificar cada propuesta");
@@ -113,6 +132,22 @@ export async function proposeAction({
 
   const ttlHours = _resolveTTL(actionType);
   const expiresAt = new Date(Date.now() + ttlHours * 3_600_000).toISOString();
+
+  // 0. DEDUP — no repetir acciones equivalentes activas o completadas
+  const dedupKey = _buildDedupKey(actionType, targetId, targetTable, theme);
+  if (dedupKey) {
+    let dq = supabase.from("vera_pending_actions").select("id, status")
+      .eq("organization_id", organizationId)
+      .eq("dedup_key", dedupKey)
+      .not("status", "in", "(failed,rejected,expired,dismissed)")
+      .limit(1);
+    dq = brandContainerId ? dq.eq("brand_container_id", brandContainerId) : dq.is("brand_container_id", null);
+    const { data: dups } = await dq;
+    if (dups && dups.length) {
+      console.log(`[pending-action] DEDUP skip: ${dedupKey} ya existe (action ${dups[0].id}, status=${dups[0].status})`);
+      return { skipped: true, reason: "already_exists", existing_action_id: dups[0].id, status: dups[0].status, dedup_key: dedupKey };
+    }
+  }
 
   // 1. INSERT
   const { data: action, error: insertErr } = await supabase
@@ -130,15 +165,17 @@ export async function proposeAction({
       source_signal_id:   sourceSignalId,
       source_job_id:      sourceJobId,
       expires_at:         expiresAt,
+      theme:              theme || null,
+      dedup_key:          dedupKey,
     })
     .select()
     .single();
 
   if (insertErr) {
     if (insertErr.code === "23505") {
-      throw new Error(
-        `Ya existe una acción pendiente del mismo tipo "${actionType}" sobre ${targetTable}/${targetId}`
-      );
+      // colision con indice unico (dedup o target-pending) -> ya existe, skip graceful
+      console.log(`[pending-action] DEDUP skip (23505): ${dedupKey || actionType+"/"+targetTable+"/"+targetId}`);
+      return { skipped: true, reason: "duplicate_constraint", dedup_key: dedupKey };
     }
     throw insertErr;
   }

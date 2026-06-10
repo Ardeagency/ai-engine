@@ -82,6 +82,7 @@ export async function proposePendingAction(params = {}, brandContainerId, organi
   const reasoning  = params.reasoning || params.vera_reasoning;
   const sources    = params.source_signals || params.sources || [];
   const horizon    = (params.horizon || "semana").toLowerCase();
+  const theme      = params.theme || params.tema || params.topic || null;
 
   if (!actionType) throw new Error("proposePendingAction: action_type es requerido");
   if (!reasoning || !String(reasoning).trim()) {
@@ -126,10 +127,21 @@ export async function proposePendingAction(params = {}, brandContainerId, organi
     veraReasoning:    reasoning,
     veraConfidence:   confidence,
     sourceSignalId:   sig0,
+    theme,
   });
 
+  // Dedup: si ya existe una accion equivalente (tipo+objetivo+tema) activa o
+  // completada, proposeAction retorna {skipped} y NO la repetimos.
+  if (row?.skipped) {
+    return {
+      proposed: false, skipped: true, reason: row.reason || "already_exists",
+      existing_action_id: row.existing_action_id || null, action_type: actionType,
+      note: "No repetida: ya existe una accion equivalente (mismo tipo+objetivo+tema) activa o completada.",
+    };
+  }
+
   // priority por horizonte (el spec usa priority para el tab HOY/SEMANA/MES)
-  try { await supabase.from("vera_pending_actions").update({ priority }).eq("id", row.id); } catch (_) {}
+  if (row?.id) { try { await supabase.from("vera_pending_actions").update({ priority }).eq("id", row.id); } catch (_) {} }
 
   return {
     proposed: true,

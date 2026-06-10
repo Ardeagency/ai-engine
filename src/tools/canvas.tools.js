@@ -27,7 +27,7 @@ import { resolveBrandContainer } from "../lib/brand-resolver.js";
 const NODE_TYPES = new Set([
   "product", "service", "place",
   "audience", "brief", "flow",
-  "campaign-concept", "campaign-real",
+  "campaign", "campaign-concept", "campaign-real",
   "sticky", "group",
 ]);
 
@@ -38,14 +38,15 @@ const VERA_STATES = new Set([
 
 // Mismas reglas que CC_CONNECTION_RULES en CanvasStore.js
 const CONNECTION_RULES = {
-  product:            ["brief", "flow", "campaign-concept"],
-  service:            ["brief", "flow", "campaign-concept"],
-  place:              ["brief", "flow", "campaign-concept"],
-  audience:           ["flow", "campaign-concept", "campaign-real"],
-  brief:              ["flow", "campaign-concept", "campaign-real"],
-  flow:               ["campaign-concept", "campaign-real"],
+  product:            ["brief", "flow", "campaign-concept", "campaign"],
+  service:            ["brief", "flow", "campaign-concept", "campaign"],
+  place:              ["brief", "flow", "campaign-concept", "campaign"],
+  audience:           ["flow", "campaign-concept", "campaign-real", "campaign"],
+  brief:              ["flow", "campaign-concept", "campaign-real", "campaign"],
+  flow:               ["campaign-concept", "campaign-real", "campaign"],
   "campaign-concept": ["campaign-real"],
   "campaign-real":    [],
+  campaign:           [],
   sticky:             [],
   group:              [],
 };
@@ -719,28 +720,42 @@ export async function buildStrategy(params, brandContainerId, organizationId, us
   );
   placements.push({ type: "brief", id: brief.id, placement_id: briefRes.placement_id });
 
+  // 5b. Crear campana conceptual (destino del embudo) y colocarla
+  const { data: campaign, error: campErr } = await supabase
+    .from("campaigns")
+    .insert({
+      organization_id: organizationId,
+      brand_container_id: bcid,
+      nombre_campana: name,
+      status: "conceptual",
+    })
+    .select("id")
+    .single();
+  if (campErr) throw new Error(`buildStrategy: campaign insert ${campErr.message}`);
+  trace.push({ step: "createCampaign", id: campaign.id });
+
+  const campRes = await placeNodeOnCanvas(
+    { strategy_id: strategyId, node_type: "campaign", node_id: campaign.id, position_x: 1300, position_y: 200, reason: `buildStrategy: campana destino` },
+    bcid, organizationId, userId,
+  );
+  placements.push({ type: "campaign", id: campaign.id, placement_id: campRes.placement_id });
+
   trace.push({ step: "placeNodes", count: placements.length });
 
-  // 6. Conectar productos -> brief, audiencia -> brief
+  // 6. Embudo: producto -> brief, brief -> campana, audiencia -> campana
   const edges = [];
-  for (const p of products || []) {
+  const _connect = async (sT, sI, tT, tI) => {
     try {
       const e = await connectNodes(
-        { strategy_id: strategyId, source_type: "product", source_id: p.id, target_type: "brief", target_id: brief.id, reason: `buildStrategy '${name}'` },
+        { strategy_id: strategyId, source_type: sT, source_id: sI, target_type: tT, target_id: tI, reason: `buildStrategy '${name}'` },
         bcid, organizationId, userId,
       );
-      edges.push(e.edge_id);
-    } catch (e) { /* idempotencia o regla; seguimos */ }
-  }
-  if (audiences?.[0]) {
-    try {
-      const e = await connectNodes(
-        { strategy_id: strategyId, source_type: "audience", source_id: audiences[0].id, target_type: "brief", target_id: brief.id, reason: `buildStrategy '${name}'` },
-        bcid, organizationId, userId,
-      );
-      edges.push(e.edge_id);
-    } catch (e) { /* */ }
-  }
+      if (e?.edge_id) edges.push(e.edge_id);
+    } catch (e) { /* regla/idempotencia; seguimos */ }
+  };
+  for (const p of products || []) await _connect("product", p.id, "brief", brief.id);
+  await _connect("brief", brief.id, "campaign", campaign.id);
+  if (audiences?.[0]) await _connect("audience", audiences[0].id, "campaign", campaign.id);
   trace.push({ step: "connectEdges", count: edges.length });
 
   // 7. Marcar el brief como "creando" para que pulse en el frontend

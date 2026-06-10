@@ -113,7 +113,7 @@ export function deriveAgentId(organizationId) {
 
 function _generateCloudInitScript({
   orgId, orgName, orgToken, agentId, serverName,
-  anthropicApiKey, openclawGatewayToken,
+  anthropicApiKey, openaiApiKey, openclawGatewayToken,
   callbackUrl, webhookSecret, model,
   supabaseUrl, supabaseServiceKey, anthropicProxyPort = 8788,
 }) {
@@ -291,6 +291,7 @@ WantedBy=multi-user.target
 set -e
 export DEBIAN_FRONTEND=noninteractive
 export ANTHROPIC_API_KEY="${anthropicApiKey}"
+export OPENAI_API_KEY="${openaiApiKey}"
 export OPENCLAW_GATEWAY_TOKEN="${openclawGatewayToken}"
 
 echo "[setup] Firewall..."
@@ -391,6 +392,7 @@ done
 echo "[setup] Reparar config + provider anthropic (API key via proxy, multitenant)..."
 openclaw doctor --fix >/dev/null 2>&1 || true
 echo "$ANTHROPIC_API_KEY" | openclaw models auth paste-api-key --provider anthropic >/dev/null 2>&1 || true
+echo "$OPENAI_API_KEY" | openclaw models auth paste-api-key --provider openai >/dev/null 2>&1 || true
 openclaw models set ${model} >/dev/null 2>&1 || true
 
 echo "[setup] Registrar agente..."
@@ -576,6 +578,7 @@ export async function createOrgServer(org) {
   const callbackUrl    = process.env.AI_ENGINE_PUBLIC_URL || process.env.AI_ENGINE_URL || "http://5.161.243.1:3000";
   const webhookSecret  = process.env.INTERNAL_WEBHOOK_SECRET || "";
   const anthropicKey   = process.env.ANTHROPIC_API_KEY || "";
+  const openaiKey      = process.env.OPENAI_API_KEY || "";
   const openclawToken  = process.env.OPENCLAW_GATEWAY_TOKEN || "";
   const supabaseUrl    = process.env.SUPABASE_URL || "";
   const supabaseKey    = process.env.SUPABASE_SERVICE_KEY || "";
@@ -587,6 +590,7 @@ export async function createOrgServer(org) {
   const userData = _generateCloudInitScript({
     orgId, orgName, orgToken, agentId, serverName,
     anthropicApiKey: anthropicKey,
+    openaiApiKey: openaiKey,
     openclawGatewayToken: openclawToken,
     callbackUrl, webhookSecret, model,
     supabaseUrl, supabaseServiceKey: supabaseKey,

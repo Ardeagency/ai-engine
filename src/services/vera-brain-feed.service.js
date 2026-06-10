@@ -532,7 +532,7 @@ Emite SOLO lo que pase esta autocritica. Si nada pasa, 0 acciones es la respuest
 **ORQUESTACION DE ESTRATEGIAS (tu trabajo de project manager — avanza cada estrategia EN CURSO segun su estado y tu autonomia "${autonomyLevel}"):**
 - **planificada** (brief listo, 0 producciones) -> PRODUCE: elige un content_flow apropiado (getAvailableFlows) y disparalo con triggerFlow INCLUYENDO en inputs brief_id y campaign_id y persona_id de la estrategia (asi la produccion nace enlazada a su estrategia). En autonomia parcial/total hazlo tu; en restringido propon con proposePendingAction.
 - **produciendo** -> espera, NO re-dispares el mismo flow.
-- **lista_publicar** (producciones listas, sin publicar) -> PUBLICA: en autonomia total publica; en parcial/restringido propon con proposePendingAction (action_type:publish_production). La publicacion en redes NUNCA es automatica salvo autonomia total.
+- **lista_publicar** (producciones listas, sin publicar) -> NOTIFICA con createNotification que la estrategia ya genero contenido y esta LISTA PARA PUBLICAR. NO publiques tu: la publicacion la hace el humano manualmente desde el canvas (boton Publicar en cada produccion). Vera NUNCA postea en redes por si misma.
 - **en_vivo / midiendo** -> mide vs plan (getEstrategiaTones/Topics/Platforms) y notifica hallazgos con createNotification.
 Respeta SIEMPRE tu nivel de autonomia: no produzcas ni publiques fuera de lo permitido.
 

@@ -1250,3 +1250,53 @@ export async function getGa4AudienceDemographics({ brandContainerId = null, orga
     total_audience: Math.max(ageData.total, genderData.total, countryData.total, cityData.total),
   };
 }
+
+
+/**
+ * fetchOwnPostComments — comentarios del PUBLICO en publicaciones PROPIAS via
+ * Graph API (sin Apify). Recibe posts [{ id, post_id, network }] y devuelve
+ * filas listas para brand_post_comments (sin tocar DB; las persiste el sensor
+ * meta_posts). Crudas: is_processed=false -> las puntua el cron de comentarios.
+ */
+export async function fetchOwnPostComments({ brandContainerId, organizationId, posts, perPost = 100 }) {
+  if (!Array.isArray(posts) || posts.length === 0) return [];
+  let pageToken = null;
+  try {
+    const integ = await getIntegrationToken(brandContainerId, organizationId, "facebook");
+    const tok = await _getMetaPageToken(integ.access_token, null, integ.metadata);
+    pageToken = tok && tok.pageToken ? tok.pageToken : null;
+  } catch (_) { return []; }
+  if (!pageToken) return [];
+
+  const rows = [];
+  for (const op of posts) {
+    if (!op || !op.post_id) continue;
+    const isIg = op.network === "instagram";
+    let data = [];
+    try {
+      const res = await metaGet(`/${op.post_id}/comments`, pageToken, isIg
+        ? { fields: "id,text,username,timestamp,like_count", limit: perPost }
+        : { fields: "id,message,from{id,name},created_time,like_count", limit: perPost });
+      data = (res && res.data) || [];
+    } catch (_) { continue; }
+    for (const c of data) {
+      const content = isIg ? (c.text || "") : (c.message || "");
+      if (!c.id || !content) continue;
+      rows.push({
+        brand_post_id: op.id,
+        brand_container_id: brandContainerId,
+        organization_id: organizationId,
+        network: op.network,
+        external_comment_id: c.id,
+        author_handle: isIg ? (c.username || null) : (c.from && c.from.id ? c.from.id : null),
+        author_display_name: isIg ? (c.username || null) : (c.from && c.from.name ? c.from.name : null),
+        content,
+        posted_at: isIg ? (c.timestamp || null) : (c.created_time || null),
+        metrics: { likes: Number(c.like_count) || 0 },
+        source: "meta_api",
+        is_processed: false,
+      });
+    }
+  }
+  return rows;
+}

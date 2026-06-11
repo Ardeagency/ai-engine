@@ -44,6 +44,7 @@ import {
   getGa4AudienceDemographics,
   getMetaAdsAudiences,
   getMetaAdLibrary,
+  fetchOwnPostComments,
 } from "../tools/social.tools.js";
 import { runAlignmentForBrand } from "./audience-alignment.service.js";
 import { runCampaignPerformanceForBrand } from "./campaign-performance.service.js";
@@ -1171,7 +1172,23 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
     } else if (sensorType === "meta_posts") {
       const result = await getMetaPosts({ brandContainerId, organizationId, limit: 25 });
       const inserted = await persistOwnPosts(result.posts || [], brandContainerId, entity.id);
-      stats = { posts_found: result.posts?.length || 0, new_signals: inserted };
+      // Comentarios del PUBLICO en posts propios (Graph API): el sentimiento/riesgo
+      // de marca se mide de aqui, no del texto del post. Crudos -> los puntua el
+      // cron python-analyzer-comments. Defensivo: no aborta el sensor.
+      let commentsSynced = 0;
+      try {
+        const { data: ownPosts } = await supabase.from("brand_posts")
+          .select("id,post_id,network").eq("brand_container_id", brandContainerId)
+          .eq("is_competitor", false).order("captured_at", { ascending: false }).limit(300);
+        const commentRows = await fetchOwnPostComments({ brandContainerId, organizationId, posts: ownPosts || [] });
+        if (commentRows.length) {
+          const { error: cErr } = await supabase.from("brand_post_comments")
+            .upsert(commentRows, { onConflict: "network,external_comment_id", ignoreDuplicates: true });
+          if (cErr) console.warn(`[meta_posts comments] upsert: ${cErr.message}`);
+          else commentsSynced = commentRows.length;
+        }
+      } catch (e) { console.warn(`[meta_posts comments] ${e.message}`); }
+      stats = { posts_found: result.posts?.length || 0, new_signals: inserted, comments_synced: commentsSynced };
 
     } else if (sensorType === "ga4_analytics") {
       const result = await getGoogleAnalytics({ brandContainerId, organizationId, range: "30d" });

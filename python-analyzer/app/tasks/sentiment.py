@@ -1,6 +1,9 @@
 """Sentiment analysis multilingual (ES + EN + PT) usando pysentimiento."""
 from pysentimiento import create_analyzer
 import re
+import os as _os
+import time as _time
+import httpx as _httpx
 from langdetect import detect, DetectorFactory
 
 DetectorFactory.seed = 42  # langdetect determinista
@@ -57,6 +60,34 @@ NEG_KEYWORDS_ES = {
     "fraude", "boicot", "decepción", "robado", "engañ",
 }
 
+# Lexico APRENDIDO (lo cura el LLM semanal en learned_vocabulary). Cache 30min;
+# se consulta en el camino caliente sin costo de LLM.
+_LEARNED = {"pos": set(), "neg": set(), "ts": 0.0}
+_LEARNED_TTL = 1800
+def _load_learned():
+    url = _os.environ.get("SUPABASE_URL"); key = _os.environ.get("SUPABASE_SERVICE_KEY")
+    if not url or not key:
+        return
+    try:
+        r = _httpx.get(url + "/rest/v1/learned_vocabulary",
+            headers={"apikey": key, "Authorization": "Bearer " + key},
+            params={"select": "word,suggested_value", "dimension": "eq.sentiment", "status": "eq.approved", "limit": "5000"}, timeout=10)
+        if r.status_code != 200:
+            return
+        pos, neg = set(), set()
+        for x in r.json():
+            w = (x.get("word") or "").lower().strip()
+            if not w:
+                continue
+            p = (x.get("suggested_value") or "").upper()
+            (pos if p == "POS" else neg if p == "NEG" else set()).add(w)
+        _LEARNED.update({"pos": pos, "neg": neg, "ts": _time.time()})
+    except Exception:
+        pass
+def _ensure_learned():
+    if _time.time() - _LEARNED["ts"] > _LEARNED_TTL:
+        _load_learned()
+
 def _normalize(text: str) -> str:
     """Colapsa alargamientos: 'brutaaaal'->'brutal', 'siii'->'si'."""
     return re.sub(r"(.)\1{2,}", r"\1", text.lower())
@@ -68,6 +99,9 @@ def _signals(text: str):
     neg_e = sum(text.count(e) for e in NEG_EMOJI)
     pos_k = sum(1 for k in POS_KEYWORDS_EN if k in t) + sum(1 for k in POS_KEYWORDS_ES if k in t)
     neg_k = sum(1 for k in NEG_KEYWORDS_EN if k in t) + sum(1 for k in NEG_KEYWORDS_ES if k in t)
+    _ensure_learned()
+    pos_k += sum(1 for k in _LEARNED["pos"] if k in t)
+    neg_k += sum(1 for k in _LEARNED["neg"] if k in t)
     return pos_e, neg_e, pos_k, neg_k
 
 def _polarity_boost(text: str) -> float:

@@ -919,6 +919,17 @@ async def run_discovery():
     }
 
 
+@app.post("/learning/curate-sentiment")
+async def curate_sentiment():
+    """Camino FRIO: el LLM cura el lexico de sentimiento (jerga regional, emojis,
+    sarcasmo) en learned_vocabulary. Lo dispara el cron semanal."""
+    from .tasks.sentiment_curator import run_curation
+    try:
+        return await run_curation()
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 @app.get("/learning/discoveries/vocabulary")
 async def list_vocabulary_discoveries(status: str = "pending", limit: int = 50):
     async with httpx.AsyncClient(timeout=10) as cli:

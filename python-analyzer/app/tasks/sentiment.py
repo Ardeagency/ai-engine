@@ -1,5 +1,6 @@
 """Sentiment analysis multilingual (ES + EN + PT) usando pysentimiento."""
 from pysentimiento import create_analyzer
+import re
 from langdetect import detect, DetectorFactory
 
 DetectorFactory.seed = 42  # langdetect determinista
@@ -39,6 +40,12 @@ POS_KEYWORDS_ES = {
     "increíble", "espectacular", "alucinante", "magnífico", "extraordinario",
     "imperdible", "el mejor", "la mejor", "icónico", "legendario", "exclusivo",
     "premium", "perfecto",
+    # Jerga latina de elogio (en comentarios = positivo, no literal):
+    "brutal", "brutalisimo", "bestial", "una bestia", "tremendo", "tremenda",
+    "una locura", "que locura", "chimba", "berraco", "verraco", "salvaje",
+    "demente", "lo maximo", "buenisimo", "buenisima", "genial", "hermoso",
+    "hermosa", "una belleza", "me encanta", "encanta", "epico", "epica",
+    "uff", "wow", "fino", "joya", "crack", "candela", "duro",
 }
 NEG_KEYWORDS_EN = {
     " fail", "failed", "disaster", "terrible", "worst", "awful",
@@ -50,14 +57,22 @@ NEG_KEYWORDS_ES = {
     "fraude", "boicot", "decepción", "robado", "engañ",
 }
 
-def _polarity_boost(text: str) -> float:
-    """Devuelve un delta a sumar al score (-0.4..+0.4)."""
-    t = text.lower()
+def _normalize(text: str) -> str:
+    """Colapsa alargamientos: 'brutaaaal'->'brutal', 'siii'->'si'."""
+    return re.sub(r"(.)\1{2,}", r"\1", text.lower())
+
+def _signals(text: str):
+    """(pos_emoji, neg_emoji, pos_keyword, neg_keyword), normaliza alargamientos."""
+    t = _normalize(text)
     pos_e = sum(text.count(e) for e in POS_EMOJI)
     neg_e = sum(text.count(e) for e in NEG_EMOJI)
     pos_k = sum(1 for k in POS_KEYWORDS_EN if k in t) + sum(1 for k in POS_KEYWORDS_ES if k in t)
     neg_k = sum(1 for k in NEG_KEYWORDS_EN if k in t) + sum(1 for k in NEG_KEYWORDS_ES if k in t)
-    # Cada señal vale 0.08; tope ±0.4 para no anular el modelo
+    return pos_e, neg_e, pos_k, neg_k
+
+def _polarity_boost(text: str) -> float:
+    """Devuelve un delta a sumar al score (-0.4..+0.4)."""
+    pos_e, neg_e, pos_k, neg_k = _signals(text)
     delta = (pos_e + pos_k) * 0.08 - (neg_e + neg_k) * 0.08
     return max(-0.4, min(0.4, delta))
 
@@ -83,6 +98,15 @@ def analyze_sentiment(text: str, lang: str | None = None) -> dict:
     boost = _polarity_boost(text)
     if boost != 0:
         score = max(-1.0, min(1.0, score + boost))
+
+    # Reacciones cortas de hype en jerga latina ("Brutal!!!", "BRUTAAAAAAL",
+    # "Que chimba") que el modelo lee literal como negativas: si hay senal
+    # positiva fuerte (slang/emoji), es corto y sin negativo explicito,
+    # confiamos en el lexico sobre el modelo.
+    pe, ne, pk, nk = _signals(text)
+    if (pk >= 1 or pe >= 2) and nk == 0 and len(text.split()) <= 6:
+        label = "POS"
+        score = max(score, 0.6)
 
     # Override del label cuando el score (ya boosteado) es claramente polarizado pero
     # el modelo eligió NEU. Threshold 0.30 — empíricamente la zona donde pysentimiento

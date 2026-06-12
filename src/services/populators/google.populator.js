@@ -209,7 +209,6 @@ export class GooglePopulator extends BasePopulator {
         permalink:           `https://youtube.com/watch?v=${v.id}`,
         media_assets:        sn.thumbnails ? [{ type: "image", url: sn.thumbnails.high?.url || sn.thumbnails.default?.url || null }] : null,
         metrics:             { views: Number(st.viewCount || 0), likes, comments },
-        engagement_total:    likes + comments,
         hashtags:            (sn.tags || []).slice(0, 30),
         captured_at:         sn.publishedAt || new Date().toISOString(),
         is_competitor:       false,

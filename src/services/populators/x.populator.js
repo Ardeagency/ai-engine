@@ -86,9 +86,6 @@ export class XPopulator extends BasePopulator {
           .map((k) => mediaByKey[k])
           .filter(Boolean)
           .map((m) => ({ type: m.type, url: m.url || m.preview_image_url || null }));
-        const engagement =
-          (pm.like_count || 0) + (pm.retweet_count || 0) + (pm.reply_count || 0) + (pm.quote_count || 0);
-
         rows.push({
           brand_container_id:  brand_container_id,
           network:             "x",
@@ -100,7 +97,6 @@ export class XPopulator extends BasePopulator {
           permalink:           username ? `https://x.com/${username}/status/${t.id}` : null,
           media_assets:        mediaAssets.length ? mediaAssets : null,
           metrics:             pm,
-          engagement_total:    engagement,
           hashtags:            (ent.hashtags || []).map((h) => h.tag).filter(Boolean),
           mentions:            (ent.mentions || []).map((m) => m.username).filter(Boolean),
           captured_at:         t.created_at || new Date().toISOString(),

@@ -64,24 +64,46 @@ export class GooglePopulator extends BasePopulator {
     const { brand_integration_id } = job.payload;
     const integ = await this.getIntegration(brand_integration_id);
 
-    const customers = await listAccessibleCustomers(integ);
+    const tops = await listAccessibleCustomers(integ);
     const stats = {
-      customers_accessible: customers.length, customers_with_data: 0,
-      campaigns_upserted: 0, customers_skipped: 0, errors: 0,
+      top_level: tops.length, leaf_accounts: 0, accounts_with_data: 0,
+      campaigns_upserted: 0, skipped: 0, errors: 0,
     };
 
-    for (const customerId of customers) {
+    // Expandir jerarquia MCC: listAccessibleCustomers solo da los top-level
+    // (suelen ser MCCs). Por cada uno, customer_client revela las cuentas hoja
+    // no-manager (las que tienen campanas). Al consultar una hoja, el
+    // login-customer-id debe ser su MCC de nivel superior.
+    const leaves = new Map(); // leafCustomerId -> loginCustomerId (MCC top)
+    for (const top of tops) {
+      try {
+        const clients = await searchStream(integ, top,
+          "SELECT customer_client.id, customer_client.manager FROM customer_client",
+          { loginCustomerId: top });
+        for (const r of clients) {
+          const cc = r.customerClient || {};
+          if (cc.manager === false && cc.id && !leaves.has(String(cc.id))) {
+            leaves.set(String(cc.id), top);
+          }
+        }
+      } catch (e) {
+        stats.skipped++;
+        console.warn(`google-populator: cannot expand ${top}:`, e?.message?.slice(0, 140));
+      }
+    }
+    stats.leaf_accounts = leaves.size;
+
+    for (const [customerId, loginId] of leaves) {
       let rows = [];
       try {
-        rows = await searchStream(integ, customerId, CAMPAIGN_GAQL);
+        rows = await searchStream(integ, customerId, CAMPAIGN_GAQL, { loginCustomerId: loginId });
       } catch (e) {
-        // Cuentas manager (MCC) o sin permiso → no tienen campanas: skip silencioso.
-        stats.customers_skipped++;
-        console.warn(`google-populator: customer ${customerId} skipped:`, e?.message?.slice(0, 160));
+        stats.skipped++;
+        console.warn(`google-populator: campaigns ${customerId} skipped:`, e?.message?.slice(0, 140));
         continue;
       }
       if (!rows.length) continue;
-      stats.customers_with_data++;
+      stats.accounts_with_data++;
 
       for (const row of rows) {
         try {

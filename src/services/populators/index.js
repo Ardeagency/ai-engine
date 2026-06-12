@@ -15,6 +15,7 @@ import { MercadoLibrePopulator } from "./mercadolibre.populator.js";
 import { WooCommercePopulator } from "./woocommerce.populator.js";
 import { FacebookPopulator } from "./facebook.populator.js";
 import { GooglePopulator } from "./google.populator.js";
+import { XPopulator } from "./x.populator.js";
 import { EnrichmentPopulator } from "./enrichment.populator.js";
 
 const POPULATORS = [
@@ -24,6 +25,7 @@ const POPULATORS = [
   new WooCommercePopulator(),
   new FacebookPopulator(),
   new GooglePopulator(),
+  new XPopulator(),
   new EnrichmentPopulator(),
 ];
 

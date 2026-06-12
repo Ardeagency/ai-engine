@@ -363,3 +363,136 @@ export async function getStrategyOpportunityScore({ organizationId, limit }) {
     opportunities,
   };
 }
+
+// ── vera_action_outcomes — loop de retroalimentación ─────────────────────────
+// Vera lee cómo le fue a sus propias acciones ejecutadas (medidas por
+// outcome-measurement.service.js con reglas+math). Con esto calibra confianza,
+// replica lo que funcionó y evita lo que no. Solo lectura.
+
+const ALLOWED_VERDICTS = new Set(["positive", "neutral", "negative", "inconclusive", "all"]);
+
+/**
+ * Lista outcomes medidos de acciones ejecutadas, más reciente primero.
+ *
+ * @param {object} params
+ * @param {string} params.organizationId
+ * @param {string} [params.verdict]  positive|neutral|negative|inconclusive|all
+ * @param {string} [params.since]    ISO date — outcomes medidos después de esta fecha
+ * @param {number} [params.limit]    máx 50, default 20
+ */
+export async function getActionOutcomes({ organizationId, verdict, since, limit }) {
+  const cap = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 50);
+
+  let q = supabase
+    .from("vera_action_outcomes")
+    .select("id, pending_action_id, action_type, measurement_window, outcome_verdict, outcome_score, delta, reasoning, measured_at")
+    .eq("organization_id", organizationId)
+    .order("measured_at", { ascending: false })
+    .limit(cap);
+
+  if (verdict && ALLOWED_VERDICTS.has(verdict) && verdict !== "all") {
+    q = q.eq("outcome_verdict", verdict);
+  }
+  if (since && !Number.isNaN(Date.parse(since))) {
+    q = q.gte("measured_at", new Date(since).toISOString());
+  }
+
+  const { data, error } = await q;
+  if (error) throw new Error(`vera_action_outcomes: ${error.message}`);
+  return { count: data?.length || 0, outcomes: data || [] };
+}
+
+/**
+ * Todas las ventanas de medición de una acción específica, con la acción
+ * original (tipo, reasoning de propuesta, confianza) para contexto completo.
+ *
+ * @param {object} params
+ * @param {string} params.organizationId
+ * @param {string} params.action_id  — id de la vera_pending_action
+ */
+export async function getActionOutcomeDetail({ organizationId, action_id }) {
+  if (!action_id) throw new Error("action_id es requerido");
+
+  const [{ data: action }, { data: outcomes, error }] = await Promise.all([
+    supabase
+      .from("vera_pending_actions")
+      .select("id, action_type, status, vera_confidence, vera_reasoning, executed_at, created_at")
+      .eq("id", action_id)
+      .eq("organization_id", organizationId)
+      .maybeSingle(),
+    supabase
+      .from("vera_action_outcomes")
+      .select("measurement_window, outcome_verdict, outcome_score, baseline_metrics, outcome_metrics, delta, reasoning, measured_at")
+      .eq("pending_action_id", action_id)
+      .eq("organization_id", organizationId)
+      .order("measured_at", { ascending: true }),
+  ]);
+
+  if (error) throw new Error(`vera_action_outcomes: ${error.message}`);
+  if (!action) throw new Error("Acción no encontrada en esta organización");
+
+  return { action, windows_measured: outcomes?.length || 0, outcomes: outcomes || [] };
+}
+
+/**
+ * Agregado de outcomes para calibración: por action_type, % positive/negative,
+ * score promedio, y calibración de confianza (¿la confianza alta de Vera
+ * realmente predice buenos outcomes?). Reglas+math, computado en caliente.
+ *
+ * @param {object} params
+ * @param {string} params.organizationId
+ * @param {number} [params.window_days]  ventana de agregación, default 90, máx 365
+ */
+export async function getOutcomeSummary({ organizationId, window_days }) {
+  const days = Math.min(Math.max(parseInt(window_days, 10) || 90, 7), 365);
+  const sinceISO = new Date(Date.now() - days * 24 * 3600 * 1000).toISOString();
+
+  const { data, error } = await supabase
+    .from("vera_action_outcomes")
+    .select("action_type, measurement_window, outcome_verdict, outcome_score, pending_action_id, vera_pending_actions(vera_confidence)")
+    .eq("organization_id", organizationId)
+    .gte("measured_at", sinceISO)
+    .limit(1000);
+
+  if (error) throw new Error(`vera_action_outcomes: ${error.message}`);
+
+  const rows = data || [];
+  const byType = {};
+  // Calibración: buckets de confianza declarada vs score real obtenido
+  const calib = { alta: [], media: [], baja: [] };
+
+  for (const r of rows) {
+    const t = (byType[r.action_type] ||= { total: 0, positive: 0, neutral: 0, negative: 0, inconclusive: 0, scores: [] });
+    t.total++;
+    t[r.outcome_verdict] = (t[r.outcome_verdict] || 0) + 1;
+    if (r.outcome_score != null) t.scores.push(Number(r.outcome_score));
+
+    const conf = Number(r.vera_pending_actions?.vera_confidence);
+    if (r.outcome_score != null && !Number.isNaN(conf)) {
+      const bucket = conf >= 0.75 ? "alta" : conf >= 0.5 ? "media" : "baja";
+      calib[bucket].push(Number(r.outcome_score));
+    }
+  }
+
+  const avg = (xs) => (xs.length ? Math.round((xs.reduce((a, b) => a + b, 0) / xs.length) * 1000) / 1000 : null);
+
+  const summary = Object.entries(byType).map(([action_type, t]) => ({
+    action_type,
+    measurements: t.total,
+    positive: t.positive, neutral: t.neutral, negative: t.negative, inconclusive: t.inconclusive,
+    avg_score: avg(t.scores),
+    success_rate: t.total > 0 ? Math.round(((t.positive || 0) / t.total) * 100) : null,
+  }));
+
+  return {
+    window_days: days,
+    total_measurements: rows.length,
+    by_action_type: summary,
+    confidence_calibration: {
+      alta:  { n: calib.alta.length,  avg_outcome_score: avg(calib.alta) },
+      media: { n: calib.media.length, avg_outcome_score: avg(calib.media) },
+      baja:  { n: calib.baja.length,  avg_outcome_score: avg(calib.baja) },
+      nota: "Si alta no supera a media/baja, la confianza declarada no está calibrada.",
+    },
+  };
+}

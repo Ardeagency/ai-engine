@@ -359,6 +359,25 @@ const TOOL_REGISTRY = {
     timeout: 15_000, // hace varias queries en paralelo, dejar margen
   },
 
+  // ── Outcomes — loop de retroalimentación (Phase B+, solo lectura) ─────────
+  // Vera lee cómo le fue a sus acciones ejecutadas (medidas por
+  // outcome-measurement.service.js) para calibrar confianza y replicar patrones.
+  getActionOutcomes: {
+    fn: ({ organizationId, verdict, since, limit }) =>
+      strategyTools.getActionOutcomes({ organizationId, verdict, since, limit }),
+    requiresConsent: false,
+  },
+  getActionOutcomeDetail: {
+    fn: ({ organizationId, action_id }) =>
+      strategyTools.getActionOutcomeDetail({ organizationId, action_id }),
+    requiresConsent: false,
+  },
+  getOutcomeSummary: {
+    fn: ({ organizationId, window_days }) =>
+      strategyTools.getOutcomeSummary({ organizationId, window_days }),
+    requiresConsent: false,
+  },
+
   // ── Actions (write) ───────────────────────────────────────────────────────
   likeFlow: {
     fn: ({ flowId, userId }) => actionTools.likeFlow(flowId, userId),

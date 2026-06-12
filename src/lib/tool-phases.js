@@ -77,6 +77,10 @@ export const PHASE_B_TOOLS = [
   "getPendingActions",
   "getPendingActionDetail",
   "getStrategyOpportunityScore",
+  // Outcomes — loop de retroalimentación (lectura de vera_action_outcomes)
+  "getActionOutcomes",
+  "getActionOutcomeDetail",
+  "getOutcomeSummary",
   // Scraper tools — READ (Vera inspecciona su sistema de monitoreo sin gastar tokens en acción)
   "getScraperSessions",
   "getScraperDashboard",

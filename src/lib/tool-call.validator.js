@@ -74,6 +74,11 @@ export const TOOL_SCHEMAS = {
   triggerFlow:               { params: "object", brandContainerId: "uuid" },
   inspectRun:                { runId: "uuid" },
 
+  // ── Outcomes — loop de retroalimentación (lectura) ───────────────────────
+  getActionOutcomes:         { verdict: "string", since: "string", limit: "string" },
+  getActionOutcomeDetail:    { action_id: "uuid" },
+  getOutcomeSummary:         { window_days: "string" },
+
   // ── Fase B bloque 1: tools MISSING v3 implementadas ─────────────────────
   getMonitoringTriggers:     { brandContainerId: "uuid" },
   getMonitoringTargets:      { brandContainerId: "uuid" },

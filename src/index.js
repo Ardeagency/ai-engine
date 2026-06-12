@@ -26,6 +26,7 @@ import { startTokenRefreshService } from "./services/token-refresh.service.js";
 import { startBrandSensorSync } from "./services/brand-sensor-sync.service.js";
 import { startRecommendationAutoLink } from "./services/recommendation-auto-link.service.js";
 import { startDailyBriefingJob } from "./services/daily-briefing-job.service.js";
+import { startOutcomeMeasurement } from "./services/outcome-measurement.service.js";
 import { retryOrphanReplies } from "./services/retry-orphan-replies.service.js";
 
 const app = express();
@@ -118,6 +119,14 @@ app.listen(PORT, () => {
   if (process.env.RECOMMENDATION_AUTO_LINK_ENABLED !== "false") {
     startRecommendationAutoLink();
     startDailyBriefingJob();
+  }
+
+  // Loop de retroalimentación post-ejecución: mide outcomes de las
+  // vera_pending_actions ejecutadas (reglas+math, sin LLM) y los persiste en
+  // vera_action_outcomes para que Vera calibre confianza vía getActionOutcomes.
+  // Cada 1h. Deshabilitar con OUTCOME_MEASUREMENT_ENABLED=false
+  if (process.env.OUTCOME_MEASUREMENT_ENABLED !== "false") {
+    startOutcomeMeasurement();
   }
 
   // Retry de respuestas huérfanas — corre 5s después de arrancar para que el

@@ -12,7 +12,7 @@
  */
 import { BasePopulator } from "./base.populator.js";
 import { supabase } from "../../lib/supabase.js";
-import { listAccessibleCustomers, searchStream } from "../../lib/googleads-rest.js";
+import { listAccessibleCustomers, searchStream, googleGet } from "../../lib/googleads-rest.js";
 
 const CAMPAIGN_GAQL = `
   SELECT
@@ -31,11 +31,12 @@ export class GooglePopulator extends BasePopulator {
   constructor() { super("google"); }
 
   subjobSequence() {
-    return ["google_sync_campaigns", "vera_propose_priority_actions"];
+    return ["google_sync_campaigns", "google_sync_youtube", "vera_propose_priority_actions"];
   }
 
   dispatch(missionType) {
     if (missionType === "google_sync_campaigns")        return this.syncCampaigns;
+    if (missionType === "google_sync_youtube")          return this.syncYoutube;
     if (missionType === "vera_propose_priority_actions") return this.finishBootstrap;
     return null;
   }
@@ -153,6 +154,76 @@ export class GooglePopulator extends BasePopulator {
       .eq("id", brand_integration_id);
 
     return { ok: true, ...stats };
+  }
+
+  async syncYoutube(job) {
+    const { brand_integration_id, brand_container_id } = job.payload;
+    const integ = await this.getIntegration(brand_integration_id);
+    const YT = "https://www.googleapis.com/youtube/v3";
+
+    // Canal propio del usuario autorizado
+    let ch;
+    try {
+      ch = await googleGet(integ, `${YT}/channels`, { part: "snippet,contentDetails,statistics", mine: "true" });
+    } catch (e) {
+      // Sin canal o YouTube Data API no habilitada en el proyecto → skip suave
+      console.warn("google-populator: youtube channels skipped:", e?.message?.slice(0, 160));
+      return { ok: true, status: "skipped", reason: "no_channel_or_api_disabled" };
+    }
+    const channel = ch?.items?.[0];
+    if (!channel) return { ok: true, status: "no_channel", videos: 0 };
+
+    const uploads = channel.contentDetails?.relatedPlaylists?.uploads;
+    const handle  = channel.snippet?.title || null;
+    if (!uploads) return { ok: true, channel: handle, videos: 0 };
+
+    // Ids de los videos subidos (playlist de uploads)
+    const pl = await googleGet(integ, `${YT}/playlistItems`, { part: "contentDetails", playlistId: uploads, maxResults: 50 });
+    const videoIds = (pl?.items || []).map((i) => i.contentDetails?.videoId).filter(Boolean);
+    if (!videoIds.length) return { ok: true, channel: handle, videos: 0 };
+
+    // Detalles + estadisticas
+    const vres = await googleGet(integ, `${YT}/videos`, { part: "snippet,statistics", id: videoIds.join(",") });
+    const items = vres?.items || [];
+
+    // Idempotencia: no re-insertar videos ya presentes
+    const ids = items.map((v) => String(v.id));
+    const { data: existing } = await supabase
+      .from("brand_posts").select("post_id")
+      .eq("brand_container_id", brand_container_id).eq("network", "youtube").in("post_id", ids);
+    const seen = new Set((existing || []).map((r) => String(r.post_id)));
+
+    const rows = [];
+    for (const v of items) {
+      if (seen.has(String(v.id))) continue;
+      const st = v.statistics || {}, sn = v.snippet || {};
+      const likes = Number(st.likeCount || 0), comments = Number(st.commentCount || 0);
+      rows.push({
+        brand_container_id:  brand_container_id,
+        network:             "youtube",
+        post_source:         "own",
+        profile_handle:      handle,
+        author_display_name: handle,
+        post_id:             String(v.id),
+        content:             `${sn.title || ""}\n\n${sn.description || ""}`.trim(),
+        permalink:           `https://youtube.com/watch?v=${v.id}`,
+        media_assets:        sn.thumbnails ? [{ type: "image", url: sn.thumbnails.high?.url || sn.thumbnails.default?.url || null }] : null,
+        metrics:             { views: Number(st.viewCount || 0), likes, comments },
+        engagement_total:    likes + comments,
+        hashtags:            (sn.tags || []).slice(0, 30),
+        captured_at:         sn.publishedAt || new Date().toISOString(),
+        is_competitor:       false,
+        ai_analyzed_at:      null,
+      });
+    }
+
+    let created = 0;
+    if (rows.length) {
+      const { data: ins, error } = await supabase.from("brand_posts").insert(rows).select("id");
+      if (error) console.error("google-populator: youtube insert:", error.message);
+      else created = ins.length;
+    }
+    return { ok: true, channel: handle, videos_pulled: videoIds.length, posts_created: created };
   }
 
   async finishBootstrap(job) {

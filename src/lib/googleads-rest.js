@@ -122,3 +122,24 @@ export async function searchStream(integ, customerId, gaql, { loginCustomerId } 
   }
   throw new Error("googleads-rest: searchStream unreachable");
 }
+
+/**
+ * GET autenticado generico a cualquier API de Google (YouTube Data, Analytics,
+ * etc.) usando el token de la integracion google con refresh transparente.
+ */
+export async function googleGet(integ, url, params) {
+  const usp = new URLSearchParams();
+  for (const [k, v] of Object.entries(params || {})) if (v != null) usp.append(k, String(v));
+  const full = usp.toString() ? `${url}?${usp}` : url;
+  let triedRefresh = false;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const token = await getValidToken(integ);
+    const res = await fetch(full, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 401 && !triedRefresh) { triedRefresh = true; await refreshGoogleToken(integ); continue; }
+    if (res.status === 429 && attempt < MAX_RETRIES) { await sleep(Math.min(1000 * attempt, 6000)); continue; }
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`googleGet ${full} (${res.status}): ${JSON.stringify(j).slice(0, 220)}`);
+    return j;
+  }
+  throw new Error("googleGet: unreachable");
+}

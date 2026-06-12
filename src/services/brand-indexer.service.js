@@ -35,26 +35,66 @@ function _sha256(text) {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+// Error tipado para que el caller pueda abortar el run completo (circuit-breaker):
+// si la quota mensual está agotada, reintentar los chunks restantes es inútil.
+class QuotaExhaustedError extends Error {
+  constructor(msg) { super(msg); this.name = "QuotaExhaustedError"; }
+}
+
+const EMBED_MAX_RETRIES = 3;     // reintentos ante 429 de rate-limit / 5xx
+const EMBED_BACKOFF_MS  = 2_000; // base exponencial: 2s, 4s, 8s
+
+const _sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function _embed(text) {
-  const res = await fetch("https://api.openai.com/v1/embeddings", {
-    method:  "POST",
-    headers: {
-      "Content-Type":  "application/json",
-      "Authorization": `Bearer ${OPENAI_KEY}`,
-    },
-    body: JSON.stringify({
-      model:      EMBED_MODEL,
-      input:      text.slice(0, MAX_CHARS),
-      dimensions: EMBED_DIM,
-    }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  if (!res.ok) {
+  let lastErr = null;
+  for (let attempt = 0; attempt <= EMBED_MAX_RETRIES; attempt++) {
+    if (attempt > 0) await _sleep(EMBED_BACKOFF_MS * 2 ** (attempt - 1));
+
+    let res;
+    try {
+      res = await fetch("https://api.openai.com/v1/embeddings", {
+        method:  "POST",
+        headers: {
+          "Content-Type":  "application/json",
+          "Authorization": `Bearer ${OPENAI_KEY}`,
+        },
+        body: JSON.stringify({
+          model:      EMBED_MODEL,
+          input:      text.slice(0, MAX_CHARS),
+          dimensions: EMBED_DIM,
+        }),
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch (e) {
+      lastErr = new Error(`OpenAI embeddings network: ${e.message}`); // timeout/red → reintentable
+      continue;
+    }
+
+    if (res.ok) {
+      const json = await res.json();
+      return json.data?.[0]?.embedding;
+    }
+
     const err = await res.text();
+
+    // 429 con insufficient_quota = saldo/quota mensual agotada → no reintentar nada.
+    if (res.status === 429 && err.includes("insufficient_quota")) {
+      throw new QuotaExhaustedError(`OpenAI quota agotada: ${err.slice(0, 200)}`);
+    }
+
+    // 429 rate-limit o 5xx → reintentable con backoff (respeta Retry-After si viene).
+    if (res.status === 429 || res.status >= 500) {
+      lastErr = new Error(`OpenAI embeddings ${res.status}: ${err.slice(0, 200)}`);
+      const retryAfter = Number(res.headers.get("retry-after"));
+      if (retryAfter > 0 && attempt < EMBED_MAX_RETRIES) await _sleep(Math.min(retryAfter, 30) * 1000);
+      continue;
+    }
+
+    // 4xx restantes (400 input inválido, 401, etc.) → error permanente, sin retry.
     throw new Error(`OpenAI embeddings ${res.status}: ${err.slice(0, 200)}`);
   }
-  const json = await res.json();
-  return json.data?.[0]?.embedding;
+  throw lastErr || new Error("OpenAI embeddings: agotados los reintentos");
 }
 
 function _chunkText(text, maxChars = MAX_CHARS) {
@@ -111,6 +151,7 @@ async function _indexSource({ orgId, brandId, bucket, path, type, content }) {
     try {
       embedding = await _embed(chunk);
     } catch (e) {
+      if (e instanceof QuotaExhaustedError) throw e; // breaker: aborta el run, no martilla el resto
       embedErrors++;
       lastError = e.message;
       console.warn(`[brand-indexer] embed falló ${bucket}/${path}#${i}: ${e.message}`);
@@ -180,6 +221,19 @@ function _composeEntityText(e) {
 }
 
 export async function runBrandIndexer(brandContainerId, organizationId) {
+  try {
+    return await _runBrandIndexer(brandContainerId, organizationId);
+  } catch (e) {
+    if (e instanceof QuotaExhaustedError) {
+      // Run abortado limpio: 1 sola llamada fallida en vez de N. Revive solo al recargar quota.
+      console.warn(`[brand-indexer] run abortado por quota: ${e.message}`);
+      return { indexed: 0, skipped_unchanged: 0, embed_errors: 1, db_errors: 0, breakdown: {}, error: `openai_quota_exhausted: ${e.message.slice(0, 200)}` };
+    }
+    throw e;
+  }
+}
+
+async function _runBrandIndexer(brandContainerId, organizationId) {
   if (!OPENAI_KEY) {
     return { error: "OPENAI_API_KEY no configurada", indexed: 0, skipped: 0 };
   }

@@ -31,10 +31,12 @@ H = {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Modelo: Opus 4.7 — máxima capacidad de razonamiento estratégico
-# Pricing: $15/MTok input | $75/MTok output
+# Modelo: Sonnet 4.6 — migrado desde Opus 4.7 el 2026-06-12 (decision usuario:
+# carve-out de batch estrategico semanal + 5x mas barato). Si la calidad de las
+# propuestas baja notablemente, volver a claude-opus-4-7 y ajustar pricing.
+# Pricing: $3/MTok input | $15/MTok output
 # ──────────────────────────────────────────────────────────────────────────────
-MODEL = "claude-opus-4-7"  # latest Opus 4.7
+MODEL = "claude-sonnet-4-6"
 MAX_OUTPUT_TOKENS = 8000
 
 SYSTEM_PROMPT = """Eres Vera, la estratega creativa principal de la marca.
@@ -133,11 +135,11 @@ async def call_opus(system: str, user_msg: str) -> tuple[dict, dict]:
 
 
 def calculate_cost(usage: dict) -> float:
-    """Opus 4.7: $15/MTok input, $75/MTok output"""
+    """Sonnet 4.6: $3/MTok input, $15/MTok output"""
     input_tokens = usage.get("input_tokens", 0)
     output_tokens = usage.get("output_tokens", 0)
     return round(
-        (input_tokens / 1_000_000 * 15.0) + (output_tokens / 1_000_000 * 75.0),
+        (input_tokens / 1_000_000 * 3.0) + (output_tokens / 1_000_000 * 15.0),
         4
     )
 

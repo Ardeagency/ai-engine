@@ -17,7 +17,7 @@
 import { supabase } from "./supabase.js";
 import { encryptToken } from "./integration-token-vault.js";
 
-const API_VERSION  = process.env.GOOGLE_ADS_API_VERSION || "v18";
+const API_VERSION  = process.env.GOOGLE_ADS_API_VERSION || "v21";
 const API_BASE     = `https://googleads.googleapis.com/${API_VERSION}`;
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const EXPIRY_MARGIN_MS = 5 * 60 * 1000;

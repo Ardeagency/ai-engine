@@ -57,6 +57,7 @@ export const PHASE_A_TOOLS = [
 
 export const PHASE_B_TOOLS = [
   ...PHASE_A_TOOLS,
+  "getCatalogDiagnosis", "getLiveProducts", "getLivePosts", "getLiveAdsMetrics",
   // Brand read — ampliado
   "getBrandEntities",
   "getIntegrations",

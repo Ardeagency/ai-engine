@@ -27,6 +27,7 @@ import * as veraActionsTools from "../tools/vera-actions.tools.js";
 import * as promptForgeTools from "../tools/prompt-forge.tools.js";
 import * as decisionTools from "../tools/decision.tools.js";
 import * as canvasTools from "../tools/canvas.tools.js";
+import * as integrationDataTools from "../tools/integration-data.tools.js";
 import { validateToolCall } from "../lib/tool-call.validator.js";
 import { checkPolicy, getActionCreditCost } from "../lib/policy.engine.js";
 import { audit } from "../lib/audit-logger.js";
@@ -49,6 +50,10 @@ function withTimeout(promise, ms, toolName) {
 // ── Registro de herramientas ──────────────────────────────────────────────────
 
 const TOOL_REGISTRY = {
+  getCatalogDiagnosis: { fn: ({ organizationId }) => integrationDataTools.getCatalogDiagnosis(null, organizationId), requiresConsent: false },
+  getLiveProducts:    { fn: ({ organizationId, ...p }) => integrationDataTools.getLiveProducts(null, organizationId, p), requiresConsent: false },
+  getLivePosts:       { fn: ({ organizationId, ...p }) => integrationDataTools.getLivePosts(null, organizationId, p), requiresConsent: false },
+  getLiveAdsMetrics:  { fn: ({ organizationId, ...p }) => integrationDataTools.getLiveAdsMetrics(null, organizationId, p), requiresConsent: false },
   // ── Brand read ────────────────────────────────────────────────────────────
   // brandContainerId se pasa como null — brand-resolver.js lo auto-descubre por org.
   // OpenClaw NUNCA necesita conocer ni pasar un brandContainerId.

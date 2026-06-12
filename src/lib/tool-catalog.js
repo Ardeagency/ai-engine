@@ -22,6 +22,10 @@
 // nombre → { ex, group } — solo las tools que necesitan guia de params.
 // Las que no aparecen aqui se listan por nombre ("sin params").
 const TOOL_EXAMPLES = {
+  getCatalogDiagnosis: { group: "Lectura e inteligencia", ex: `[[TOOL:getCatalogDiagnosis]]  -> diagnostico de catalogo: score de fichas, %optimizable, gaps, top a mejorar` },
+  getLiveProducts:     { group: "Lectura e inteligencia", ex: `[[TOOL:getLiveProducts]]  -> productos EN VIVO del marketplace (Mercado Libre)` },
+  getLivePosts:        { group: "Lectura e inteligencia", ex: `[[TOOL:getLivePosts]]  -> posts recientes EN VIVO de X` },
+  getLiveAdsMetrics:   { group: "Lectura e inteligencia", ex: `[[TOOL:getLiveAdsMetrics]]  -> campanas de Google Ads EN VIVO (ultimos 7d)` },
   // ── Lectura e inteligencia ──────────────────────────────────────────────
   getBrandHealthMetrics: { group: "Lectura e inteligencia", ex: `[[TOOL:getBrandHealthMetrics|windowHours:168]]  → engagement/sentiment/fatiga/ritmo` },
   searchIntelligence:    { group: "Lectura e inteligencia", ex: `[[TOOL:searchIntelligence|params:{"query":"tu hipotesis","scope":"brand","max_results":8}]]  → busqueda semantica (cosine)` },

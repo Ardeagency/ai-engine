@@ -26,7 +26,9 @@ const supabase = createClient(
 const REFRESH_INTERVAL_MS      = 6 * 60 * 60 * 1000;       // 6h
 const GOOGLE_REFRESH_WINDOW_MS = 24 * 60 * 60 * 1000;      // 1d
 const META_WARN_WINDOW_MS      = 7 * 24 * 60 * 60 * 1000;  // 7d
+const TIKTOK_REFRESH_WINDOW_MS = 12 * 60 * 60 * 1000;      // 12h (access vive 24h)
 const GOOGLE_TOKEN_URL         = "https://oauth2.googleapis.com/token";
+const TIKTOK_TOKEN_URL         = "https://open.tiktokapis.com/v2/oauth/token/";
 
 let _refreshTimer = null;
 
@@ -71,6 +73,60 @@ async function refreshGoogleToken(integ) {
     })
     .eq("id", integ.id);
 
+  return { ok: true, expires_at: newExpiry };
+}
+
+// -- TikTok: refresh activo ---------------------------------------------------
+// access_token ~24h; el refresh_token ROTA en cada refresh (un solo uso) y dura
+// ~365d → SIEMPRE persistimos el nuevo refresh_token que devuelve TikTok.
+function getTikTokCreds() {
+  // En fase sandbox los tokens los minteó el cliente del sandbox, así que el
+  // refresh DEBE usar las MISMAS credenciales. TIKTOK_ENV (sandbox|production)
+  // selecciona el par activo y debe coincidir con el que usa el frontend.
+  const useSandbox = String(process.env.TIKTOK_ENV || "sandbox").toLowerCase() === "sandbox";
+  return useSandbox
+    ? { clientKey: process.env.TIKTOK_SANDBOX_CLIENT_KEY, clientSecret: process.env.TIKTOK_SANDBOX_CLIENT_SECRET }
+    : { clientKey: process.env.TIKTOK_CLIENT_KEY,         clientSecret: process.env.TIKTOK_CLIENT_SECRET };
+}
+
+async function refreshTikTokToken(integ) {
+  const { clientKey, clientSecret } = getTikTokCreds();
+  if (!clientKey || !clientSecret) return { ok: false, reason: "missing_tiktok_credentials" };
+  if (!integ.refresh_token)        return { ok: false, reason: "no_refresh_token" };
+
+  const refreshTokenPlain = decryptToken(integ.refresh_token);
+
+  const res = await fetch(TIKTOK_TOKEN_URL, {
+    method:  "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body:    new URLSearchParams({
+      client_key:    clientKey,
+      client_secret: clientSecret,
+      grant_type:    "refresh_token",
+      refresh_token: refreshTokenPlain,
+    }).toString(),
+  });
+
+  const json = await res.json().catch(() => ({}));
+  // TikTok v2 puede responder 200 con un objeto de error en el body.
+  const errCode = json?.error || json?.error_code;
+  if (!res.ok || !json.access_token || (errCode && errCode !== "ok")) {
+    const reason = json?.error_description || errCode || `http_${res.status}`;
+    const needsReauth = /invalid_grant|invalid_request|expired|revoke/i.test(String(reason));
+    return { ok: false, reason, needsReauth };
+  }
+
+  const newExpiry = new Date(Date.now() + (json.expires_in || 86_400) * 1000).toISOString();
+  const update = {
+    access_token:     encryptToken(json.access_token),
+    token_expires_at: newExpiry,
+    last_sync_at:     new Date().toISOString(),
+  };
+  // refresh_token ROTA: persistir el nuevo (si TikTok no devolviera uno, se
+  // conserva el anterior intacto al no incluir la columna en el update).
+  if (json.refresh_token) update.refresh_token = encryptToken(json.refresh_token);
+
+  await supabase.from("brand_integrations").update(update).eq("id", integ.id);
   return { ok: true, expires_at: newExpiry };
 }
 
@@ -129,6 +185,35 @@ async function refreshTokensCycle() {
     }
   }
 
+  // TikTok: refresh proactivo si vence en <12h (access vive 24h; refresh ROTA)
+  const tiktokCutoff = new Date(now + TIKTOK_REFRESH_WINDOW_MS).toISOString();
+  const { data: tiktokIntegs, error: tErr } = await supabase
+    .from("brand_integrations")
+    .select("id, platform, refresh_token, token_expires_at, external_account_name, metadata")
+    .eq("is_active", true)
+    .eq("platform", "tiktok")
+    .lt("token_expires_at", tiktokCutoff);
+
+  if (tErr) console.warn("token-refresh: error consultando TikTok integrations -", tErr.message);
+
+  for (const integ of tiktokIntegs || []) {
+    try {
+      const r = await refreshTikTokToken(integ);
+      const label = integ.external_account_name || integ.id;
+      if (r.ok) {
+        console.log(`token-refresh [tiktok]: ${label} -> OK (expires ${r.expires_at})`);
+      } else {
+        console.warn(`token-refresh [tiktok]: ${label} -> FALLO (${r.reason})`);
+        if (r.needsReauth) {
+          await markNeedsReauth(integ.id, r.reason);
+          console.warn(`token-refresh [tiktok]: ${label} marcado needs_reauth`);
+        }
+      }
+    } catch (e) {
+      console.warn(`token-refresh [tiktok]: ${integ.id} excepcion - ${e.message}`);
+    }
+  }
+
   // Meta: solo warning si vence en <7d (no hay refresh automatico)
   const { data: metaIntegs, error: mErr } = await supabase
     .from("brand_integrations")
@@ -156,7 +241,7 @@ async function refreshTokensCycle() {
     }
   }
 
-  const total = (googleIntegs?.length || 0) + (metaIntegs?.length || 0);
+  const total = (googleIntegs?.length || 0) + (tiktokIntegs?.length || 0) + (metaIntegs?.length || 0);
   if (total) console.log(`token-refresh: ciclo completo - ${total} integraciones revisadas`);
 }
 

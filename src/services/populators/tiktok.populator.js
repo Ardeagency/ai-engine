@@ -15,6 +15,7 @@
 import { BasePopulator } from "./base.populator.js";
 import { supabase } from "../../lib/supabase.js";
 import { getMe, getRecentVideos } from "../../lib/tiktok-rest.js";
+import { normalizeMetrics } from "../../lib/platform-metrics.js";
 
 function extractTags(text, prefix) {
   if (!text) return [];
@@ -89,12 +90,14 @@ export class TikTokPopulator extends BasePopulator {
       try {
         if (seen.has(String(v.id))) { stats.skipped_existing++; continue; }
         const desc = v.video_description || v.title || "";
-        const metrics = {
-          like_count:    v.like_count    ?? 0,
-          comment_count: v.comment_count ?? 0,
-          share_count:   v.share_count   ?? 0,
-          view_count:    v.view_count    ?? 0,
-        };
+        // Normaliza las claves nativas de TikTok (like_count, view_count…) a las
+        // canónicas que entienden las columnas generadas y los ~100 RPCs.
+        const metrics = normalizeMetrics("tiktok", {
+          like_count:    v.like_count,
+          comment_count: v.comment_count,
+          share_count:   v.share_count,
+          view_count:    v.view_count,
+        });
         const capturedAt = v.create_time
           ? new Date(Number(v.create_time) * 1000).toISOString()
           : new Date().toISOString();

@@ -14,6 +14,7 @@
 import { BasePopulator } from "./base.populator.js";
 import { supabase } from "../../lib/supabase.js";
 import { getMe, getRecentTweets } from "../../lib/x-rest.js";
+import { normalizeMetrics } from "../../lib/platform-metrics.js";
 
 export class XPopulator extends BasePopulator {
   constructor() { super("x"); }
@@ -80,7 +81,9 @@ export class XPopulator extends BasePopulator {
     for (const t of tweets) {
       try {
         if (seen.has(String(t.id))) { stats.skipped_existing++; continue; }
-        const pm = t.public_metrics || {};
+        // Normaliza public_metrics de X (like_count, retweet_count, impression_count…)
+        // a las claves canónicas; retweets+quotes→shares, bookmarks→saves.
+        const pm = normalizeMetrics("x", t.public_metrics || {});
         const ent = t.entities || {};
         const mediaAssets = (t.attachments?.media_keys || [])
           .map((k) => mediaByKey[k])

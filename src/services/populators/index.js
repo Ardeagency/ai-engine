@@ -60,7 +60,23 @@ export function getAllHandledMissions() {
 export async function processIntegrationJob(job) {
   const mt = job?.payload?.mission_type;
   if (!mt) throw new Error("processIntegrationJob: missing mission_type");
-  const pop = getPopulatorForMission(mt);
+
+  // Resolución PLATFORM-FIRST. Varios populators comparten mission_types
+  // genéricos (p.ej. `vera_propose_priority_actions` lo registran X, Google,
+  // Shopify y ML); como MISSION_INDEX es un Map, `set` sobrescribe y quedaría
+  // SIEMPRE el último registrado → el cierre de bootstrap de las demás
+  // plataformas se despachaba al populator equivocado (y Shopify nunca corría
+  // su `proposeStarterActions`). Los subjobs llevan `platform` en el payload,
+  // así que resolvemos por plataforma cuando ese populator efectivamente maneje
+  // el mission_type; si no hay platform o no lo maneja, caemos al índice por
+  // mission_type (legacy / jobs sin platform).
+  const platform = job?.payload?.platform;
+  let pop = null;
+  if (platform) {
+    const byPlatform = getPopulator(platform);
+    if (byPlatform && byPlatform.handles().includes(mt)) pop = byPlatform;
+  }
+  if (!pop) pop = getPopulatorForMission(mt);
   if (!pop) throw new Error(`processIntegrationJob: no populator for mission_type "${mt}"`);
   return pop.process(job);
 }

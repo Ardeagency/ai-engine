@@ -57,6 +57,31 @@ export async function getBrandKpisStrip({
   });
 }
 
+/**
+ * getPlatformHealth — salud POR red social de la marca (Instagram/Facebook/X/
+ * TikTok/YouTube). Combina estado de la integración (conectada/needs_reauth/
+ * stale), actividad (volumen + días sin publicar), performance real
+ * (engagement_rate + reach de las integraciones, NO Apify) y sentimiento de los
+ * comentarios. Devuelve score 0-100 + label + señales accionables por red.
+ * Vera la usa para "¿cómo está mi presencia en cada red?", "¿qué red está
+ * abandonada?", "¿dónde tengo mejor/peor engagement?".
+ */
+export async function getPlatformHealth({
+  organizationId,
+  windowDays = 30,
+  brandContainerIds = null,
+  platforms = null,
+}) {
+  const { dateFrom, dateTo } = resolveWindow(windowDays);
+  return rpc("dashboard_mimarca_platform_health", {
+    p_org_id: organizationId,
+    p_date_from: dateFrom,
+    p_date_to: dateTo,
+    p_brand_container_ids: toUuidArray(brandContainerIds),
+    p_platforms: toUuidArray(platforms), // reutiliza el helper: string|array→array|null
+  });
+}
+
 export async function getBrandActivityHistory({
   organizationId, windowDays = 30, brandContainerIds = null, postSource = "own",
 }) {

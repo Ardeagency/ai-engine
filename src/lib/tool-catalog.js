@@ -28,6 +28,7 @@ const TOOL_EXAMPLES = {
   getLiveAdsMetrics:   { group: "Lectura e inteligencia", ex: `[[TOOL:getLiveAdsMetrics]]  -> campanas de Google Ads EN VIVO (ultimos 7d)` },
   // ── Lectura e inteligencia ──────────────────────────────────────────────
   getBrandHealthMetrics: { group: "Lectura e inteligencia", ex: `[[TOOL:getBrandHealthMetrics|windowHours:168]]  → engagement/sentiment/fatiga/ritmo` },
+  getPlatformHealth:     { group: "Lectura e inteligencia", ex: `[[TOOL:getPlatformHealth|params:{"windowDays":30}]]  → salud POR red (IG/FB/X/TikTok/YouTube): conexion, dias sin publicar, engagement_rate real, reach, sentimiento, score 0-100 + señales` },
   searchIntelligence:    { group: "Lectura e inteligencia", ex: `[[TOOL:searchIntelligence|params:{"query":"tu hipotesis","scope":"brand","max_results":8}]]  → busqueda semantica (cosine)` },
   getIntelligenceSignals:{ group: "Lectura e inteligencia", ex: `[[TOOL:getIntelligenceSignals]]  (opcional entityId:<uuid>)` },
   getCompetitorAnalysis: { group: "Lectura e inteligencia", ex: `[[TOOL:getCompetitorAnalysis|entityName:<nombre del competidor>]]` },

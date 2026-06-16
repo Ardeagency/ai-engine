@@ -410,6 +410,7 @@ const TOOL_REGISTRY = {
 
   // Mi Marca
   getBrandKpisStrip:        { fn: ({ params, organizationId }) => dashboardTools.getBrandKpisStrip({ ...(params || {}), organizationId }), requiresConsent: false },
+  getPlatformHealth:        { fn: ({ params, organizationId }) => dashboardTools.getPlatformHealth({ ...(params || {}), organizationId }), requiresConsent: false },
   getBrandActivityHistory:  { fn: ({ params, organizationId }) => dashboardTools.getBrandActivityHistory({ ...(params || {}), organizationId }), requiresConsent: false },
   getBrandEngagementTrend:  { fn: ({ params, organizationId }) => dashboardTools.getBrandEngagementTrend({ ...(params || {}), organizationId }), requiresConsent: false },
   getBrandSentimentActivity:{ fn: ({ params, organizationId }) => dashboardTools.getBrandSentimentActivity({ ...(params || {}), organizationId }), requiresConsent: false },

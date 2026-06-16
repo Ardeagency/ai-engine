@@ -27,6 +27,7 @@ export const PHASE_A_TOOLS = [
   // Dashboard tools (read-only, sin consent) — Vera puede responder cualquier
   // pregunta de "cómo voy", "quién me amenaza", "top tema", etc. desde Phase A.
   "getBrandKpisStrip",
+  "getPlatformHealth",
   "getBrandActivityHistory",
   "getBrandEngagementTrend",
   "getBrandSentimentActivity",

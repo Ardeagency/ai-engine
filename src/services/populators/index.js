@@ -16,6 +16,7 @@ import { WooCommercePopulator } from "./woocommerce.populator.js";
 import { FacebookPopulator } from "./facebook.populator.js";
 import { GooglePopulator } from "./google.populator.js";
 import { XPopulator } from "./x.populator.js";
+import { TikTokPopulator } from "./tiktok.populator.js";
 import { EnrichmentPopulator } from "./enrichment.populator.js";
 
 const POPULATORS = [
@@ -26,6 +27,7 @@ const POPULATORS = [
   new FacebookPopulator(),
   new GooglePopulator(),
   new XPopulator(),
+  new TikTokPopulator(),
   new EnrichmentPopulator(),
 ];
 

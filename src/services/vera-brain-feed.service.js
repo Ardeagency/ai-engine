@@ -148,6 +148,24 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
   // ── ESTRATEGIAS EN CURSO (F2 orquestacion): Vera avanza cada una ──
   const activeStrategies = await listActiveStrategiesWithState(brandContainerId).catch(() => []);
 
+  // ── PLATFORM HEALTH — salud por red de MI MARCA (de las INTEGRACIONES, no Apify) ──
+  // Ventana 30d para una vista estable de cada red conectada. No bloqueante:
+  // si falla, el ciclo sigue sin este bloque.
+  let platformHealth = null;
+  try {
+    const phFrom = new Date(windowEnd.getTime() - 30 * 86400_000).toISOString();
+    const { data: ph } = await supabase.rpc("dashboard_mimarca_platform_health", {
+      p_org_id:              brand.organization_id,
+      p_date_from:           phFrom,
+      p_date_to:             endISO,
+      p_brand_container_ids: [brandContainerId],
+      p_platforms:           null,
+    });
+    platformHealth = ph || null;
+  } catch (e) {
+    console.warn("[brain-feed] platform_health (non-blocking):", e?.message || e);
+  }
+
   // ── Construir el payload final, compacto pero rico ──
   const feed = {
     cycle_metadata: {
@@ -169,6 +187,19 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
       mercado_objetivo:        brand.mercado_objetivo,
       objetivos_estrategicos:  brand.objetivos_estrategicos,
       mision_vision:           brand.mision_vision,
+      platform_health:         platformHealth ? {
+        summary: platformHealth.summary,
+        by_platform: (platformHealth.platforms || []).map(p => ({
+          red:               p.network,
+          conectada:         p.connected,
+          estado:            p.integration_status,
+          salud:             p.health_score,
+          label:             p.health_label,
+          dias_sin_publicar: p.days_since_last_post,
+          engagement_rate:   p.avg_engagement_rate,
+          señales:           p.signals,
+        })),
+      } : null,
     },
 
     competitor_intelligence: {
@@ -450,6 +481,16 @@ function _compactSummary(feed) {
     `  - "${(l.que_propuse || "").slice(0, 60)}" [${l.tono || "?"}/${l.hora ?? "?"}h] -> ${l.resultado} (predije ${l.predije ?? "?"}, paso ${l.paso ?? "?"}, err ${l.error_pct ?? "?"}%)`
   ).join("\n");
 
+  const ph = feed.brand_context?.platform_health;
+  const platformHealth = ph && Array.isArray(ph.by_platform) && ph.by_platform.length
+    ? ph.by_platform.map(p =>
+        `  - [${p.red}] salud=${p.salud}/100 (${p.label})` +
+        (p.dias_sin_publicar != null ? `, ${p.dias_sin_publicar}d sin publicar` : "") +
+        (p.engagement_rate != null ? `, eng=${(p.engagement_rate * 100).toFixed(1)}%` : "") +
+        ((p.señales || []).length ? ` | ${p.señales.join("; ")}` : "")
+      ).join("\n")
+    : null;
+
   return {
     competitorHighlights: competitorHighlights || "  (sin posts nuevos)",
     trendHighlights:      trendHighlights      || "  (sin señales nuevas)",
@@ -459,6 +500,7 @@ function _compactSummary(feed) {
     lessons:              lessons              || "  (sin lecciones medidas aun)",
     recentWork:           recentWork           || "  (sin trabajo reciente)",
     activeStrategies:     activeStrategies     || "  (sin estrategias en curso)",
+    platformHealth:       platformHealth       || "  (sin redes conectadas)",
   };
 }
 
@@ -480,6 +522,9 @@ ADN actual:
 Pulso (counts):
 - ${c.new_posts} posts competidor | ${c.patterns} patterns | ${c.trend_signals} señales trends
 - ${c.briefs_pending} briefs pendientes | ${c.vulnerabilities} vulnerabilidades
+
+Salud de tus redes (MI MARCA — métricas reales de tus integraciones, NO scraping):
+${s.platformHealth}
 
 Distribución de tono detectado: ${s.patternsSummary}
 

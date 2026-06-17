@@ -40,7 +40,8 @@ const TOOL_LABELS = {
   getIntegrationTokens:      "verificando accesos de integración",
   webSearch:                 "buscando en internet",
   webFetch:                  "leyendo páginas web",
-  createArtifact:            "generando archivo",
+  getBrandKit:               "leyendo la identidad de marca",
+  createArtifact:            "diseñando y generando archivo",
   listArtifacts:             "consultando archivos generados",
 };
 

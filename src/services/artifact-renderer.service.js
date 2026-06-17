@@ -32,47 +32,84 @@ const DEFAULT_KIT = {
   fontFaces: [],
   logoUrl: null,
   tono: null,
+  tagline: null,
 };
+
+// hex -> HSL (heurística de roles cuando la marca no etiqueta sus colores)
+function hexToHsl(hex) {
+  const h = String(hex || "").replace("#", "");
+  if (h.length < 6) return { h: 0, s: 0, l: 50 };
+  const r = parseInt(h.slice(0, 2), 16) / 255, g = parseInt(h.slice(2, 4), 16) / 255, b = parseInt(h.slice(4, 6), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let hue = 0, s = 0; const l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    if (max === r) hue = (g - b) / d + (g < b ? 6 : 0);
+    else if (max === g) hue = (b - r) / d + 2;
+    else hue = (r - g) / d + 4;
+    hue *= 60;
+  }
+  return { h: hue, s: s * 100, l: l * 100 };
+}
 
 export async function loadBrandKit(brandContainerId, organizationId) {
   const kit = JSON.parse(JSON.stringify(DEFAULT_KIT));
   try {
     if (brandContainerId) {
-      const { data: bc } = await supabase.from("brand_containers").select("*").eq("id", brandContainerId).maybeSingle();
+      const { data: bc } = await supabase.from("brand_containers").select("nombre_marca,verbal_dna").eq("id", brandContainerId).maybeSingle();
       if (bc) {
         kit.nombreMarca = bc.nombre_marca || "";
-        kit.logoUrl = bc.logo_url || bc.logo || bc.logotipo_url || null;
         const vd = bc.verbal_dna || {};
         kit.tono = vd.tono || null;
+        kit.tagline = vd.tagline || null;
       }
-      const { data: colors } = await supabase.from("brand_colors").select("nombre,hex,uso").eq("brand_container_id", brandContainerId);
-      if (colors && colors.length) applyColors(kit, colors);
     }
     if (organizationId) {
+      // Colores: schema real = color_role + hex_value, por organization_id (NO brand_container_id)
+      const { data: colors } = await supabase.from("brand_colors").select("color_role,hex_value").eq("organization_id", organizationId);
+      if (colors && colors.length) applyColors(kit, colors);
+      // Logo: vive en brand_assets (asset_type tipo logo/isotipo/imagotipo), no en brand_containers
+      const { data: assets } = await supabase.from("brand_assets").select("asset_type,file_url").eq("organization_id", organizationId);
+      if (assets && assets.length) {
+        const logo = assets.find((a) => /logo|isotipo|imagotipo|logotipo/i.test(a.asset_type || "") && /\.(png|jpe?g|svg|webp)$/i.test(a.file_url || ""));
+        if (logo) kit.logoUrl = logo.file_url;
+      }
       const { data: fonts } = await supabase.from("brand_fonts")
         .select("font_family,font_usage,font_weight,font_url,fallback_font").eq("organization_id", organizationId);
       if (fonts && fonts.length) applyFonts(kit, fonts);
     }
-  } catch (_) { /* usa fallback */ }
+  } catch (e) { console.error("loadBrandKit:", e.message); /* usa fallback profesional */ }
   return kit;
 }
 
 function applyColors(kit, rows) {
-  const byUso = {};
+  const byRole = {};
   for (const r of rows) {
-    const u = (r.uso || r.nombre || "").toLowerCase();
-    if (/primar|principal/.test(u)) byUso.primary = r.hex;
-    else if (/secundar/.test(u)) byUso.secondary = r.hex;
-    else if (/acento|accent|destac/.test(u)) byUso.accent = r.hex;
-    else if (/text|texto|tinta/.test(u)) byUso.text = r.hex;
-    else if (/fondo|background|\bbg\b/.test(u)) byUso.bg = r.hex;
+    const u = (r.color_role || "").toLowerCase();
+    const hex = r.hex_value;
+    if (!hex) continue;
+    if (/primar|principal|marca|brand/.test(u)) byRole.primary = hex;
+    else if (/secundar/.test(u)) byRole.secondary = hex;
+    else if (/acento|accent|destac/.test(u)) byRole.accent = hex;
+    else if (/text|texto|tinta|negro|dark/.test(u)) byRole.text = hex;
+    else if (/fondo|background|\bbg\b|claro|light|blanco/.test(u)) byRole.bg = hex;
   }
-  const hexes = rows.map((r) => r.hex).filter(Boolean);
-  kit.colors.primary = byUso.primary || hexes[0] || kit.colors.primary;
-  kit.colors.secondary = byUso.secondary || hexes[1] || kit.colors.secondary;
-  kit.colors.accent = byUso.accent || hexes[2] || byUso.primary || hexes[0] || kit.colors.accent;
-  if (byUso.text) kit.colors.text = byUso.text;
-  if (byUso.bg) kit.colors.bg = byUso.bg;
+  const hexes = rows.map((r) => r.hex_value).filter(Boolean);
+  kit.colors.primary = byRole.primary || hexes[0] || kit.colors.primary;
+  kit.colors.secondary = byRole.secondary || hexes[1] || kit.colors.secondary;
+  kit.colors.accent = byRole.accent || byRole.primary || hexes[0] || kit.colors.accent;
+  if (byRole.text) kit.colors.text = byRole.text;
+  if (byRole.bg) kit.colors.bg = byRole.bg;
+  // Heurística cuando los roles son genéricos (ej. "Color", "Color 3"): el más
+  // saturado = primary/accent (la marca), el más oscuro = texto.
+  if (!byRole.primary && hexes.length) {
+    const withHsl = hexes.map((h) => ({ hex: h, ...hexToHsl(h) }));
+    const sat = [...withHsl].sort((a, b) => b.s - a.s)[0];
+    const dark = [...withHsl].sort((a, b) => a.l - b.l)[0];
+    if (sat) { kit.colors.primary = sat.hex; if (!byRole.accent) kit.colors.accent = sat.hex; }
+    if (!byRole.text && dark && dark.l < 28) kit.colors.text = dark.hex;
+  }
 }
 
 function applyFonts(kit, rows) {
@@ -236,6 +273,45 @@ export async function htmlToPdf(html, { landscape = false } = {}) {
 export async function htmlToPng(html, { width = 1080 } = {}) {
   return renderWithPage({ viewport: { width, height: 1200 }, deviceScaleFactor: 2, javaScriptEnabled: false }, async (page) => {
     await page.setContent(html, { waitUntil: "networkidle", timeout: 30000 });
+    const el = await page.$("#infographic");
+    return el ? await el.screenshot({ type: "png" }) : await page.screenshot({ type: "png", fullPage: true });
+  });
+}
+
+// ── Render de HTML BESPOKE (Vera diseña el documento; ver skill diseno-creacion-archivos) ──
+// Red de seguridad anti-recorte: cualquier .slide que desborde su caja se escala
+// para que su contenido quepa completo (el contenido NUNCA se recorta).
+async function autoFitSlides(page) {
+  try {
+    await page.$$eval(".slide", (els) => {
+      for (const s of els) {
+        if (s.scrollHeight <= s.clientHeight + 2 && s.scrollWidth <= s.clientWidth + 2) continue;
+        const wrap = document.createElement("div");
+        while (s.firstChild) wrap.appendChild(s.firstChild);
+        s.appendChild(wrap);
+        const k = Math.min(s.clientHeight / wrap.scrollHeight, s.clientWidth / wrap.scrollWidth, 1) * 0.97;
+        wrap.style.transformOrigin = "top left";
+        wrap.style.width = (100 / k) + "%";
+        wrap.style.transform = `scale(${k})`;
+      }
+    });
+  } catch (_) { /* sin .slide o sin JS: no-op */ }
+}
+
+// Vera pasa un documento HTML5 completo y autocontenido; lo renderizamos tal cual.
+export async function renderHtmlPdf(html) {
+  return renderWithPage({}, async (page) => {
+    await page.setContent(html, { waitUntil: "networkidle", timeout: 45000 });
+    await page.evaluate(() => document.fonts.ready).catch(() => {});
+    await autoFitSlides(page);
+    return await page.pdf({ printBackground: true, preferCSSPageSize: true });
+  });
+}
+
+export async function renderHtmlPng(html) {
+  return renderWithPage({ viewport: { width: 1080, height: 1350 }, deviceScaleFactor: 2 }, async (page) => {
+    await page.setContent(html, { waitUntil: "networkidle", timeout: 45000 });
+    await page.evaluate(() => document.fonts.ready).catch(() => {});
     const el = await page.$("#infographic");
     return el ? await el.screenshot({ type: "png" }) : await page.screenshot({ type: "png", fullPage: true });
   });

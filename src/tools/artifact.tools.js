@@ -68,7 +68,13 @@ export async function createArtifact(params, brandContainerId, organizationId, u
   const content = p.content || "";
   const data = p.data;
 
-  if (type === "table") {
+  if (p.html) {
+    // Diseño BESPOKE: Vera diseñó el documento HTML completo (skill diseno-creacion-archivos).
+    // Lo renderizamos tal cual (con auto-fit anti-recorte). PNG para infografía, PDF para el resto.
+    const png = ext === "png" || type === "infographic";
+    buffer = png ? await R.renderHtmlPng(p.html) : await R.renderHtmlPdf(p.html);
+    finalExt = png ? "png" : "pdf";
+  } else if (type === "table") {
     if (ext === "csv") { buffer = R.rowsToCsv(normalizeSheets(data)[0].rows); finalExt = "csv"; }
     else { buffer = R.rowsToXlsx(normalizeSheets(data)); finalExt = "xlsx"; }
   } else if (type === "document") {
@@ -123,4 +129,27 @@ export async function listArtifacts(params, brandContainerId, organizationId) {
   const { data, error } = await q;
   if (error) throw new Error(`listArtifacts: ${error.message}`);
   return { success: true, artifacts: data || [] };
+}
+
+/**
+ * getBrandKit — devuelve la identidad visual de la marca (colores, fuentes, logo,
+ * tono, tagline) para que Vera DISEÑE el archivo a medida (ver skill
+ * diseno-creacion-archivos). Llama esto ANTES de createArtifact con html.
+ */
+export async function getBrandKit(params, brandContainerId, organizationId) {
+  const p = params?.params ? params.params : (params || {});
+  const bc = await resolveBrandContainer(p.brand_container_id || brandContainerId, organizationId);
+  const bcid = bc?.id || brandContainerId || null;
+  const kit = await R.loadBrandKit(bcid, organizationId);
+  return {
+    success: true,
+    brand: kit.nombreMarca || null,
+    tono: kit.tono || null,
+    tagline: kit.tagline || null,
+    colors: kit.colors,        // { primary, secondary, accent, text, bg, muted }
+    fonts: kit.fonts,          // { heading, body }
+    fontFaces: kit.fontFaces,  // [{ family, url, weight }]
+    logo_url: kit.logoUrl || null,
+    nota: "Diseña el archivo con estos colores/fuentes/logo como restricción dura (skill diseno-creacion-archivos). Deriva tints/shades en CSS desde estos hex. Luego pasa el documento HTML completo a createArtifact con el parámetro 'html'. Si no hay logo_url, usa el nombre de marca como lockup tipográfico.",
+  };
 }

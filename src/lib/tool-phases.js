@@ -88,6 +88,7 @@ export const PHASE_B_TOOLS = [
   "webSearch",
   "webFetch",
   // Generación de archivos de marca (PDF/PNG/XLSX/DOCX). Riesgo BAJO; desde Phase B.
+  "getBrandKit",
   "createArtifact",
   "listArtifacts",
   // Scraper tools — READ (Vera inspecciona su sistema de monitoreo sin gastar tokens en acción)

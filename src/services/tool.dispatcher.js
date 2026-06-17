@@ -623,6 +623,11 @@ const TOOL_REGISTRY = {
   },
 
   // ── Artefactos de marca — Vera genera archivos (PDF/PNG/XLSX/DOCX) ──────────
+  getBrandKit: {
+    fn: ({ params, brandContainerId, organizationId, ...rest }) =>
+      artifactTools.getBrandKit({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
   createArtifact: {
     fn: ({ params, brandContainerId, organizationId, userId, ...rest }) =>
       artifactTools.createArtifact({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId),

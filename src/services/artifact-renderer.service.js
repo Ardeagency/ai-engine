@@ -187,31 +187,58 @@ body{width:1080px;margin:0;}
 </div></body></html>`;
 }
 
-// ── Render con Playwright ────────────────────────────────────────────────────
+// ── Render con Playwright ───────────────────────────────────
+// Browser singleton perezoso con cierre por inactividad: tras el primer
+// artifact, el chromium quedaba residente para siempre. Ahora se cierra solo
+// luego de IDLE_MS sin renders, sin matar renders en vuelo (_inFlight).
 let _browser = null;
+let _idleTimer = null;
+let _inFlight = 0;
+const IDLE_MS = Number(process.env.ARTIFACT_BROWSER_IDLE_MS) || 5 * 60 * 1000;
+
 async function getBrowser() {
   if (_browser && _browser.isConnected()) return _browser;
   _browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
   return _browser;
 }
 
-export async function htmlToPdf(html, { landscape = false } = {}) {
+function scheduleIdleClose() {
+  if (_idleTimer) clearTimeout(_idleTimer);
+  _idleTimer = setTimeout(async () => {
+    if (_inFlight > 0) { scheduleIdleClose(); return; } // hay render en curso: re-agenda
+    const b = _browser; _browser = null;
+    if (b && b.isConnected()) { try { await b.close(); } catch (_) { /* ya cerrado */ } }
+  }, IDLE_MS);
+  if (_idleTimer.unref) _idleTimer.unref(); // no mantener vivo el proceso por este timer
+}
+
+// Cada render abre una pestania efimera; el browser se reutiliza y se cierra solo al quedar idle.
+async function renderWithPage(pageOpts, fn) {
   const browser = await getBrowser();
-  const page = await browser.newPage({ javaScriptEnabled: false }); // doc estático: sin JS (defensa)
+  _inFlight++;
+  const page = await browser.newPage(pageOpts);
   try {
+    return await fn(page);
+  } finally {
+    await page.close().catch(() => {});
+    _inFlight--;
+    scheduleIdleClose();
+  }
+}
+
+export async function htmlToPdf(html, { landscape = false } = {}) {
+  return renderWithPage({ javaScriptEnabled: false }, async (page) => { // doc estatico: sin JS (defensa)
     await page.setContent(html, { waitUntil: "networkidle", timeout: 30000 });
     return await page.pdf({ printBackground: true, landscape, preferCSSPageSize: true });
-  } finally { await page.close(); }
+  });
 }
 
 export async function htmlToPng(html, { width = 1080 } = {}) {
-  const browser = await getBrowser();
-  const page = await browser.newPage({ viewport: { width, height: 1200 }, deviceScaleFactor: 2, javaScriptEnabled: false });
-  try {
+  return renderWithPage({ viewport: { width, height: 1200 }, deviceScaleFactor: 2, javaScriptEnabled: false }, async (page) => {
     await page.setContent(html, { waitUntil: "networkidle", timeout: 30000 });
     const el = await page.$("#infographic");
     return el ? await el.screenshot({ type: "png" }) : await page.screenshot({ type: "png", fullPage: true });
-  } finally { await page.close(); }
+  });
 }
 
 // ── Tablas ───────────────────────────────────────────────────────────────────

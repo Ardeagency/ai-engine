@@ -150,17 +150,6 @@ export async function getBrandKit(params, brandContainerId, organizationId) {
     fonts: kit.fonts,          // { heading, body }
     fontFaces: kit.fontFaces,  // [{ family, url, weight }]
     logo_url: kit.logoUrl || null,
-    design_guide: [
-      "Eres una DISEÑADORA senior. Diseña el archivo a medida (bespoke), NUNCA con una plantilla genérica.",
-      "RESTRICCIÓN DURA de marca: usa SOLO estos colores (declára­los como CSS vars en :root) + neutros derivados de ellos; SOLO estas fuentes (si no hay, una superfamilia profesional vía Google Fonts, nunca la del sistema); el logo si hay (si no, lockup tipográfico con el nombre); el tono gobierna el carácter visual. La marca es el ACENTO (~10%), NO el fondo (60% neutro).",
-      "El CONTENIDO NUNCA se desborda ni se recorta: si una sección es densa, repártela en más slides; jamás la aprietes hasta que se salga.",
-      "NINGÚN slide vacío ni medio vacío: cada uno sustancialmente lleno, ocupando el alto.",
-      "CONTRASTE legible (WCAG AA): casi-negro sobre claro, blanco sobre oscuro/rojo; nunca claro sobre claro.",
-      "DATOS como visual, no texto corrido: rankings→tabla o barras; scores→score cards; métricas→KPI cards (número grande + label); SKUs→cards.",
-      "Jerarquía por tamaño+peso+color; un foco por página; escala tipográfica modular; espaciado en grilla de 8px; VARÍA el layout entre páginas.",
-      "EVITA: franjas/banners diagonales, footers que chocan, doble titular redundante, bullets en todo, comillas rectas, gradientes/sombras decorativos, clip art, pie 3D, gridlines pesados, todo centrado en una banda con vacíos.",
-      "Deck: cada .slide = 1280×720, @page{size:1280px 720px;margin:0}, print-color-adjust:exact en *, break-after:page. Devuelve un HTML5 completo y autocontenido (CSS en un <style>; sin assets externos salvo fuentes; gráficos→SVG/CSS inline).",
-      "Entrega: pasa el documento HTML completo a createArtifact en params.html (type: presentation|report|infographic…). Se renderiza tal cual con auto-fit anti-recorte.",
-    ].join(" "),
+    nota: "Identidad de marca para decidir paleta o explicar la marca. El render de createArtifact ya aplica estos colores/fuentes/logo automáticamente.",
   };
 }

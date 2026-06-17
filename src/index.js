@@ -28,6 +28,25 @@ import { startRecommendationAutoLink } from "./services/recommendation-auto-link
 import { startDailyBriefingJob } from "./services/daily-briefing-job.service.js";
 import { startOutcomeMeasurement } from "./services/outcome-measurement.service.js";
 import { retryOrphanReplies } from "./services/retry-orphan-replies.service.js";
+import { startSelfRepair } from "./services/self-repair.service.js";
+import { AVAILABLE_TOOL_NAMES } from "./services/tool.dispatcher.js";
+import { TOOLS_BY_PHASE } from "./lib/tool-phases.js";
+
+// ── Guard de arranque: phase ↔ registry ───────────────────────────────────────
+// Toda tool listada en una fase (A/B/C) DEBE tener handler en TOOL_REGISTRY.
+// Sin esto, una "tool fantasma" se le ofrece a Vera, ella la invoca y la allowlist
+// la rechaza con un error que contradice su propio prompt. Falla ruidosa en boot
+// en vez de error silencioso en chat. (deuda: vera-phase-catalog-sync)
+{
+  const registered = new Set(AVAILABLE_TOOL_NAMES);
+  const phaseTools = new Set(Object.values(TOOLS_BY_PHASE).flat());
+  const ghosts = [...phaseTools].filter((t) => !registered.has(t));
+  if (ghosts.length) {
+    console.error(`[boot] FATAL: tools en fase sin handler en TOOL_REGISTRY → ${ghosts.join(", ")}`);
+    process.exit(1);
+  }
+  console.log(`[boot] phase↔registry OK — ${phaseTools.size} tools en fases, todas con handler`);
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -136,10 +155,19 @@ app.listen(PORT, () => {
   // fixea + redeploya → al arrancar, esto retoma el mensaje que se perdió.
   // Deshabilitar con RETRY_ORPHAN_REPLIES_ENABLED=false
   if (process.env.RETRY_ORPHAN_REPLIES_ENABLED !== "false") {
-    setTimeout(() => {
+    const runOrphan = () =>
       retryOrphanReplies()
-        .then((r) => console.log(`retry-orphan: scan=${r.scanned} retried=${r.retried}`))
+        .then((r) => { if (r.retried) console.log(`retry-orphan: scan=${r.scanned} retried=${r.retried}`); })
         .catch((e) => console.warn("retry-orphan: error:", e.message));
-    }, 5000);
+    setTimeout(runOrphan, 5000);
+    // Periódico: re-entrega la respuesta debida tras un auto-repair (o error
+    // transitorio) sin esperar a un reinicio. Cap por conversación dentro del
+    // servicio evita re-cobrar en loop sobre un error que no se arregla.
+    const orphanMs = Number(process.env.RETRY_ORPHAN_INTERVAL_MS) || 240000; // 4 min
+    setInterval(runOrphan, orphanMs);
   }
+
+  // Detector de auto-reparación del sintetizador (lanza runner desacoplado).
+  // Activar con SELF_REPAIR_ENABLED=true.
+  startSelfRepair();
 });

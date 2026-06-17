@@ -89,7 +89,10 @@ export const policy = async (req, res) => {
   if (!assertInternalKey(req, res)) return;
   res.json({
     max_agents: Number(process.env.MAX_AGENTS) || 8,
-    model: process.env.OPENCLAW_DEFAULT_MODEL || "openai/gpt-4o-mini",
+    // Default a Claude (provider anthropic): los org-servers de Vera son
+    // multitenant y se facturan por API key Anthropic vía proxy. Nunca caer
+    // a un modelo OpenAI por omisión. (deuda: vera-openclaw-default-model)
+    model: process.env.OPENCLAW_DEFAULT_MODEL || "anthropic/claude-sonnet-4-6",
   });
 };
 

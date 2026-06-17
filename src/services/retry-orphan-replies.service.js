@@ -17,6 +17,12 @@ import { processAndSaveReply } from "./ai.service.js";
 const LOOKBACK_HOURS = 1;
 const MAX_RETRIES_PER_BOOT = 20; // hard cap por arranque para no spammar OpenClaw
 
+// Cap por conversación a lo largo de la vida del proceso: evita re-cobrar en
+// loop cuando el periódico reintenta un turno que sigue fallando (cada fallo
+// crea un nuevo mensaje 'error' que volvería a ser candidato).
+const MAX_RETRIES_PER_CONV = Number(process.env.RETRY_ORPHAN_MAX_PER_CONV) || 3;
+const _retryCounts = new Map(); // conversation_id → intentos
+
 export async function retryOrphanReplies() {
   const sinceIso = new Date(Date.now() - LOOKBACK_HOURS * 3600 * 1000).toISOString();
 
@@ -57,6 +63,10 @@ export async function retryOrphanReplies() {
   // Resolver el user_id desde la conversación (lo necesita processAndSaveReply)
   let retried = 0;
   for (const orphan of orphans.slice(0, MAX_RETRIES_PER_BOOT)) {
+    // Cap por conversación (lifetime del proceso) — no re-cobrar en loop.
+    const prevCount = _retryCounts.get(orphan.conversation_id) || 0;
+    if (prevCount >= MAX_RETRIES_PER_CONV) continue;
+
     // Si el último mensaje fue un error, recuperamos el último mensaje USER de esa conv
     let userMessage = orphan;
     if (orphan.role === "error") {
@@ -86,7 +96,8 @@ export async function retryOrphanReplies() {
       .maybeSingle();
     if (!conv?.user_id) continue;
 
-    console.log(`retry-orphan: reintentando conv=${orphan.conversation_id} msg="${String(userMessage.content || "").slice(0, 60)}"`);
+    _retryCounts.set(orphan.conversation_id, prevCount + 1);
+    console.log(`retry-orphan: reintentando conv=${orphan.conversation_id} (intento ${prevCount + 1}/${MAX_RETRIES_PER_CONV}) msg="${String(userMessage.content || "").slice(0, 60)}"`);
 
     // Fire and forget — processAndSaveReply persiste el resultado solo.
     // setImmediate para no bloquear el arranque del servidor.

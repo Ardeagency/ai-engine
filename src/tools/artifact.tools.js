@@ -80,11 +80,11 @@ export async function createArtifact(params, brandContainerId, organizationId, u
   } else if (type === "document") {
     buffer = await R.mdToDocx(content, kit, title); finalExt = "docx";
   } else if (type === "presentation") {
-    buffer = await R.htmlToPdf(R.deckHtml(kit, { title, markdown: content }), { landscape: true }); finalExt = "pdf";
+    buffer = await R.renderHtmlPdf(R.deckHtml(kit, { title, subtitle: p.subtitle, markdown: content })); finalExt = "pdf";
   } else if (type === "infographic") {
-    buffer = await R.htmlToPng(R.infographicHtml(kit, { title, markdown: content, data }), { width: 1080 }); finalExt = "png";
+    buffer = await R.renderHtmlPng(R.infographicHtml(kit, { title, markdown: content, data })); finalExt = "png";
   } else { // report | analysis | informe
-    buffer = await R.htmlToPdf(R.reportHtml(kit, { title, subtitle: p.subtitle, markdown: content }), {}); finalExt = "pdf";
+    buffer = await R.renderHtmlPdf(R.reportHtml(kit, { title, subtitle: p.subtitle, markdown: content })); finalExt = "pdf";
   }
 
   if (!buffer || !buffer.length) throw new Error("createArtifact: el render produjo un archivo vacío");

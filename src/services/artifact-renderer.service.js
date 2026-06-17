@@ -123,101 +123,198 @@ function applyFonts(kit, rows) {
   }
 }
 
-// ── CSS base de marca ────────────────────────────────────────────────────────
-function baseCss(kit) {
+// ── Sistema de diseño: deriva tokens profesionales del kit de marca ──────────
+const clamp = (n, a, b) => Math.max(a, Math.min(b, n));
+function relLum(hex) {
+  const h = String(hex || "").replace("#", "");
+  if (h.length < 6) return 0.5;
+  const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  return 0.2126 * lin(parseInt(h.slice(0, 2), 16)) + 0.7152 * lin(parseInt(h.slice(2, 4), 16)) + 0.0722 * lin(parseInt(h.slice(4, 6), 16));
+}
+const onColor = (hex) => (relLum(hex) > 0.42 ? "#16181d" : "#ffffff"); // texto legible sobre un fondo
+function tintHsl(hex, l, s) { const x = hexToHsl(hex); return `hsl(${Math.round(x.h)},${Math.round(clamp(s == null ? x.s : s, 0, 100))}%,${Math.round(clamp(l, 0, 100))}%)`; }
+
+// Tokens: a partir de primary/accent/text deriva neutros tintados, superficies,
+// bordes, fondo oscuro y "soft" de marca — todo contraste-seguro.
+function deriveTokens(kit) {
   const c = kit.colors;
-  const faces = kit.fontFaces.map((f) =>
-    `@font-face{font-family:'${f.family}';src:url('${f.url}');font-weight:${f.weight};font-display:swap;}`).join("\n");
+  const ph = hexToHsl(c.primary).h;
+  const accent = c.accent || c.primary;
+  const ah = hexToHsl(accent), aS = Math.min(ah.s, 80);
+  const ink = (c.text && hexToHsl(c.text).l < 35) ? c.text : tintHsl(c.primary, 13, 8);
+  const dark = (hexToHsl(c.primary).l < 24) ? c.primary : tintHsl(c.primary, 12, 14);
+  const t = {
+    primary: c.primary, accent,
+    ink, ink2: tintHsl(c.primary, 38, 8), muted: tintHsl(c.primary, 55, 6),
+    surface: "#ffffff", surfaceAlt: tintHsl(c.primary, 97, 8), surfaceCard: tintHsl(c.primary, 98, 8),
+    border: tintHsl(c.primary, 89, 8), borderStrong: tintHsl(c.primary, 80, 8),
+    dark, onDark: "#f3f3f4", brandSoft: `hsl(${Math.round(ah.h)},${Math.round(aS)}%,94%)`, onAccent: onColor(accent),
+  };
+  const css = `:root{--primary:${t.primary};--accent:${t.accent};--ink:${t.ink};--ink2:${t.ink2};--muted:${t.muted};`
+    + `--surface:${t.surface};--surface-alt:${t.surfaceAlt};--surface-card:${t.surfaceCard};--border:${t.border};--border-strong:${t.borderStrong};`
+    + `--dark:${t.dark};--on-dark:${t.onDark};--brand-soft:${t.brandSoft};--on-accent:${t.onAccent};}`;
+  return { css, t };
+}
+
+// Fuentes: usa las de la marca; si no hay, una superfamilia profesional vía Google Fonts.
+function fontSetup(kit) {
+  const hasBrand = (kit.fontFaces && kit.fontFaces.length) || (kit.fonts.heading && !/Georgia/.test(kit.fonts.heading));
+  if (hasBrand) {
+    const faces = (kit.fontFaces || []).map((f) =>
+      `@font-face{font-family:'${f.family}';src:url('${f.url}');font-weight:${f.weight};font-display:swap;}`).join("\n");
+    return { link: "", heading: kit.fonts.heading, body: kit.fonts.body, faces };
+  }
+  return {
+    link: `<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">`,
+    heading: "'Manrope', system-ui, -apple-system, sans-serif", body: "'Inter', system-ui, -apple-system, sans-serif", faces: "",
+  };
+}
+
+// ── CSS base profesional (escala modular, grid 8px, tablas minimal, micro-tipo) ──
+function baseCss(kit, f, css) {
   return `
-${faces}
-:root{--primary:${c.primary};--secondary:${c.secondary};--accent:${c.accent};--text:${c.text};--bg:${c.bg};--muted:${c.muted};}
-*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-body{margin:0;font-family:${kit.fonts.body};color:var(--text);background:var(--bg);line-height:1.6;font-size:14px;}
-h1,h2,h3,h4{font-family:${kit.fonts.heading};color:var(--primary);line-height:1.2;margin:1.2em 0 .5em;}
-h1{font-size:30px;} h2{font-size:22px;border-bottom:2px solid var(--accent);padding-bottom:.25em;} h3{font-size:17px;}
-p{margin:.6em 0;} a{color:var(--accent);}
-strong{color:var(--primary);}
-ul,ol{margin:.5em 0 .8em 1.2em;padding:0;} li{margin:.25em 0;}
-table{border-collapse:collapse;width:100%;margin:1em 0;font-size:12.5px;}
-th,td{border:1px solid #e5e7eb;padding:8px 10px;text-align:left;vertical-align:top;}
-th{background:var(--primary);color:#fff;font-family:${kit.fonts.heading};}
-tr:nth-child(even) td{background:#f8f9fb;}
-blockquote{border-left:4px solid var(--accent);margin:1em 0;padding:.4em 1em;color:var(--secondary);background:#f8f9fb;}
-code{background:#f1f3f5;padding:1px 5px;border-radius:4px;font-size:12px;}
-hr{border:none;border-top:1px solid #e5e7eb;margin:1.5em 0;}
+${f.faces}
+${css}
+*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact;color-adjust:exact;}
+body{margin:0;font-family:${f.body};color:var(--ink);background:var(--surface);line-height:1.5;font-size:11pt;-webkit-font-smoothing:antialiased;font-variant-ligatures:common-ligatures;}
+h1,h2,h3,h4{font-family:${f.heading};color:var(--ink);line-height:1.15;margin:0 0 .4em;font-weight:700;letter-spacing:-.01em;}
+h1{font-size:30pt;} h2{font-size:17pt;} h3{font-size:13pt;} h4{font-size:11pt;}
+p{margin:0 0 .7em;} a{color:var(--accent);text-decoration:none;}
+strong{font-weight:700;color:var(--ink);}
+ul,ol{margin:.3em 0 .9em;padding-left:1.1em;} li{margin:.32em 0;}
+table{border-collapse:collapse;width:100%;margin:.6em 0;font-size:10.5pt;table-layout:fixed;}
+th,td{text-align:left;padding:9px 12px;vertical-align:top;word-break:break-word;overflow-wrap:anywhere;}
+thead th{border-bottom:2px solid var(--ink);font-family:${f.heading};font-weight:700;font-size:9pt;text-transform:uppercase;letter-spacing:.05em;color:var(--ink2);}
+tbody td{border-bottom:1px solid var(--border);font-variant-numeric:tabular-nums;}
+th[align=right],td[align=right]{text-align:right;}
+blockquote{margin:.8em 0;padding:.5em 1.1em;border-left:3px solid var(--accent);background:var(--surface-alt);color:var(--ink2);font-style:italic;}
+code{background:var(--surface-alt);padding:1px 5px;border-radius:4px;font-size:.9em;}
+hr{border:none;border-top:1px solid var(--border);margin:1.2em 0;}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin:.4em 0;}
+.kpi{background:var(--surface-alt);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+.kpi .v{font-family:${f.heading};font-weight:800;color:var(--accent);font-size:26pt;line-height:1;}
+.kpi .l{color:var(--ink2);font-size:9.5pt;margin-top:7px;line-height:1.3;}
 `;
 }
 
-function brandHeader(kit) {
-  const logo = kit.logoUrl ? `<img src="${kit.logoUrl}" style="height:34px;width:auto;" />` : "";
-  const name = kit.nombreMarca ? `<span style="font-family:${kit.fonts.heading};font-weight:700;color:var(--primary);font-size:15px;letter-spacing:.02em;">${escapeHtml(kit.nombreMarca)}</span>` : "";
+function brandLockup(kit, onDark) {
+  const col = onDark ? "var(--on-dark)" : "var(--ink)";
+  const logo = kit.logoUrl ? `<img src="${kit.logoUrl}" style="height:30px;width:auto;" />` : "";
+  const name = (!kit.logoUrl && kit.nombreMarca) ? `<span style="font-weight:800;font-size:13pt;letter-spacing:.04em;color:${col};">${escapeHtml(kit.nombreMarca)}</span>` : "";
   return `<div style="display:flex;align-items:center;gap:12px;">${logo}${name}</div>`;
+}
+
+// Renderiza el contenido markdown de un slide: extrae el título (primer heading)
+// y convierte listas "**valor** etiqueta" en KPI cards; el resto, markdown normal.
+function renderSlideContent(md) {
+  const tokens = marked.lexer(md || "");
+  let title = "";
+  const rest = [];
+  for (const t of tokens) {
+    if (!title && t.type === "heading") { title = t.text; continue; }
+    rest.push(t);
+  }
+  let body = "";
+  for (const t of rest) {
+    if (t.type === "list" && t.items.length >= 2 && t.items.every((it) => /^\*\*[^*]+\*\*/.test((it.text || "").trim()))) {
+      const cards = t.items.map((it) => {
+        const m = (it.text || "").trim().match(/^\*\*([^*]+)\*\*\s*([\s\S]*)$/);
+        const v = m ? m[1] : it.text; const l = m ? m[2] : "";
+        return `<div class="kpi"><div class="v">${escapeHtml(v)}</div><div class="l">${escapeHtml(String(l).replace(/\*\*/g, ""))}</div></div>`;
+      }).join("");
+      body += `<div class="kpis">${cards}</div>`;
+    } else {
+      body += marked.parser([t]);
+    }
+  }
+  return { title, body };
 }
 
 // ── Plantillas HTML ──────────────────────────────────────────────────────────
 export function reportHtml(kit, { title, subtitle, markdown }) {
+  const f = fontSetup(kit); const { css } = deriveTokens(kit);
   const body = marked.parse(markdown || "");
   const date = new Date().toISOString().slice(0, 10);
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>${baseCss(kit)}
-@page{size:A4;margin:18mm 16mm;}
-.cover{padding:0 0 18px;border-bottom:3px solid var(--accent);margin-bottom:22px;}
-.cover .meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:26px;}
-.cover .date{color:var(--muted);font-size:12px;}
-.cover h1{margin:0;font-size:32px;}
-.cover .sub{color:var(--secondary);font-size:15px;margin-top:6px;}
-.foot{position:fixed;bottom:8mm;left:16mm;right:16mm;display:flex;justify-content:space-between;color:var(--muted);font-size:10px;border-top:1px solid #e5e7eb;padding-top:6px;}
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8">${f.link}<style>${baseCss(kit, f, css)}
+@media print{@page{size:A4;margin:22mm 20mm 24mm;} h2,h3{break-after:avoid;} table,figure,blockquote,.kpis,.kpi{break-inside:avoid;} p{orphans:3;widows:3;}}
+main{max-width:none;}
+main h2{margin-top:1.4em;padding-bottom:.18em;border-bottom:1px solid var(--border);}
+.cover{padding:0 0 20px;border-bottom:3px solid var(--accent);margin-bottom:30px;}
+.cover .meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:64px;}
+.cover .date{color:var(--muted);font-size:10pt;font-variant-numeric:tabular-nums;}
+.cover h1{margin:0;font-size:34pt;max-width:18ch;}
+.cover .sub{color:var(--ink2);font-size:13pt;margin-top:10px;max-width:60ch;}
 </style></head><body>
-<div class="cover">
-  <div class="meta">${brandHeader(kit)}<span class="date">${date}</span></div>
+<section class="cover">
+  <div class="meta">${brandLockup(kit, false)}<span class="date">${date}</span></div>
   <h1>${escapeHtml(title || "Informe")}</h1>
   ${subtitle ? `<div class="sub">${escapeHtml(subtitle)}</div>` : ""}
-</div>
+</section>
 <main>${body}</main>
-<div class="foot"><span>${escapeHtml(kit.nombreMarca || "")}</span><span>Generado por Vera · ${date}</span></div>
 </body></html>`;
 }
 
-export function deckHtml(kit, { title, markdown }) {
-  const slidesMd = String(markdown || "").split(/\n-{3,}\n/);
-  const slides = slidesMd.map((md, i) => {
-    const html = marked.parse(md.trim() || "");
-    return `<section class="slide"><div class="slide-inner">${html}</div>
-      <div class="slide-foot"><span>${escapeHtml(kit.nombreMarca || "")}</span><span>${i + 1}/${slidesMd.length}</span></div></section>`;
+export function deckHtml(kit, { title, subtitle, markdown }) {
+  const f = fontSetup(kit); const { css } = deriveTokens(kit);
+  const sections = String(markdown || "").split(/\n-{3,}\n/).map((s) => s.trim()).filter(Boolean);
+  const total = sections.length + 1;
+  const sub = subtitle || (Array.isArray(kit.tono) ? "" : kit.tono) || kit.tagline || "";
+  const cover = `<section class="slide cover">
+    <div class="brand">${brandLockup(kit, true)}</div>
+    <div class="accent-bar"></div>
+    <h1>${escapeHtml(title || kit.nombreMarca || "Presentación")}</h1>
+    ${sub ? `<div class="sub">${escapeHtml(sub)}</div>` : ""}
+  </section>`;
+  const contentSlides = sections.map((md, i) => {
+    const { title: st, body } = renderSlideContent(md);
+    return `<section class="slide">
+      ${st ? `<div class="slide-title">${escapeHtml(st)}</div>` : ""}
+      <div class="slide-main">${body}</div>
+      <div class="slide-foot"><span>${escapeHtml(kit.nombreMarca || "")}</span><span>${i + 2}/${total}</span></div>
+    </section>`;
   }).join("");
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>${baseCss(kit)}
-@page{size:A4 landscape;margin:0;}
-body{background:#fff;}
-.slide{position:relative;width:297mm;height:209mm;padding:24mm 26mm;page-break-after:always;overflow:hidden;
-  background:linear-gradient(115deg,#ffffff 64%,${shade(kit.colors.primary,0.06)} 64%);}
-.slide:first-child{background:var(--primary);color:#fff;display:flex;flex-direction:column;justify-content:center;}
-.slide:first-child h1,.slide:first-child h2,.slide:first-child h3{color:#fff;}
-.slide:first-child h1{font-size:44px;border:none;}
-.slide-inner h2{border-bottom:none;font-size:30px;}
-.slide-inner{font-size:18px;}
-.slide-inner li{margin:.4em 0;font-size:18px;}
-.slide-foot{position:absolute;bottom:12mm;left:26mm;right:26mm;display:flex;justify-content:space-between;color:var(--muted);font-size:11px;}
-.slide:first-child .slide-foot{color:rgba(255,255,255,.7);}
-</style></head><body>${slides}</body></html>`;
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8">${f.link}<style>${baseCss(kit, f, css)}
+@media print{@page{size:1280px 720px;margin:0;}}
+body{background:var(--surface);}
+.slide{position:relative;width:1280px;height:720px;overflow:hidden;display:flex;flex-direction:column;padding:60px 72px;page-break-after:always;background:var(--surface);color:var(--ink);}
+.slide:last-child{page-break-after:auto;}
+.slide-title{font-family:${f.heading};font-size:27pt;font-weight:800;letter-spacing:-.015em;margin:0;}
+.slide-title:after{content:"";display:block;width:56px;height:5px;background:var(--accent);border-radius:3px;margin:16px 0 0;}
+.slide-main{flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:14px;font-size:15pt;margin-top:22px;}
+.slide-main > :first-child{margin-top:0;} .slide-main > :last-child{margin-bottom:0;}
+.slide-main li{font-size:15pt;margin:.45em 0;}
+.slide-main .kpi .v{font-size:34pt;} .slide-main .kpi .l{font-size:12pt;}
+.slide-foot{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:9.5pt;padding-top:16px;border-top:1px solid var(--border);font-variant-numeric:tabular-nums;}
+/* portada / divisores: oscuros, cinematográficos */
+.slide.cover{background:var(--dark);color:var(--on-dark);justify-content:center;padding:80px 84px;}
+.slide.cover .brand{margin-bottom:auto;}
+.slide.cover .accent-bar{width:84px;height:6px;background:var(--accent);border-radius:3px;margin:0 0 26px;}
+.slide.cover h1{color:#fff;font-size:48pt;line-height:1.05;margin:0;max-width:20ch;}
+.slide.cover .sub{color:var(--on-dark);opacity:.82;font-size:15pt;margin-top:18px;max-width:60ch;}
+</style></head><body>${cover}${contentSlides}</body></html>`;
 }
 
 export function infographicHtml(kit, { title, markdown, data }) {
+  const f = fontSetup(kit); const { css } = deriveTokens(kit);
   const stats = (data && Array.isArray(data.stats)) ? data.stats : [];
+  const cols = clamp(stats.length || 1, 1, 3);
   const statCards = stats.map((s) =>
     `<div class="stat"><div class="stat-val">${escapeHtml(String(s.value ?? ""))}</div><div class="stat-lbl">${escapeHtml(String(s.label ?? ""))}</div></div>`).join("");
   const body = marked.parse(markdown || "");
-  return `<!doctype html><html lang="es"><head><meta charset="utf-8"><style>${baseCss(kit)}
-body{width:1080px;margin:0;}
-#infographic{width:1080px;padding:56px 56px 64px;background:linear-gradient(180deg,${shade(kit.colors.primary,0.04)},#fff 380px);}
-.ig-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;}
-.ig-title{font-family:${kit.fonts.heading};font-size:46px;font-weight:800;color:var(--primary);line-height:1.1;margin:18px 0 28px;}
-.ig-title:after{content:"";display:block;width:90px;height:6px;background:var(--accent);margin-top:16px;border-radius:3px;}
-.stats{display:grid;grid-template-columns:repeat(${Math.min(Math.max(stats.length || 1, 1), 3)},1fr);gap:18px;margin:8px 0 30px;}
-.stat{background:#fff;border:1px solid #eef0f3;border-top:5px solid var(--accent);border-radius:14px;padding:22px 20px;box-shadow:0 6px 20px rgba(20,23,26,.05);}
-.stat-val{font-family:${kit.fonts.heading};font-size:40px;font-weight:800;color:var(--primary);}
-.stat-lbl{color:var(--secondary);font-size:15px;margin-top:6px;}
-#infographic h2{font-size:24px;} #infographic p,#infographic li{font-size:16px;}
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8">${f.link}<style>${baseCss(kit, f, css)}
+body{width:1080px;margin:0;background:var(--surface);}
+#infographic{width:1080px;padding:60px 60px 68px;background:var(--surface);}
+.ig-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;}
+.ig-date{color:var(--muted);font-size:11pt;font-variant-numeric:tabular-nums;}
+.ig-title{font-family:${f.heading};font-size:42pt;font-weight:800;color:var(--ink);line-height:1.06;letter-spacing:-.02em;margin:20px 0 30px;}
+.ig-title:after{content:"";display:block;width:96px;height:6px;background:var(--accent);margin-top:18px;border-radius:3px;}
+.stats{display:grid;grid-template-columns:repeat(${cols},1fr);gap:18px;margin:6px 0 32px;}
+.stat{background:var(--surface-alt);border:1px solid var(--border);border-top:5px solid var(--accent);border-radius:14px;padding:24px 22px;}
+.stat-val{font-family:${f.heading};font-size:34pt;font-weight:800;color:var(--accent);line-height:1;}
+.stat-lbl{color:var(--ink2);font-size:12pt;margin-top:8px;line-height:1.3;}
+#infographic h2{font-size:18pt;margin-top:1.1em;} #infographic p,#infographic li{font-size:13pt;}
 </style></head><body><div id="infographic">
-  <div class="ig-head">${brandHeader(kit)}<span style="color:var(--muted);font-size:13px;">${new Date().toISOString().slice(0,10)}</span></div>
+  <div class="ig-head">${brandLockup(kit, false)}<span class="ig-date">${new Date().toISOString().slice(0,10)}</span></div>
   <div class="ig-title">${escapeHtml(title || "")}</div>
   ${statCards ? `<div class="stats">${statCards}</div>` : ""}
   <div>${body}</div>

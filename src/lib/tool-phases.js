@@ -83,6 +83,13 @@ export const PHASE_B_TOOLS = [
   "getActionOutcomes",
   "getActionOutcomeDetail",
   "getOutcomeSummary",
+  // Web research (Tavily) — internet abierto, read-only. Desde Phase B para
+  // gatear costo por API externa (igual que searchIntelligence).
+  "webSearch",
+  "webFetch",
+  // Generación de archivos de marca (PDF/PNG/XLSX/DOCX). Riesgo BAJO; desde Phase B.
+  "createArtifact",
+  "listArtifacts",
   // Scraper tools — READ (Vera inspecciona su sistema de monitoreo sin gastar tokens en acción)
   "getScraperSessions",
   "getScraperDashboard",

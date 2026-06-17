@@ -38,6 +38,10 @@ const TOOL_LABELS = {
   searchCompetitors:         "analizando competencia",
   generateContent:           "generando contenido",
   getIntegrationTokens:      "verificando accesos de integración",
+  webSearch:                 "buscando en internet",
+  webFetch:                  "leyendo páginas web",
+  createArtifact:            "generando archivo",
+  listArtifacts:             "consultando archivos generados",
 };
 
 export function registerConversation(conversationId, organizationId) {

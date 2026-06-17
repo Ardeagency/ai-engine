@@ -12,6 +12,14 @@ import { AVAILABLE_TOOL_NAMES } from "../services/tool.dispatcher.js";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DANGEROUS_PATTERNS = ["__proto__", "constructor", "prototype", "<script", "DROP TABLE", "--"];
 
+// Campos de TEXTO LIBRE por tool: su valor es contenido natural/markdown (no
+// fluye a SQL), así que el escaneo anti-inyección SQL (p.ej. "--" en tablas o
+// separadores markdown) produce falsos positivos. A estos campos se les exime
+// del escaneo SQL completo, pero igual se les aplica un escaneo ESTRICTO
+// (XSS/prototype) para que un <script> o __proto__ nunca pase al renderer.
+const FREETEXT_PARAMS = { createArtifact: ["content"], webSearch: ["query"] };
+const STRICT_PATTERNS = ["<script", "__proto__", "javascript:", "onerror="];
+
 const MAX_TOOL_CALLS_PER_ROUND = 5;
 
 // Esquema de validación por tool: campo → tipo esperado
@@ -90,6 +98,10 @@ export const TOOL_SCHEMAS = {
   triggerDeepScrape:         { params: "object" },
   getBrandHealthMetrics:     { brandContainerId: "uuid" },
   searchIntelligence:        { params: "object" },
+  webSearch:                 { params: "object" },
+  webFetch:                  { params: "object" },
+  createArtifact:            { params: "object" },
+  listArtifacts:             { params: "object" },
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -135,9 +147,27 @@ export function validateToolCall(toolCall) {
   }
 
   // 3. Injection / prototype pollution check
-  const rawParams = JSON.stringify(p);
-  if (hasDangerousContent(rawParams)) {
+  // Para tools con campos de texto libre (markdown), escaneamos los params SIN
+  // esos campos contra los patrones completos (incluye SQL "--"), y aparte
+  // escaneamos el texto libre solo contra patrones ESTRICTOS (XSS/proto).
+  const freetextFields = FREETEXT_PARAMS[name] || [];
+  let scanTarget = p;
+  let freetextBlob = "";
+  if (freetextFields.length) {
+    scanTarget = JSON.parse(JSON.stringify(p));
+    const inner = (scanTarget.params && typeof scanTarget.params === "object") ? scanTarget.params : scanTarget;
+    for (const f of freetextFields) {
+      if (inner[f] !== undefined) { freetextBlob += " " + String(inner[f]); delete inner[f]; }
+    }
+  }
+  if (hasDangerousContent(JSON.stringify(scanTarget))) {
     return { valid: false, reason: "tool_call.params contiene patrones no permitidos" };
+  }
+  if (freetextBlob) {
+    const lower = freetextBlob.toLowerCase();
+    if (STRICT_PATTERNS.some((x) => lower.includes(x))) {
+      return { valid: false, reason: "tool_call.params: el contenido contiene patrones no permitidos (script/proto)" };
+    }
   }
 
   // 4. Field type validation per schema

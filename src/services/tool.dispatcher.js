@@ -28,7 +28,10 @@ import * as promptForgeTools from "../tools/prompt-forge.tools.js";
 import * as decisionTools from "../tools/decision.tools.js";
 import * as canvasTools from "../tools/canvas.tools.js";
 import * as integrationDataTools from "../tools/integration-data.tools.js";
+import * as webTools from "../tools/web.tools.js";
+import * as artifactTools from "../tools/artifact.tools.js";
 import { validateToolCall } from "../lib/tool-call.validator.js";
+import { captureSynthError } from "../lib/synth-error-capture.js";
 import { checkPolicy, getActionCreditCost } from "../lib/policy.engine.js";
 import { audit } from "../lib/audit-logger.js";
 import { emitToolActivity } from "../lib/activity-emitter.js";
@@ -606,6 +609,31 @@ const TOOL_REGISTRY = {
       veraActionsTools.triggerDeepScrape({ ...(params || {}), ...rest }, brandContainerId, organizationId),
     requiresConsent: false,
   },
+
+  // ── Web research (Tavily) — lectura de internet abierto, read-only ─────────
+  webSearch: {
+    fn: ({ params, ...rest }) => webTools.webSearch({ ...(params || {}), ...rest }),
+    requiresConsent: false,
+    timeout: 25000,
+  },
+  webFetch: {
+    fn: ({ params, ...rest }) => webTools.webFetch({ ...(params || {}), ...rest }),
+    requiresConsent: false,
+    timeout: 25000,
+  },
+
+  // ── Artefactos de marca — Vera genera archivos (PDF/PNG/XLSX/DOCX) ──────────
+  createArtifact: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) =>
+      artifactTools.createArtifact({ ...(params || {}), ...rest }, brandContainerId, organizationId, userId),
+    requiresConsent: false, // riesgo BAJO (genera un entregable, no publica ni gasta pauta)
+    timeout: 60000,         // render con Playwright + upload puede tardar
+  },
+  listArtifacts: {
+    fn: ({ params, brandContainerId, organizationId, ...rest }) =>
+      artifactTools.listArtifacts({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
 };
 
 export const AVAILABLE_TOOL_NAMES = Object.keys(TOOL_REGISTRY);
@@ -664,6 +692,11 @@ export async function dispatchTool(toolName, params, secCtx) {
   const validation = validateToolCall({ name: toolName, params });
   if (!validation.valid) {
     audit.toolDenied(auditCtx, toolName, `schema: ${validation.reason}`, 400);
+    // El sintetizador rechazó un formato de Vera → capturar para auto-reparación.
+    captureSynthError({
+      organizationId, conversationId: secCtx.conversationId, userId,
+      toolName, params, reason: validation.reason,
+    });
     throw Object.assign(
       new Error(`Parámetros inválidos para "${toolName}": ${validation.reason}`),
       { statusCode: 400 }

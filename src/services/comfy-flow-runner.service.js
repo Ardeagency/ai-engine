@@ -217,7 +217,7 @@ async function persistOutputs(job, def, worker, outputs, apiGraph, realCost, ide
     // re-crearlo (upsert por id) para que los outputs no queden huerfanos ni el insert falle por FK.
     await supabase.from("flow_runs").upsert({ id: preRun, flow_id: def.contentFlowId, organization_id: job.organization_id, brand_id: bc, user_id: userId, status: "completed" }, { onConflict: "id" }).then(() => {}, () => {});
   } else {
-    const { data: run } = await supabase.from("flow_runs").insert({ flow_id: def.contentFlowId, organization_id: job.organization_id, brand_id: bc, user_id: userId, status: "completed" }).select("id").maybeSingle();
+    const { data: run } = await supabase.from("flow_runs").insert({ flow_id: def.contentFlowId, organization_id: job.organization_id, brand_id: bc, user_id: userId, status: "completed", brief_id: inp.brief_id || null, campaign_id: inp.campaign_id || null, persona_id: inp.persona_id || null, entity_id: inp.entity_id || null }).select("id").maybeSingle();
     runId = run?.id || null;
   }
   // briefing
@@ -226,6 +226,11 @@ async function persistOutputs(job, def, worker, outputs, apiGraph, realCost, ide
   await supabase.from("runs_inputs").insert({ run_id: runId, organization_id: job.organization_id, input_data: briefInputs, metadata: { flow_slug: job.flow_slug, source: job.source } }).then(()=>{}, ()=>{});
   const date = new Date().toISOString().slice(0, 10), batch = "batch_comfy_" + Date.now();
   const entityMap = inp.entity_map || {};
+  // FEAT-037: contexto de estrategia desde el flow_run padre (fuente de verdad:
+  // poblado por la RPC del frontend deduct_credits_and_create_run o por el insert
+  // del runner). Se hereda a cada runs_outputs con inputs como fallback.
+  let frCtx = {};
+  if (runId) { try { const { data: _fr } = await supabase.from("flow_runs").select("brief_id, campaign_id, persona_id, entity_id").eq("id", runId).maybeSingle(); frCtx = _fr || {}; } catch (_e) {} }
   let count = 0, cost = 0;
   for (const [nid, o] of Object.entries(outputs || {})) {
     // SaveVideo emite el .mp4 bajo la clave `images` (con animated:true) -> detectar por extension.
@@ -246,10 +251,10 @@ async function persistOutputs(job, def, worker, outputs, apiGraph, realCost, ide
           storage_path: `production-outputs/${objPath}`, organization_id: job.organization_id, brand_container_id: bc, run_id: runId,
           prompt_used: gen?.inputs?.prompt || null, models: [model],
           technical_params: gen ? { aspect_ratio: gen.inputs?.aspect_ratio, resolution: gen.inputs?.resolution, output_format: gen.inputs?.output_format } : null,
-          reference_image_url: (inp.productos && inp.productos[0]) || null, entity_id: entityMap[prefix] || inp.entity_id || null,
-          // FEAT-037: contexto de estrategia (si el disparo lo paso en inputs) -> la
-          // produccion nace enlazada a su estrategia. null si no viene (sin regresion).
-          brief_id: inp.brief_id || null, campaign_id: inp.campaign_id || null, persona_id: inp.persona_id || null,
+          reference_image_url: (inp.productos && inp.productos[0]) || null, entity_id: entityMap[prefix] || inp.entity_id || frCtx.entity_id || null,
+          // FEAT-037: contexto de estrategia heredado del flow_run padre (fuente de
+          // verdad), con inputs como fallback. null si no viene (sin regresion).
+          brief_id: frCtx.brief_id || inp.brief_id || null, campaign_id: frCtx.campaign_id || inp.campaign_id || null, persona_id: frCtx.persona_id || inp.persona_id || null,
           metadata: { node: nid, flow_slug: job.flow_slug, variant: prefix },
         });
         if (insErr) throw new Error("runs_outputs insert: " + insErr.message);  // antes no se chequeaba -> count++ falso

@@ -135,6 +135,20 @@ export const serverReady = async (req, res) => {
     .eq("organization_id", org_id)
     .maybeSingle();
 
+  // FIX 2026-07-01: registrar las skills realmente instaladas + phase='complete'.
+  // El cloud-init copia TODAS las skills de defaults/skills (cp -r skills/*), pero
+  // antes serverReady no tocaba skills_installed ni provisioning_phase → la columna
+  // quedaba stale/vacía tras (re)provisión (parecía que faltaba cmo-strategizing).
+  let skillsInstalled = [];
+  try {
+    skillsInstalled = readdirSync(path.join(DEFAULTS_DIR, "skills"), { withFileTypes: true })
+      .filter((d) => d.isDirectory())
+      .map((d) => d.name)
+      .sort();
+  } catch (e) {
+    console.warn(`internal: server-ready no pudo listar skills de defaults: ${e.message}`);
+  }
+
   // Actualizar DB: IP, puerto, token, status → healthy
   const { error: updateError } = await supabase
     .from("openclaw_instances")
@@ -147,6 +161,9 @@ export const serverReady = async (req, res) => {
       agent_id:        agentId,
       internal_url:    `http://${server_ip}:${port}`,
       sleeping:        false,
+      ...(skillsInstalled.length
+        ? { skills_installed: skillsInstalled, provisioning_phase: "complete" }
+        : {}),
       last_activity_at: new Date().toISOString(),
       updated_at:      new Date().toISOString(),
     })
@@ -484,7 +501,7 @@ export const serveDefaultsTarball = (req, res) => {
 // ── GET /internal/mcp-server.js ───────────────────────────────────────────────
 // Sirve el código del MCP server para que los org-servers lo instalen en
 // cloud-init y/o en cada wake. Autenticado con x-webhook-secret.
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 const MCP_SERVER_PATH = path.resolve(__dirname_ctrl, "../mcp/ai-engine-tools.js");
 
 export const serveMcpServer = (req, res) => {

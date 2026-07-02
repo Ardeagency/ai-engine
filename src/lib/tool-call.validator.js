@@ -175,7 +175,7 @@ export function validateToolCall(toolCall) {
   const schema = TOOL_SCHEMAS[name] ?? {};
   for (const [field, expectedType] of Object.entries(schema)) {
     const val = p[field];
-    if (val === undefined || val === null) continue; // optional fields skip
+    if (val === undefined || val === null || val === "") continue; // optional fields skip
 
     if (expectedType === "uuid") {
       if (!isValidUUID(val)) {

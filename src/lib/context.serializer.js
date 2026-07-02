@@ -139,11 +139,22 @@ function serializeBrandEntities(entities) {
   return lines.join("\n");
 }
 
+const ROLE_LABELS = {
+  competidor_directo: "competencia directa",
+  competidor_indirecto: "competencia indirecta",
+  referencia_cultural: "referente/inspiración",
+  aliado: "aliado",
+  owned_media: "propio",
+};
+
 function serializeIntelligenceEntities(entities) {
   if (!entities?.length) return null;
-  const lines = [`## COMPETIDORES / ENTIDADES MONITOREADAS (${entities.length})`];
+  const lines = [`## PERFILES MONITOREADOS (${entities.length}) — con su ROL y RELEVANCIA (por qué los seguimos)`];
   for (const e of entities.slice(0, MAX_ITEMS)) {
-    lines.push(`- **${e.name}** | ${e.domain} | ${e.target_identifier}${e.is_active ? " ✓ activo" : " — inactivo"}`);
+    const tipo = e.metadata?.tipo || e.tipo || null;
+    const role = tipo ? ` [${ROLE_LABELS[tipo] || tipo}]` : "";
+    const rel = e.relevance ? `\n    ↳ Por qué: ${truncate(e.relevance, 160)}` : "";
+    lines.push(`- **${e.name}**${role} | ${e.domain} | ${e.target_identifier}${e.is_active ? " ✓ activo" : " — inactivo"}${rel}`);
   }
   return lines.join("\n");
 }

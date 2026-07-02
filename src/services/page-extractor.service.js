@@ -224,6 +224,7 @@ function extractProducts($, baseUrl, schemaOrg) {
         price: obj.offers?.price || obj.offers?.lowPrice || "",
         currency: obj.offers?.priceCurrency || "",
         sku: obj.sku || "",
+        url: absUrl(obj.url, baseUrl) || baseUrl,
         source: "json-ld",
       });
     }
@@ -238,6 +239,7 @@ function extractProducts($, baseUrl, schemaOrg) {
       image: $('meta[property="og:image"]').attr("content") || "",
       price: $('meta[property="product:price:amount"]').attr("content") || "",
       currency: $('meta[property="product:price:currency"]').attr("content") || "",
+      url: baseUrl,
       source: "og:product",
     });
   }
@@ -248,7 +250,7 @@ function extractProducts($, baseUrl, schemaOrg) {
   return products;
 }
 
-function extractServices($, schemaOrg) {
+function extractServices($, baseUrl, schemaOrg) {
   const services = [];
 
   // 1. JSON-LD Service
@@ -260,6 +262,7 @@ function extractServices($, schemaOrg) {
         description: obj.description || "",
         provider: obj.provider?.name || "",
         area_served: obj.areaServed || "",
+        url: absUrl(obj.url, baseUrl) || baseUrl,
         source: "json-ld",
       });
     }
@@ -296,6 +299,18 @@ function extractAssets($, baseUrl) {
     const src = absUrl($el.attr("src"), baseUrl) || absUrl($el.find("source").first().attr("src"), baseUrl);
     if (src) videos.push({ src, poster: absUrl($el.attr("poster"), baseUrl) });
   });
+  // Embeds de YouTube (iframe) → thumbnail como frame representativo del video.
+  const embedThumbs = [];
+  $("iframe[src]").each((_, el) => {
+    const src = $(el).attr("src") || "";
+    const yt = src.match(/(?:youtube\.com\/embed\/|youtu\.be\/|youtube-nocookie\.com\/embed\/)([A-Za-z0-9_-]{11})/);
+    if (yt) embedThumbs.push(`https://img.youtube.com/vi/${yt[1]}/hqdefault.jpg`);
+  });
+  // Frames representativos de video: posters de <video> + thumbnails de embeds.
+  const video_posters = [...new Set([
+    ...videos.map((v) => v.poster).filter(Boolean),
+    ...embedThumbs,
+  ])].slice(0, 12);
   const downloadables = [];
   $("a[href]").each((_, el) => {
     const href = absUrl($(el).attr("href"), baseUrl);
@@ -308,6 +323,7 @@ function extractAssets($, baseUrl) {
   return {
     images: images.slice(0, 100),
     videos: videos.slice(0, 30),
+    video_posters,
     downloadables: downloadables.slice(0, 50),
   };
 }
@@ -358,7 +374,7 @@ export function extractPage({ url, html, seedHostname = null }) {
   const colors = extractColors($, meta.theme_color);
   const typography = extractTypography($);
   const products = extractProducts($, url, schemaOrg);
-  const services = extractServices($, schemaOrg);
+  const services = extractServices($, url, schemaOrg);
   const assets = extractAssets($, url);
   const social = extractSocialLinks($, url, seedHostname || getHostname(url));
 
@@ -395,6 +411,7 @@ export function extractCorpus(pages, seedHostname) {
       services: [],
       social: new Map(),
       assets: { images: 0, videos: 0, downloadables: [] },
+      video_posters: new Set(),
       meta_descriptions: [],
       langs: new Map(),
       all_h1: [],
@@ -440,6 +457,7 @@ export function extractCorpus(pages, seedHostname) {
     corpus.aggregated.assets.images += ex.assets.images.length;
     corpus.aggregated.assets.videos += ex.assets.videos.length;
     corpus.aggregated.assets.downloadables.push(...ex.assets.downloadables);
+    (ex.assets.video_posters || []).forEach((u) => corpus.aggregated.video_posters.add(u));
     // Meta descriptions y h1/h2 para corpus textual
     if (ex.meta.description) corpus.aggregated.meta_descriptions.push(ex.meta.description);
     if (ex.lang) corpus.aggregated.langs.set(ex.lang, (corpus.aggregated.langs.get(ex.lang) || 0) + 1);
@@ -463,6 +481,7 @@ export function extractCorpus(pages, seedHostname) {
       services: agg.services.slice(0, 50),
       social: [...agg.social.values()],
       assets_summary: agg.assets,
+      video_posters: [...agg.video_posters].slice(0, 12),
       meta_descriptions: agg.meta_descriptions.slice(0, 30),
       langs: [...agg.langs.entries()].map(([lang, count]) => ({ lang, count })),
       all_h1: agg.all_h1.slice(0, 80),

@@ -97,12 +97,29 @@ async function _persistThreat({ brandContainerId, organizationId, entityId, thre
 
 // ── Rule 1: competitor_virality ──────────────────────────────────────────────
 
+// Comportamiento por ROL en virality: un competidor DIRECTO dispara antes
+// (umbral más bajo) y con más severidad; un referente/aliado es INFO, no amenaza
+// (umbral alto, severidad rebajada); lo propio no aplica.
+const VIRALITY_BY_ROLE = {
+  competidor_directo:   { minRatio: 2.0, sevBoost:  1 },
+  competidor_indirecto: { minRatio: 2.5, sevBoost:  0 },
+  referencia_cultural:  { minRatio: 4.0, sevBoost: -1 },
+  aliado:               { minRatio: 4.0, sevBoost: -1 },
+  owned_media:          { minRatio: Infinity, sevBoost: 0 },
+};
+const VIRALITY_DEFAULT = { minRatio: 2.5, sevBoost: 0 };
+const SEV_ORDER = ["low", "medium", "high"];
+function _bumpSeverity(sev, boost) {
+  const i = Math.max(0, Math.min(SEV_ORDER.length - 1, SEV_ORDER.indexOf(sev) + boost));
+  return SEV_ORDER[i];
+}
+
 async function detectCompetitorVirality(brandContainerId, organizationId) {
   const cutoff = new Date(Date.now() - 14 * 86_400_000).toISOString();
 
   const { data: posts } = await supabase
     .from("brand_posts")
-    .select("id, entity_id, network, content, captured_at, metrics, intelligence_entities!inner(name, brand_container_id)")
+    .select("id, entity_id, network, content, captured_at, metrics, intelligence_entities!inner(name, brand_container_id, metadata, relevance)")
     .eq("brand_container_id", brandContainerId)
     .eq("is_competitor", true)
     .gte("captured_at", cutoff);
@@ -122,11 +139,16 @@ async function detectCompetitorVirality(brandContainerId, organizationId) {
     const engagements = entityPosts.map((p) => _engagement(p.metrics));
     const median = _median(engagements);
     if (median <= 0) continue;
+    // Rol + relevancia de esta entidad → gradúa umbral y severidad.
+    const _ie = entityPosts[0].intelligence_entities || {};
+    const role = _ie.metadata?.tipo || null;
+    const relevance = _ie.relevance || null;
+    const cfg = VIRALITY_BY_ROLE[role] || VIRALITY_DEFAULT;
 
     for (const post of entityPosts) {
       const eng   = _engagement(post.metrics);
       const ratio = eng / Math.max(1, median);
-      if (ratio < 2.5) continue;
+      if (ratio < cfg.minRatio) continue;
 
       const existing = await _existingVulnerabilityFor(brandContainerId, "competitor_virality", post.id);
       if (existing) { skipped++; continue; }
@@ -134,6 +156,7 @@ async function detectCompetitorVirality(brandContainerId, organizationId) {
       let severity = "low";
       if (ratio >= 7) severity      = "high";
       else if (ratio >= 4) severity = "medium";
+      severity = _bumpSeverity(severity, cfg.sevBoost);
 
       const entityName = post.intelligence_entities?.name || "competidor";
       await _persistThreat({
@@ -142,7 +165,7 @@ async function detectCompetitorVirality(brandContainerId, organizationId) {
         entityId,
         threatType:  "competitor_virality",
         severity,
-        title:       `${entityName} — engagement ${ratio.toFixed(1)}x sobre baseline`,
+        title:       `${entityName}${role ? ` [${role}]` : ""} — engagement ${ratio.toFixed(1)}x sobre baseline`,
         description: post.content?.slice(0, 200) || null,
         metadata: {
           _key:                post.id,
@@ -153,6 +176,8 @@ async function detectCompetitorVirality(brandContainerId, organizationId) {
           ratio:               Number(ratio.toFixed(2)),
           severity_score:      Math.min(1, ratio / 10),
           window_days:         14,
+          competitor_role:     role,
+          relevance:           relevance,
         },
       });
       detected++;

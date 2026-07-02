@@ -15,6 +15,8 @@ import { supabase } from "../lib/supabase.js";
 import { crawlSite } from "./site-crawler.service.js";
 import { extractCorpus } from "./page-extractor.service.js";
 import { consolidate } from "./brand-consolidator.service.js";
+import { applyBrandPayloadToOrg } from "./brand-apply.service.js";
+import { discoverAndSeedCompetitors } from "./brand-competitors.service.js";
 
 /** Crea el job y retorna { job_id }. No corre nada. */
 export async function createJob({ seedUrl, organizationId = null, createdBy = null }) {
@@ -70,7 +72,7 @@ export async function runPipeline(jobId, opts = {}) {
     // Recuperar seedUrl del job
     const { data: job, error: jobErr } = await supabase
       .from("brand_scrape_jobs")
-      .select("seed_url")
+      .select("seed_url, organization_id")
       .eq("id", jobId)
       .maybeSingle();
     if (jobErr || !job) throw new Error("job not found");
@@ -132,6 +134,33 @@ export async function runPipeline(jobId, opts = {}) {
       llm_tokens_out: result.tokens_out,
       batches: result.batches,
     });
+
+    // ── 3.5 APPLY (auto-builder): volcar el ADN a las tablas del mercado ──
+    let applyResult = null;
+    if (job.organization_id) {
+      try {
+        await updateJob(jobId, { stage: "Guardando ADN en la marca" });
+        applyResult = await applyBrandPayloadToOrg(job.organization_id, result.brand_payload, job.seed_url);
+        await setProgress(jobId, { phase: "applied", apply: applyResult });
+        console.log(`brand-scrape: job ${jobId} APPLIED to org ${job.organization_id}`, applyResult);
+      } catch (applyErr) {
+        console.error(`brand-scrape: apply failed for job ${jobId}:`, applyErr.message);
+        await setProgress(jobId, { phase: "apply_failed", apply_error: applyErr.message });
+      }
+    }
+
+    // ── 3.6 COMPETIDORES (auto-builder): descubrir y sembrar ──
+    if (job.organization_id && applyResult && applyResult.container_id) {
+      try {
+        await updateJob(jobId, { stage: "Buscando competencia" });
+        const compResult = await discoverAndSeedCompetitors(job.organization_id, applyResult.container_id, result.brand_payload, job.seed_url);
+        await setProgress(jobId, { phase: "competitors_seeded", competitors: compResult });
+        console.log("brand-scrape: COMPETITORS seeded", compResult);
+      } catch (compErr) {
+        console.error("brand-scrape: competitors failed:", compErr.message);
+        await setProgress(jobId, { phase: "competitors_failed", competitors_error: compErr.message });
+      }
+    }
 
     // ── 4. DONE ──
     await updateJob(jobId, {

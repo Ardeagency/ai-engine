@@ -10,7 +10,7 @@ export async function getIntelligenceEntities(brandContainerId, organizationId) 
 
   const { data, error } = await supabase
     .from("intelligence_entities")
-    .select("id, name, domain, target_identifier, is_active")
+    .select("id, name, domain, target_identifier, is_active, metadata, relevance")
     .eq("brand_container_id", bc.id);
 
   if (error) throw error;

@@ -257,16 +257,22 @@ export async function runCampaignPerformanceForBrand(brandContainerId, organizat
   const stats = { campaigns_analyzed: 0, recommendations_created: 0, errors: 0, skipped_no_token: 0 };
   if (!brandContainerId || !organizationId) return stats;
 
-  // 1. Get campaigns linked to a persona on Meta platforms
+  // 1. Get ALL Meta campaigns of the brand (linked to a persona or not).
+  //    La demografía real es propiedad de la CAMPAÑA (la da Meta), no depende de
+  //    que haya una persona ligada. Antes esto filtraba `.not("persona_id","is",null)`,
+  //    lo que creaba un DEADLOCK: como ninguna campaña tenía persona, ninguna recibía
+  //    demografía nunca → personas sin dato real → alignment sin score → motor de
+  //    audiencia muerto. El bloque de análisis vs persona ya se salta solo con
+  //    `if (!persona) continue` más abajo, así que aquí solo sincronizamos demografía
+  //    para todas y dejamos que el análisis de gap corra cuando SÍ haya persona.
   const { data: campaigns, error: cErr } = await supabase
     .from("campaigns")
     .select("id, nombre_campana, external_campaign_id, external_account_id, integration_id, platform, persona_id, real_demographics, demographics_synced_at")
     .eq("brand_container_id", brandContainerId)
-    .not("persona_id", "is", null)
     .in("platform", ["meta_facebook", "meta_instagram"])
     .not("integration_id", "is", null);
   if (cErr) throw cErr;
-  if (!campaigns || campaigns.length === 0) return { ...stats, status: "no_linked_meta_campaigns" };
+  if (!campaigns || campaigns.length === 0) return { ...stats, status: "no_meta_campaigns" };
 
   // 2. Cargar tokens de las integraciones referenciadas (encriptados → decrypt)
   const integIds = [...new Set(campaigns.map(c => c.integration_id))];
@@ -288,10 +294,18 @@ export async function runCampaignPerformanceForBrand(brandContainerId, organizat
   const personaById = {};
   for (const p of (personas || [])) personaById[p.id] = p;
 
-  // 4. Por cada campaign linked → fetch demographics → persist → analyze → maybe pending_action
+  // 4. Por cada campaign Meta → fetch demographics → persist → (si hay persona) analyze → maybe pending_action
+  const DEMO_TTL_MS = 24 * 60 * 60 * 1000; // re-sincroniza demografía como mucho 1×/día
   for (const c of campaigns) {
     const token = tokenById[c.integration_id];
     if (!token) { stats.skipped_no_token++; continue; }
+    // Guard de frescura: como ahora procesamos TODAS las campañas Meta, evitamos
+    // re-pegarle a la Meta API en cada ciclo del scraper (45 min) para campañas ya
+    // sincronizadas hace poco. Las nuevas / stale sí se traen.
+    if (c.demographics_synced_at && (Date.now() - new Date(c.demographics_synced_at).getTime()) < DEMO_TTL_MS) {
+      stats.skipped_fresh = (stats.skipped_fresh || 0) + 1;
+      continue;
+    }
     try {
       const demographics = await fetchCampaignDemographics(token, c.external_campaign_id);
 

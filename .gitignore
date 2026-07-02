@@ -51,3 +51,6 @@ backups/
 *.bak-*
 *.bak.*
 recovered-defaults*
+
+# Backups .bak2* del auto-deploy por parcheo directo
+*.bak2*

@@ -45,12 +45,14 @@ import {
   getMetaAdsAudiences,
   getMetaAdLibrary,
   fetchOwnPostComments,
+  fetchOwnPostsPage,
 } from "../tools/social.tools.js";
 import { runAlignmentForBrand } from "./audience-alignment.service.js";
 import { runCampaignPerformanceForBrand } from "./campaign-performance.service.js";
 import { syncMetaAdInsightsForBrand } from "./sync-meta-ad-insights.service.js";
 import { analyzeAndPersistPost, runContentAnalysisBackfill } from "./content-analysis.service.js";
 import { generateMissionsForBrand } from "./mission-generator.service.js";
+import { generateStrategyReviewForBrand } from "./strategy-review.service.js";
 import { runBrandIndexer } from "./brand-indexer.service.js";
 import { runThreatDetection } from "./threat-detector.service.js";
 
@@ -506,6 +508,7 @@ async function getTriggersToRun() {
       brand_container_id,
       entity_id,
       sensor_type,
+      config,
       cadence,
       cadence_value,
       priority,
@@ -534,6 +537,32 @@ async function getTriggersToRun() {
     return [];
   }
   return data || [];
+}
+
+// Ventana histórica de posts según el plan de la org (plans.social_history_days).
+// Default defensivo: 30 días si no hay plan o columna.
+async function getSocialHistoryDays(organizationId) {
+  if (!organizationId) return 30;
+  try {
+    // Override por org (tuning por cliente) — tiene prioridad sobre el plan.
+    const { data: org } = await supabase
+      .from("organizations")
+      .select("social_history_days_override")
+      .eq("id", organizationId)
+      .maybeSingle();
+    if (org?.social_history_days_override) return org.social_history_days_override;
+
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("plans!inner(social_history_days)")
+      .eq("organization_id", organizationId)
+      .in("status", ["trial", "active", "past_due"])
+      .maybeSingle();
+    return sub?.plans?.social_history_days || 30;
+  } catch (e) {
+    console.warn(`[meta_posts] plan window lookup falló (${e.message}) — default 30d`);
+    return 30;
+  }
 }
 
 function computeNextRunAt(cadence, cadenceValue) {
@@ -1159,6 +1188,9 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
 
   try {
     let stats = {};
+    // Permite a un sensor sobrescribir la cadencia por ciclo (ej. meta_posts en
+    // backfill se re-agenda pronto; al terminar pasa a diario).
+    let nextRunOverride = null;
 
     if (sensorType === "meta_page_insights") {
       const result = await getMetaPageInsights({ brandContainerId, organizationId, range: "30d" });
@@ -1170,25 +1202,104 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
       };
 
     } else if (sensorType === "meta_posts") {
-      const result = await getMetaPosts({ brandContainerId, organizationId, limit: 25 });
-      const inserted = await persistOwnPosts(result.posts || [], brandContainerId, entity.id);
-      // Comentarios del PUBLICO en posts propios (Graph API): el sentimiento/riesgo
-      // de marca se mide de aqui, no del texto del post. Crudos -> los puntua el
-      // cron python-analyzer-comments. Defensivo: no aborta el sensor.
-      let commentsSynced = 0;
-      try {
-        const { data: ownPosts } = await supabase.from("brand_posts")
-          .select("id,post_id,network").eq("brand_container_id", brandContainerId)
-          .eq("is_competitor", false).order("captured_at", { ascending: false }).limit(300);
-        const commentRows = await fetchOwnPostComments({ brandContainerId, organizationId, posts: ownPosts || [] });
-        if (commentRows.length) {
-          const { error: cErr } = await supabase.from("brand_post_comments")
-            .upsert(commentRows, { onConflict: "network,external_comment_id", ignoreDuplicates: true });
-          if (cErr) console.warn(`[meta_posts comments] upsert: ${cErr.message}`);
-          else commentsSynced = commentRows.length;
+      // ── Ingesta SANA de posts propios IG + FB (cola reanudable header-aware) ──
+      // 1) Ventana histórica = plan de la org (3 sem / 1 mes / 3 meses).
+      // 2) Backfill por COLA: cada ciclo trae un presupuesto de páginas respetando
+      //    el header de uso de Meta, guarda el cursor en monitoring_triggers.config
+      //    y se re-agenda pronto hasta alcanzar la ventana → luego pasa a diario.
+      const windowDays  = await getSocialHistoryDays(organizationId);
+      const planCutoff  = new Date(Date.now() - windowDays * 86_400_000);
+      const PAGE_BUDGET = parseInt(process.env.META_BACKFILL_PAGES_PER_RUN || "3", 10);
+      const cfg = trigger.config || {};
+      const bf  = cfg.backfill || {};
+      const newBf = { ...bf };
+
+      let totalFound = 0, totalNew = 0, anyBackfilling = false;
+
+      for (const net of ["instagram", "facebook"]) {
+        const st = bf[net] || { status: "pending", after: null, window_cutoff: planCutoff.toISOString(), pages: 0, ingested: 0 };
+        // La ventana se "congela" en el primer ciclo para que la cola sea estable.
+        const cutoffTs = st.window_cutoff || planCutoff.toISOString();
+        try {
+          const res = st.status === "done"
+            // INCREMENTAL: solo lo nuevo (persistOwnPosts dedup por post_id).
+            ? await fetchOwnPostsPage({ brandContainerId, organizationId, network: net, after: null, pageSize: 50, maxPages: 2 })
+            // BACKFILL: reanuda desde el cursor, corta en la ventana del plan.
+            : await fetchOwnPostsPage({ brandContainerId, organizationId, network: net, after: st.after, pageSize: 50, maxPages: PAGE_BUDGET, stopBeforeTs: cutoffTs });
+
+          const ins = await persistOwnPosts(res.posts || [], brandContainerId, entity.id);
+          totalFound += res.posts?.length || 0;
+          totalNew   += ins;
+
+          if (st.status === "done") {
+            newBf[net] = { ...st, last_run: "incremental", last_usage: res.usage, updated_at: new Date().toISOString() };
+          } else {
+            const done = res.reachedCutoff || res.reachedEnd;
+            newBf[net] = {
+              status:        done ? "done" : "running",
+              after:         done ? null : res.nextAfter,
+              window_cutoff: cutoffTs,
+              pages:         (st.pages || 0) + (res.pages || 0),
+              ingested:      (st.ingested || 0) + ins,
+              oldest:        res.oldest || st.oldest || null,
+              last_usage:    res.usage,
+              updated_at:    new Date().toISOString(),
+            };
+            if (!done || res.pausedForUsage) anyBackfilling = true;
+          }
+        } catch (e) {
+          // Sin IG vinculado → marcar done para no reintentar en bucle.
+          if (e.noIgLinked && net === "instagram") {
+            newBf[net] = { status: "done", reason: "no_ig_linked", updated_at: new Date().toISOString() };
+          } else {
+            console.warn(`[meta_posts ${net}] ${e.message}`);
+            newBf[net] = { ...(bf[net] || {}), status: bf[net]?.status || "running", last_error: (e.message || "").slice(0, 200), updated_at: new Date().toISOString() };
+            if (newBf[net].status !== "done") anyBackfilling = true;
+          }
         }
-      } catch (e) { console.warn(`[meta_posts comments] ${e.message}`); }
-      stats = { posts_found: result.posts?.length || 0, new_signals: inserted, comments_synced: commentsSynced };
+      }
+
+      // Comentarios del PÚBLICO en posts propios (sentimiento/riesgo de marca).
+      // Solo cuando NO estamos en backfill (para no competir por el rate limit) y
+      // acotado a los top recientes — el cron python-analyzer-comments los puntúa.
+      let commentsSynced = 0;
+      if (!anyBackfilling) {
+        try {
+          const { data: ownPosts } = await supabase.from("brand_posts")
+            .select("id,post_id,network").eq("brand_container_id", brandContainerId)
+            .eq("is_competitor", false).order("captured_at", { ascending: false }).limit(40);
+          const commentRows = await fetchOwnPostComments({ brandContainerId, organizationId, posts: ownPosts || [] });
+          if (commentRows.length) {
+            const { error: cErr } = await supabase.from("brand_post_comments")
+              .upsert(commentRows, { onConflict: "network,external_comment_id", ignoreDuplicates: true });
+            if (cErr) console.warn(`[meta_posts comments] upsert: ${cErr.message}`);
+            else commentsSynced = commentRows.length;
+          }
+        } catch (e) { console.warn(`[meta_posts comments] ${e.message}`); }
+      }
+
+      // Persistir estado de la cola + cadencia dinámica.
+      await supabase.from("monitoring_triggers")
+        .update({ config: { ...cfg, backfill: newBf } })
+        .eq("id", trigger.id);
+      if (anyBackfilling) {
+        const mins = parseInt(process.env.META_BACKFILL_INTERVAL_MIN || "20", 10);
+        nextRunOverride = new Date(Date.now() + mins * 60_000).toISOString();
+      } else {
+        nextRunOverride = computeNextRunAt("daily", "1");
+      }
+
+      stats = {
+        window_days:     windowDays,
+        posts_found:     totalFound,
+        new_signals:     totalNew,
+        comments_synced: commentsSynced,
+        backfilling:     anyBackfilling,
+        ig:              newBf.instagram?.status || null,
+        fb:              newBf.facebook?.status || null,
+        ig_ingested:     newBf.instagram?.ingested || 0,
+        fb_ingested:     newBf.facebook?.ingested || 0,
+      };
 
     } else if (sensorType === "ga4_analytics") {
       const result = await getGoogleAnalytics({ brandContainerId, organizationId, range: "30d" });
@@ -1274,6 +1385,15 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
         skipped_existing:   result.skipped,
       };
 
+    } else if (sensorType === "strategic_review") {
+      const result = await generateStrategyReviewForBrand(brandContainerId, organizationId);
+      stats = {
+        recommendations_generated: result.generated,
+        skipped:                   result.skipped || 0,
+        status:                    result.status || null,
+        error:                     result.error || null,
+      };
+
     } else if (sensorType === "brand_indexer") {
       const result = await runBrandIndexer(brandContainerId, organizationId);
       stats = {
@@ -1352,7 +1472,7 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
       };
     }
 
-    const nextRunAt = computeNextRunAt(trigger.cadence, trigger.cadence_value);
+    const nextRunAt = nextRunOverride || computeNextRunAt(trigger.cadence, trigger.cadence_value);
     await updateTriggerAfterRun(trigger.id, "success", nextRunAt);
     await closeSensorRun(sensorRunId, "success", stats);
     console.log(`scraper [${sensorType}]: ${entity?.name || "—"} OK (next: ${nextRunAt})`);
@@ -1864,7 +1984,7 @@ async function persistOwnPosts(posts, brandContainerId, entityId) {
       content:            post.text || post.caption || "",
       media_assets:       post.image
         ? [{ url: post.image, type: "image", permalink: post.permalink }]
-        : [],
+        : (post.permalink ? [{ permalink: post.permalink, type: post.media_type || "link" }] : []),
       metrics:            post.metrics || {},
       is_competitor:      false,
       post_source:        "own",

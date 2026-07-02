@@ -20,17 +20,62 @@ const GA4_ADMIN_BASE  = `https://analyticsadmin.googleapis.com/v1beta`;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function metaGet(path, token, params = {}) {
+// Códigos de rate-limit de Meta (Graph API). Cuando aparecen, NO reintentar a
+// ciegas: hay que esperar `estimated_time_to_regain_access` minutos. Ver docs:
+// developers.facebook.com/docs/graph-api/overview/rate-limiting/
+const META_RATE_LIMIT_CODES = new Set([4, 17, 32, 613, 80001, 80002, 80004, 80006, 80014]);
+// % de uso (call_count / total_time / total_cputime) a partir del cual pausamos
+// proactivamente para no llegar al 100% (= bloqueo temporal).
+const META_USAGE_CEILING = Number(process.env.META_USAGE_CEILING || 80);
+
+// Parsea los headers de telemetría de Meta y devuelve el peor caso:
+//   pct       → mayor % de uso reportado (call_count|total_time|total_cputime)
+//   regainMin → minutos a esperar si ya estamos throttleados (0 = aún hay margen)
+function _parseMetaUsage(headers) {
+  let pct = 0, regainMin = 0;
+  const consume = (raw) => {
+    if (!raw) return;
+    let obj;
+    try { obj = JSON.parse(raw); } catch { return; }
+    // x-business-use-case-usage: { "<biz_id>": [ {type, call_count, total_time, ...} ] }
+    // x-app-usage / x-page-usage: { call_count, total_time, total_cputime }
+    const buckets = Array.isArray(obj) ? obj
+      : (obj.call_count != null ? [obj] : Object.values(obj).flat());
+    for (const b of buckets) {
+      if (!b) continue;
+      pct = Math.max(pct, b.call_count || 0, b.total_time || 0, b.total_cputime || 0);
+      regainMin = Math.max(regainMin, b.estimated_time_to_regain_access || 0);
+    }
+  };
+  consume(headers.get("x-business-use-case-usage"));
+  consume(headers.get("x-app-usage"));
+  consume(headers.get("x-page-usage"));
+  return { pct, regainMin };
+}
+
+// metaGetRaw — como metaGet pero además devuelve la telemetría de uso y el bloque
+// `paging` para poder paginar de forma sana (header-aware).
+async function metaGetRaw(path, token, params = {}) {
   const url = new URL(`${META_GRAPH_BASE}${path}`);
   url.searchParams.set("access_token", token);
   Object.entries(params).forEach(([k, v]) => {
     if (v != null) url.searchParams.set(k, String(v));
   });
-  const res = await fetch(url.toString());
+  const res  = await fetch(url.toString());
   const json = await res.json().catch(() => ({}));
+  const usage = _parseMetaUsage(res.headers);
   if (json?.error) {
-    throw new Error(`Meta API: ${json.error.message || json.error.type}`);
+    const err = new Error(`Meta API: ${json.error.message || json.error.type}`);
+    err.code = json.error.code;
+    err.isRateLimit = META_RATE_LIMIT_CODES.has(json.error.code);
+    err.usage = usage;
+    throw err;
   }
+  return { json, usage, paging: json?.paging || null };
+}
+
+async function metaGet(path, token, params = {}) {
+  const { json } = await metaGetRaw(path, token, params);
   return json;
 }
 
@@ -386,6 +431,119 @@ export async function getInstagramPosts({ brandContainerId = null, organizationI
     account: `@${fbPage.instagram_business_account?.username}`,
     post_count: posts.length,
     posts,
+  };
+}
+
+/**
+ * fetchOwnPostsPage — ingesta SANA y paginada de publicaciones propias (IG/FB).
+ *
+ * Diseñada para backfill histórico sin romper los rate limits de Meta:
+ *   - Paginación con cursor (`after`), página de `pageSize` (≤50 recomendado).
+ *   - Solo campos baratos (NO insights por-post → eso dispara total_time al 100%).
+ *   - Lee el header X-Business-Use-Case-Usage en cada llamada y PAUSA al llegar
+ *     a `usageCeiling` % (default 80) o si Meta ya nos throttleó.
+ *   - `stopBeforeTs`: corta cuando un post es más viejo que la ventana del plan.
+ *   - `maxPages`: presupuesto de páginas por ciclo (la cola lo reanuda después).
+ *
+ * Devuelve { posts, nextAfter, reachedCutoff, reachedEnd, pausedForUsage, usage, pages, oldest }
+ * con posts ya normalizados al shape que consume persistOwnPosts.
+ */
+export async function fetchOwnPostsPage({
+  brandContainerId = null, organizationId, network,
+  after = null, pageSize = 50, maxPages = 3,
+  stopBeforeTs = null, usageCeiling = META_USAGE_CEILING,
+}) {
+  const integ = await getIntegrationToken(brandContainerId, organizationId, "facebook");
+  const { pageId, pageName, pageToken } = await _getMetaPageToken(
+    integ.access_token, null, integ.metadata
+  );
+
+  // Resolver edge + campos + normalizador según red.
+  let edge, fields, normalize, accountLabel = pageName;
+  if (network === "instagram") {
+    const fbPage = await metaGet(`/${pageId}`, pageToken, {
+      fields: "instagram_business_account{id,username}",
+    });
+    const igId = fbPage?.instagram_business_account?.id;
+    if (!igId) {
+      const e = new Error("No hay cuenta de Instagram Business vinculada a esta página.");
+      e.noIgLinked = true;
+      throw e;
+    }
+    accountLabel = `@${fbPage.instagram_business_account?.username}`;
+    edge   = `/${igId}/media`;
+    fields = "id,caption,media_type,permalink,timestamp,like_count,comments_count";
+    normalize = (m) => {
+      const likes = m.like_count || 0, comments = m.comments_count || 0;
+      return {
+        id: m.id, platform: "instagram",
+        text: (m.caption || "").slice(0, 2000),
+        created_at: m.timestamp, permalink: m.permalink, image: null,
+        media_type: (m.media_type || "IMAGE").toLowerCase(),
+        metrics: { likes, comments, shares: 0, total_interactions: likes + comments },
+      };
+    };
+  } else { // facebook
+    edge   = `/${pageId}/posts`;
+    fields = "id,message,story,created_time,full_picture,permalink_url," +
+             "likes.summary(true),comments.summary(true),shares";
+    normalize = (p) => {
+      const likes    = p.likes?.summary?.total_count || 0;
+      const comments = p.comments?.summary?.total_count || 0;
+      const shares   = p.shares?.count || 0;
+      return {
+        id: p.id, platform: "facebook",
+        text: (p.message || p.story || "").slice(0, 2000),
+        created_at: p.created_time, permalink: p.permalink_url, image: p.full_picture || null,
+        metrics: { likes, comments, shares, total_interactions: likes + comments + shares },
+      };
+    };
+  }
+
+  const posts = [];
+  let cursor = after, pages = 0;
+  let reachedCutoff = false, reachedEnd = false, pausedForUsage = false;
+  let usage = { pct: 0, regainMin: 0 }, oldest = null;
+  const cutoffMs = stopBeforeTs ? new Date(stopBeforeTs).getTime() : null;
+
+  for (; pages < maxPages; ) {
+    let resp;
+    try {
+      resp = await metaGetRaw(edge, pageToken, {
+        fields, limit: Math.min(pageSize, 100), after: cursor || undefined,
+      });
+    } catch (e) {
+      // Throttle de Meta → no es fallo del backfill: pausamos y reanudamos luego.
+      if (e.isRateLimit) { pausedForUsage = true; usage = e.usage || usage; break; }
+      throw e;
+    }
+    pages++;
+    usage = resp.usage || usage;
+    const items = resp.json?.data || [];
+
+    for (const it of items) {
+      const post = normalize(it);
+      const ts = post.created_at ? new Date(post.created_at).getTime() : null;
+      if (cutoffMs && ts != null && ts < cutoffMs) { reachedCutoff = true; break; }
+      posts.push(post);
+      if (ts != null && (oldest == null || ts < oldest)) oldest = ts;
+    }
+
+    cursor = resp.paging?.cursors?.after || null;
+    const hasNext = Boolean(resp.paging?.next && cursor);
+    if (reachedCutoff || !hasNext) { reachedEnd = !hasNext && !reachedCutoff; break; }
+
+    // Guardia de uso: si nos acercamos al límite, paramos y dejamos que la cola
+    // reanude en el próximo ciclo (la ventana de Meta es móvil de 1h).
+    if (usage.pct >= usageCeiling || usage.regainMin > 0) { pausedForUsage = true; break; }
+  }
+
+  return {
+    network, account: accountLabel,
+    posts, nextAfter: cursor,
+    reachedCutoff, reachedEnd, pausedForUsage,
+    usage, pages,
+    oldest: oldest ? new Date(oldest).toISOString() : null,
   };
 }
 

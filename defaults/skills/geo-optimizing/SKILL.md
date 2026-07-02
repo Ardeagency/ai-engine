@@ -23,6 +23,9 @@ El mundo va hacia un modelo donde la IA de cada comprador busca soluciones por s
 - Contenido que responde exacto a lo que un agente preguntaria al evaluar opciones de la categoria.
 - Reputacion digital medible y positiva sostenida en el tiempo.
 
+## Tacticas con evidencia (no intuicion) — ver `reference/evidencia-geo-2026.md`
+Para SER CITADO por la IA, el estudio de Princeton (10.000 consultas) midio que SUBE las citas 30-41%: meter **estadisticas con fuente**, **citas inline** y **citas textuales de expertos**, con redaccion clara y voz autoritativa. Keyword stuffing las BAJA ~10%. El efecto es mayor en paginas peor posicionadas → GEO es la mejor palanca para quien aun no domina el SEO. Y el predictor mas fuerte de cita en IA NO son los backlinks (~0,22) sino las **menciones de marca** (~0,66): Reddit, Wikipedia, reseñas y listicles "mejores X para Y" son lo que la IA lee para recomendar — por eso parte del GEO es PR + comunidad, no solo on-page. Mide todo con **AI Share of Voice** (% de respuestas de IA que te mencionan vs competidor). Nota: llms.txt NO mueve citas hoy (solo sirve para agentes de desarrollo); no lo priorices. Distingue siempre [ESTABLECIDO] de [EMERGENTE].
+
 ## La pregunta de 2027 (haztela en cada pieza)
 Cuando una IA compradora busque "mejor [producto/servicio] para [necesidad especifica]", esta marca aparecera como respuesta? Si no: que contenido EXACTO falta crear hoy para que aparezca?
 

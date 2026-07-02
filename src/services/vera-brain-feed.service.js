@@ -49,13 +49,28 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
   // ── COMPETITOR INTELLIGENCE: posts nuevos de competidores en la ventana ──
   const { data: competitorPosts } = await supabase
     .from("brand_posts")
-    .select("id, network, profile_handle, content, sentiment_text, sentiment_score, tone, topics, captured_at, engagement_total, metrics")
+    .select("id, entity_id, network, profile_handle, content, sentiment_text, sentiment_score, tone, topics, captured_at, engagement_total, metrics")
     .eq("brand_container_id", brandContainerId)
     .eq("is_competitor", true)
     .gte("updated_at", startISO)
     .lte("updated_at", endISO)
     .order("engagement_total", { ascending: false, nullsFirst: false })
     .limit(FEED_MAX_ITEMS_PER_BUCKET);
+
+  // ── ROL + RELEVANCIA de cada perfil monitoreado (por que lo seguimos) ──
+  // Mapa entity_id -> {role, relevance} para enriquecer los posts de competidor,
+  // asi Vera razona con el porque de cada competidor, no solo su handle.
+  const entityCtx = {};
+  const entityIds = [...new Set((competitorPosts || []).map(p => p.entity_id).filter(Boolean))];
+  if (entityIds.length > 0) {
+    const { data: ents } = await supabase
+      .from("intelligence_entities")
+      .select("id, name, relevance, metadata")
+      .in("id", entityIds);
+    for (const e of ents || []) {
+      entityCtx[e.id] = { name: e.name, role: e.metadata?.tipo || null, relevance: e.relevance || null };
+    }
+  }
 
   // ── PATTERNS detectados en el ciclo (post_patterns) ──
   const competitorPostIds = (competitorPosts || []).map(p => p.id);
@@ -203,15 +218,21 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
     },
 
     competitor_intelligence: {
-      new_posts: (competitorPosts || []).map(p => ({
-        network:      p.network,
-        handle:       p.profile_handle,
-        snippet:      (p.content || "").slice(0, 200),
-        sentiment:    p.sentiment_text,
-        sentiment_score: p.sentiment_score,
-        engagement:   p.engagement_total,
-        captured_at:  p.captured_at,
-      })),
+      new_posts: (competitorPosts || []).map(p => {
+        const ctx = entityCtx[p.entity_id] || {};
+        return {
+          network:      p.network,
+          handle:       p.profile_handle,
+          entity_name:  ctx.name || null,
+          role:         ctx.role || null,          // rol dentro del monitoreo
+          relevance:    ctx.relevance || null,     // por que lo seguimos
+          snippet:      (p.content || "").slice(0, 200),
+          sentiment:    p.sentiment_text,
+          sentiment_score: p.sentiment_score,
+          engagement:   p.engagement_total,
+          captured_at:  p.captured_at,
+        };
+      }),
       patterns_detected: (patterns || []).slice(0, FEED_MAX_ITEMS_PER_BUCKET).map(pp => ({
         tone:            pp.tone,
         topic:           pp.topic,

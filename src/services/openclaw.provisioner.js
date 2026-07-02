@@ -12,7 +12,7 @@
  *   (el provisioner retorna inmediatamente — el resto es asíncrono)
  */
 import { supabase } from "../lib/supabase.js";
-import { createOrgServer, listOrgServers } from "./hetzner.provisioner.js";
+import { createOrgServer, listOrgServers, deleteOrgServer } from "./hetzner.provisioner.js";
 import { logProvisioningEvent } from "../lib/provisioning-events.js";
 
 export async function provisionOpenClawForOrg(organizationId, orgName) {
@@ -162,13 +162,45 @@ async function _provisionHetznerServer(organizationId, orgName, existing) {
 // ── Deprovision ───────────────────────────────────────────────────────────────
 
 export async function deprovisionOpenClawForOrg(organizationId) {
+  // BUG FIX 2026-07-01: antes esto SOLO borraba la fila de openclaw_instances y
+  // logueaba "server_destroyed", pero NUNCA destruía la VM Hetzner real. La VM
+  // quedaba huérfana corriendo, se re-registraba vía health/server-ready y la fila
+  // volvía a status='healthy' → el guard de idempotencia bloqueaba la re-provisión.
+  // Ahora destruimos la VM de verdad ANTES de borrar la fila (orden importa: si
+  // borramos la fila primero, la VM viva podría re-registrarse en la ventana).
+  const { data: inst } = await supabase
+    .from("openclaw_instances")
+    .select("hetzner_server_id")
+    .eq("organization_id", organizationId)
+    .maybeSingle();
+
+  if (inst?.hetzner_server_id) {
+    try {
+      await deleteOrgServer(inst.hetzner_server_id);
+    } catch (e) {
+      // Falla-abierto: si el server ya no existe en Hetzner (404) o la API falla,
+      // igual limpiamos la fila para no dejar la org bloqueada.
+      console.warn(`provisioner: no se pudo destruir VM Hetzner #${inst.hetzner_server_id} de "${organizationId}": ${e.message}`);
+    }
+  }
+
   // Log antes del delete para que el FK no se rompa (instance_id puede ser null en eventos)
   await logProvisioningEvent({
     organizationId,
     eventType: "server_destroyed",
     phase:     "complete",
-    message:   "Instancia eliminada de openclaw_instances",
+    message:   inst?.hetzner_server_id
+      ? `Servidor Hetzner #${inst.hetzner_server_id} destruido`
+      : "Deprovisión sin hetzner_server_id",
   });
-  await supabase.from("openclaw_instances").delete().eq("organization_id", organizationId);
-  console.log(`provisioner: org "${organizationId}" eliminada de openclaw_instances`);
+  // BUG FIX 2026-07-01: NO usar DELETE — viola el FK provisioning_events_instance_fkey
+  // (provisioning_events.instance_id → openclaw_instances.id) y fallaba silencioso,
+  // dejando la fila en status='healthy' → el guard de idempotencia bloqueaba la
+  // re-provisión. En su lugar UPDATE a 'stopped' (status no-bloqueante); al
+  // re-provisionar, _provisionHetznerServer hace UPDATE de esta misma fila (no duplica).
+  await supabase
+    .from("openclaw_instances")
+    .update({ status: "stopped", updated_at: new Date().toISOString() })
+    .eq("organization_id", organizationId);
+  console.log(`provisioner: org "${organizationId}" deprovisionada (VM destruida + fila → stopped)`);
 }

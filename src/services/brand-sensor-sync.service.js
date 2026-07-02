@@ -37,6 +37,7 @@ const BRAND_WIDE_SENSORS = [
   { sensor_type: "audience_alignment_analysis",    cadence: "daily",    cadence_value: "1", priority: 4 },
   { sensor_type: "brand_audience_heatmap_compute", cadence: "daily",    cadence_value: "1", priority: 5 },
   { sensor_type: "mission_generation",             cadence: "interval", cadence_value: "5", priority: 7 },
+  { sensor_type: "strategic_review",               cadence: "daily",    cadence_value: "1", priority: 6 },
   { sensor_type: "brand_indexer",                  cadence: "daily",    cadence_value: "1", priority: 4 },
   { sensor_type: "threat_detection",               cadence: "daily",    cadence_value: "1", priority: 6 },
   { sensor_type: "meta_ad_library_sync",           cadence: "daily",    cadence_value: "1", priority: 5 },

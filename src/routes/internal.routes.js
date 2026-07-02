@@ -20,6 +20,7 @@ import {
   crawlSiteHandler,
   brandScrapeStart,
   brandScrapeStatus,
+  requireInternalKey,
 } from "../controllers/internal.controller.js";
 import { userAuthMiddleware } from "../middleware/auth.middleware.js";
 import { runAutoLinkCycle } from "../services/recommendation-auto-link.service.js";
@@ -69,7 +70,10 @@ router.post("/vera-actions/:id/approve", userAuthMiddleware, approveVeraAction);
 router.post("/vera-actions/:id/reject",  userAuthMiddleware, rejectVeraAction);
 
 // ── Learning loop: linkea recomendaciones → posts publicados + mide outcomes ──
-router.post("/recommendations/auto-link", async (req, res) => {
+// GATEADO con X-Internal-Key (requireInternalKey): son operaciones del control
+// plane que disparan trabajo/costo. Antes iban SIN auth — cualquiera con la URL
+// forzaba el ciclo. (Auditoría seguridad 2026-07-02, C1.)
+router.post("/recommendations/auto-link", requireInternalKey, async (req, res) => {
   try {
     const result = await runAutoLinkCycle();
     res.json({ ok: true, ...result });
@@ -78,7 +82,7 @@ router.post("/recommendations/auto-link", async (req, res) => {
   }
 });
 
-router.post("/recommendations/measure-outcomes", async (req, res) => {
+router.post("/recommendations/measure-outcomes", requireInternalKey, async (req, res) => {
   try {
     const { data, error } = await supabase.rpc("measure_recommendation_outcomes", {});
     if (error) throw new Error(error.message);
@@ -90,7 +94,11 @@ router.post("/recommendations/measure-outcomes", async (req, res) => {
 
 // ── VERA Brain Feed: dispara el ciclo completo (compile + deliver + execute) ─
 // POST /internal/vera-brain-feed/run/:brandContainerId
-router.post("/vera-brain-feed/run/:brandContainerId", async (req, res) => {
+// GATEADO con X-Internal-Key: deliverCycleFeed corre un ciclo AUTÓNOMO de Vera
+// (LLM + tools que escriben/actúan) sobre la org dueña del brandContainerId.
+// Sin auth, cualquiera con un brand_container_id quemaba presupuesto y mutaba
+// datos de un tenant ajeno. (Auditoría seguridad 2026-07-02, C1.)
+router.post("/vera-brain-feed/run/:brandContainerId", requireInternalKey, async (req, res) => {
   try {
     const cycleId = req.body?.cycle_id || crypto.randomUUID();
     const result = await deliverCycleFeed(req.params.brandContainerId, cycleId);
@@ -100,7 +108,7 @@ router.post("/vera-brain-feed/run/:brandContainerId", async (req, res) => {
   }
 });
 
-router.get("/vera-brain-feed/ready/:brandContainerId", async (req, res) => {
+router.get("/vera-brain-feed/ready/:brandContainerId", requireInternalKey, async (req, res) => {
   try {
     const ready = await isCycleComplete(req.params.brandContainerId);
     res.json({ ok: true, ready });

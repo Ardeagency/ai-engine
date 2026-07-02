@@ -61,6 +61,13 @@ function assertInternalKey(req, res) {
   return true;
 }
 
+// Versión middleware de assertInternalKey — MISMA lógica, para gatear rutas
+// declaradas inline en internal.routes.js (que no pasan por un controlador con
+// su propio assert). Evita que un handler nuevo se registre sin auth por olvido.
+export function requireInternalKey(req, res, next) {
+  if (assertInternalKey(req, res)) next();
+}
+
 function assertValidUuid(value, res, fieldName = "id") {
   if (!value || !UUID_REGEX.test(value)) {
     res.status(400).json({ error: `${fieldName} debe ser un UUID v4 válido` });

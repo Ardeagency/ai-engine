@@ -18,6 +18,11 @@ import { supabase } from "../lib/supabase.js";
 const ENABLED       = process.env.SELF_REPAIR_ENABLED === "true";
 const INTERVAL_MS   = Number(process.env.SELF_REPAIR_INTERVAL_MS) || 120000; // 2 min
 const MAX_PER_HOUR  = Number(process.env.SELF_REPAIR_MAX_PER_HOUR) || 3;
+// Cuántas veces se puede "reparar" la MISMA firma en 24h antes de rendirse. Cierra
+// el loop: un fix marcado 'repaired' que NO frena el rechazo hace que la firma
+// reaparezca; sin este tope se re-reparaba y re-reiniciaba en bucle (hasta
+// MAX_PER_HOUR/h). Al alcanzarlo: skip + abrir breaker para que un humano mire.
+const MAX_SIG_REPAIRS = Number(process.env.SELF_REPAIR_MAX_SIGNATURE_RETRIES) || 2;
 const ROOT          = "/root/ai-engine";
 
 let _timer = null;
@@ -48,13 +53,30 @@ async function tick() {
       .select("id, signature").eq("status", "open").order("created_at", { ascending: true }).limit(5);
     if (!open || !open.length) return;
 
+    const dayAgo = new Date(Date.now() - 24 * 3600000).toISOString();
     let target = null;
     for (const e of open) {
+      // (a) firma que YA fracasó (rollback/failed) → no reintentar nunca.
       const { data: prior } = await supabase.from("vera_synth_errors")
         .select("id").eq("signature", e.signature).in("status", ["rollback", "failed"]).limit(1);
       if (prior && prior.length) {
         await supabase.from("vera_synth_errors").update({ status: "skipped", updated_at: new Date().toISOString() }).eq("id", e.id);
         continue; // firma ya fracasó antes — no reintentar (evita loops)
+      }
+      // (b) firma "reparada" >= MAX_SIG_REPAIRS veces en 24h y SIGUE reapareciendo:
+      //     el fix no pega. Dejar de reintentar (marcar skipped) y ABRIR el breaker
+      //     para que un humano mire — en vez de re-reparar/reiniciar en bucle.
+      const { count: repairedTimes } = await supabase.from("vera_synth_errors")
+        .select("id", { count: "exact", head: true })
+        .eq("signature", e.signature).eq("status", "repaired").gte("updated_at", dayAgo);
+      if ((repairedTimes || 0) >= MAX_SIG_REPAIRS) {
+        await supabase.from("vera_synth_errors")
+          .update({ status: "skipped", repair_summary: `reparada ${repairedTimes}x/24h y sigue fallando — loop-guard, requiere humano`, updated_at: new Date().toISOString() })
+          .eq("id", e.id);
+        await supabase.from("vera_repair_state")
+          .update({ breaker_open: true, updated_at: new Date().toISOString() }).eq("id", 1);
+        console.warn(`[self-repair] firma ${e.signature} reparada ${repairedTimes}x sin pegar → breaker ABIERTO, requiere humano`);
+        continue;
       }
       target = e; break;
     }

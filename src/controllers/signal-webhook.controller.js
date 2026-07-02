@@ -27,7 +27,14 @@ import { runCompetitorScraper } from "../services/social-scraper.service.js";
 
 function verifySupabaseSignature(req) {
   const secret = process.env.SUPABASE_WEBHOOK_SECRET;
-  if (!secret) return true; // dev mode — sin secret se acepta todo
+  // FAIL-CLOSED (2026-07-02): antes `if (!secret) return true` aceptaba TODO webhook
+  // si la env var faltaba — un mal deploy convertía /webhooks/signal en un endpoint
+  // abierto. Ahora sin secret configurado se RECHAZA. En prod el secret está seteado,
+  // así que esto no cambia el comportamiento actual; blinda contra config faltante.
+  if (!secret) {
+    console.error("signal-webhook: SUPABASE_WEBHOOK_SECRET no configurado → rechazando (fail-closed)");
+    return false;
+  }
 
   const signature = req.headers["x-supabase-signature"] || "";
   if (!signature) return false;
@@ -228,11 +235,15 @@ export const urlTriggerController = async (req, res) => {
   const internalToken = req.headers["x-internal-token"] || "";
   const adminToken    = process.env.INTERNAL_ADMIN_TOKEN;
 
-  if (adminToken) {
-    const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-    if (bearerToken !== adminToken && internalToken !== adminToken) {
-      return res.status(401).json({ error: "Token de autorización requerido" });
-    }
+  // FAIL-CLOSED (2026-07-02): antes toda la auth vivía dentro de `if (adminToken)`,
+  // así que si INTERNAL_ADMIN_TOKEN faltaba, CUALQUIERA encolaba análisis (créditos
+  // OpenAI) para una org arbitraria. Ahora sin token configurado se rechaza.
+  if (!adminToken) {
+    return res.status(500).json({ error: "INTERNAL_ADMIN_TOKEN no configurado en el servidor" });
+  }
+  const bearerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (bearerToken !== adminToken && internalToken !== adminToken) {
+    return res.status(401).json({ error: "Token de autorización requerido" });
   }
 
   const { url, label, organization_id, entity_id, brand_container_id } = req.body || {};

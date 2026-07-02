@@ -670,9 +670,13 @@ export async function dispatchTool(toolName, params, secCtx) {
   audit.toolRequested(auditCtx, toolName, params);
 
   // ── Capa 1: Phase check — valida contra autonomy.phase (fuente: DB) ────
-  // allowedTools viene de TOOLS_BY_PHASE[autonomy.phase] en ai.service.js,
-  // garantizando que la fase refleja level_of_autonomy de la org, no env vars.
-  if (allowedTools.length > 0 && !allowedTools.includes(toolName)) {
+  // allowedTools viene de TOOLS_BY_PHASE[autonomy.phase] en ai.service.js y
+  // mcp.controller.js (ambos usan `?? TOOLS_BY_PHASE.A`), así que SIEMPRE llega
+  // poblado (A=38 tools). FAIL-CLOSED (2026-07-02): antes `allowedTools.length > 0 &&`
+  // hacía que una lista VACÍA (bug de resolución de fase o caller que la omita)
+  // saltara el gate y habilitara TODA tool, incluidas las de escritura de fase C.
+  // Ahora lista vacía = ninguna tool permitida (deny).
+  if (!allowedTools.length || !allowedTools.includes(toolName)) {
     audit.phaseBlocked(auditCtx, toolName, "current", "higher");
     throw Object.assign(
       new Error(

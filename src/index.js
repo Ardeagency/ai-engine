@@ -48,6 +48,22 @@ import { TOOLS_BY_PHASE } from "./lib/tool-phases.js";
   console.log(`[boot] phase↔registry OK — ${phaseTools.size} tools en fases, todas con handler`);
 }
 
+// ── Red de seguridad del proceso ──────────────────────────────────────────────
+// Este es un proceso multi-tenant de larga vida con ~11 schedulers en background
+// y una ruta de chat fire-and-forget (setImmediate). SIN estos handlers, una sola
+// promesa rechazada sin capturar (ej. un hipo de red de Supabase en el insert
+// final de una respuesta) mataba TODO el proceso — tirando las conversaciones de
+// todas las orgs — y systemd lo reiniciaba. Esa era la causa principal del churn
+// de reinicios. Preferimos log-y-seguir: un fallo async aislado no debe bajar el
+// servidor entero. Los errores dentro de un request HTTP ya los captura Express 5.
+process.on("unhandledRejection", (reason) => {
+  const msg = reason instanceof Error ? `${reason.message}\n${reason.stack}` : String(reason);
+  console.error(`[FATAL-GUARD] unhandledRejection (proceso SOBREVIVE):`, msg);
+});
+process.on("uncaughtException", (err) => {
+  console.error(`[FATAL-GUARD] uncaughtException (proceso SOBREVIVE):`, err?.stack || err);
+});
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 

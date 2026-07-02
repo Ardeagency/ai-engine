@@ -160,8 +160,12 @@ export const chatController = async (req, res) => {
     res.json({ conversation_id: convId, status: "processing" });
 
     // ── Procesar en background (fire & forget) ────────────────────────────────
-    // processAndSaveReply nunca lanza — captura todos los errores internamente
-    // y los guarda como mensaje de asistente en la DB.
+    // OJO: processAndSaveReply captura sus errores internos, PERO no todos — el
+    // insert final de ai_messages / registerConversation puede RECHAZAR (el fetch
+    // de supabase-js rechaza en fallos de red/DNS/abort, no devuelve {error}). Como
+    // esto corre en setImmediate (fuera del request), un rechazo aquí era un
+    // unhandledRejection → crash del proceso. El .catch() lo contiene con contexto
+    // (y el guard global de index.js es el backstop).
     setImmediate(() => {
       processAndSaveReply({
         message:     hasMessage ? message.trim() : "",
@@ -170,6 +174,8 @@ export const chatController = async (req, res) => {
         userId:         user.id,
         conversationId: convId,
         simplifyRequest: simplify_request === true,
+      }).catch((e) => {
+        console.error(`chatController: processAndSaveReply falló conv=${convId} org=${organization_id}:`, e?.stack || e?.message || e);
       });
     });
   } catch (error) {

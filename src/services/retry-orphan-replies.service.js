@@ -101,6 +101,9 @@ export async function retryOrphanReplies() {
 
     // Fire and forget — processAndSaveReply persiste el resultado solo.
     // setImmediate para no bloquear el arranque del servidor.
+    // .catch() obligatorio: esto corre justo tras el boot; un rechazo sin capturar
+    // aquí (mismo fallo que orfanó el mensaje) reventaba el proceso al arrancar →
+    // boot crash-loop. Lo contenemos con contexto.
     setImmediate(() => {
       processAndSaveReply({
         message: String(userMessage.content || ""),
@@ -108,6 +111,8 @@ export async function retryOrphanReplies() {
         organizationId: orphan.organization_id,
         userId: conv.user_id,
         conversationId: orphan.conversation_id,
+      }).catch((e) => {
+        console.error(`retry-orphan: processAndSaveReply falló conv=${orphan.conversation_id}:`, e?.stack || e?.message || e);
       });
     });
 

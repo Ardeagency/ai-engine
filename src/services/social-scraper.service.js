@@ -527,6 +527,7 @@ async function getTriggersToRun() {
       "brand_indexer", "threat_detection", "meta_ad_library_sync",
       "meta_campaign_ad_insights",
       "trends_run",
+      "trends_keywords",
     ])
     .order("priority", { ascending: false })
     .order("next_run_at", { ascending: true })
@@ -875,7 +876,8 @@ export async function runCompetitorScraper(brandContainerId = null) {
         trigger.sensor_type === "threat_detection" ||
         trigger.sensor_type === "meta_ad_library_sync" ||
         trigger.sensor_type === "meta_campaign_ad_insights" ||
-        trigger.sensor_type === "trends_run"
+        trigger.sensor_type === "trends_run" ||
+        trigger.sensor_type === "trends_keywords"
       ) {
         await runOwnedAnalyticsSensor(trigger, entity, sensorRunId);
         await delay(jitter(2000));
@@ -1470,6 +1472,33 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
         cost_usd:          result.total_cost_usd,
         cycle_id:          result.cycle_id,
       };
+
+    } else if (sensorType === "trends_keywords") {
+      // Keyword Discovery Loop (Tavily). Corre 1x/dia (~5am COT). Presupuesto
+      // de llamadas = plan.trends_max_queries; el modulo tiene su propia guarda mensual.
+      let maxCalls = 10;
+      try {
+        const { data: sub } = await supabase
+          .from("subscriptions")
+          .select("plans!inner(trends_max_queries)")
+          .eq("organization_id", organizationId)
+          .in("status", ["trial", "active", "past_due"])
+          .maybeSingle();
+        if (sub?.plans?.trends_max_queries) maxCalls = sub.plans.trends_max_queries;
+      } catch (e) {
+        console.warn(`scraper [trends_keywords]: plan lookup fallo (${e.message}) — default ${maxCalls}`);
+      }
+      const url = `http://127.0.0.1:8001/trends/keywords/${brandContainerId}?max_calls=${maxCalls}&max_rounds=2`;
+      const r   = await fetch(url, { method: "POST", signal: AbortSignal.timeout(10 * 60 * 1000) });
+      if (!r.ok) throw new Error(`trends/keywords HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+      const result = await r.json();
+      stats = {
+        seeds:       result.seeds,
+        spent_calls: result.spent_calls,
+        measured:    result.measured,
+        promoted:    result.promoted,
+        month_calls: result.month_calls_before,
+      };
     }
 
     const nextRunAt = nextRunOverride || computeNextRunAt(trigger.cadence, trigger.cadence_value);
@@ -1963,6 +1992,9 @@ async function persistOwnPosts(posts, brandContainerId, entityId) {
       await supabase.from("brand_posts")
         .update({
           metrics:    post.metrics || {},
+          // hashtags: backfill de posts propios existentes en cada ciclo (DATA-002).
+          // Deterministico desde el mismo texto -> idempotente.
+          ...(Array.isArray(post.hashtags) ? { hashtags: post.hashtags } : {}),
           updated_at: new Date().toISOString(),
         })
         .eq("entity_id", entityId)
@@ -1982,6 +2014,7 @@ async function persistOwnPosts(posts, brandContainerId, entityId) {
       profile_handle:     null,
       post_id:            post.id,
       content:            post.text || post.caption || "",
+      hashtags:           Array.isArray(post.hashtags) ? post.hashtags : [],
       media_assets:       post.image
         ? [{ url: post.image, type: "image", permalink: post.permalink }]
         : (post.permalink ? [{ permalink: post.permalink, type: post.media_type || "link" }] : []),

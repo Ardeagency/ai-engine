@@ -20,6 +20,22 @@ const GA4_ADMIN_BASE  = `https://analyticsadmin.googleapis.com/v1beta`;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Extrae hashtags del texto del post (deterministico, sin LLM). Formato consistente
+// con los de competidores (Apify): SIN el '#', case original, dedupe case-insensitive.
+// Lookbehind negativo para no cazar fragmentos de URL / entidades HTML / mid-word.
+// Alimenta dashboard_estrategia_hashtags para posts propios (DATA-002).
+function extractHashtags(text) {
+  if (!text || typeof text !== "string") return [];
+  const matches = text.match(/(?<![\p{L}\p{N}_/&])#[\p{L}\p{N}_]+/gu);
+  if (!matches) return [];
+  const out = [], seen = new Set();
+  for (const m of matches) {
+    const tag = m.slice(1), key = tag.toLowerCase();
+    if (tag && !seen.has(key)) { seen.add(key); out.push(tag); }
+  }
+  return out;
+}
+
 // Códigos de rate-limit de Meta (Graph API). Cuando aparecen, NO reintentar a
 // ciegas: hay que esperar `estimated_time_to_regain_access` minutos. Ver docs:
 // developers.facebook.com/docs/graph-api/overview/rate-limiting/
@@ -478,6 +494,7 @@ export async function fetchOwnPostsPage({
       return {
         id: m.id, platform: "instagram",
         text: (m.caption || "").slice(0, 2000),
+        hashtags: extractHashtags(m.caption || ""),
         created_at: m.timestamp, permalink: m.permalink, image: null,
         media_type: (m.media_type || "IMAGE").toLowerCase(),
         metrics: { likes, comments, shares: 0, total_interactions: likes + comments },
@@ -494,6 +511,7 @@ export async function fetchOwnPostsPage({
       return {
         id: p.id, platform: "facebook",
         text: (p.message || p.story || "").slice(0, 2000),
+        hashtags: extractHashtags(p.message || p.story || ""),
         created_at: p.created_time, permalink: p.permalink_url, image: p.full_picture || null,
         metrics: { likes, comments, shares, total_interactions: likes + comments + shares },
       };

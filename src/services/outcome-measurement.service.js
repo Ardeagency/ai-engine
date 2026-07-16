@@ -206,6 +206,17 @@ export async function runOutcomeMeasurementCycle() {
   const measurableTypes = Object.keys(MEASURABLE);
   const now = Date.now();
 
+  // Medicion de LARGO PLAZO (jugadas siembra/mixta) — fix del sesgo de 7d.
+  // Mide por penetracion a 60d, no por lift de engagement inmediato. Independiente
+  // del batch de cosecha de abajo; piggyback en este ciclo horario (sin timer nuevo).
+  try {
+    const { data: lt, error: ltErr } = await supabase.rpc("measure_longterm_outcomes", { p_window_days: 60 });
+    if (ltErr) console.warn(`[outcome-measurement] largo plazo (siembra) falló: ${ltErr.message}`);
+    else if (lt?.measured > 0) console.log(`[outcome-measurement] largo plazo (siembra): ${lt.measured} outcomes 60d`);
+  } catch (e) {
+    console.warn(`[outcome-measurement] largo plazo (siembra) excepción: ${e.message}`);
+  }
+
   // Acciones ejecutadas medibles dentro del horizonte (release → ahora).
   const { data: actions, error } = await supabase
     .from("vera_pending_actions")

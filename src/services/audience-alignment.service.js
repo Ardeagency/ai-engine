@@ -226,6 +226,7 @@ export async function runAlignmentForPersona(persona, organizationId) {
 // ── Función por brand (entry point del scraper) ─────────────────────────────
 
 export async function runAlignmentForBrand(brandContainerId, organizationId) {
+  if (process.env.POST_SCRAPE_ANALYSIS_ENABLED === "false") return { count: 0, results: [], skipped: true, reason: "analysis_disabled", disabled: true };
   const { data: personas, error } = await supabase
     .from("audience_personas")
     .select("id, name, description, datos_demograficos, datos_psicograficos, brand_container_id, real_age_distribution, real_gender_distribution, real_location_distribution")

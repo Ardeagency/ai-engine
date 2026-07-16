@@ -295,6 +295,7 @@ async function updateNarrativePillar(brandContainerId, organizationId, pillarNam
 // ── Pipeline público: analizar y persistir un post ───────────────────────────
 
 export async function analyzeAndPersistPost(brandPostId) {
+  if (process.env.POST_SCRAPE_ANALYSIS_ENABLED === "false") return false;
   try {
     const { data: post, error } = await supabase
       .from("brand_posts")
@@ -336,6 +337,7 @@ export async function analyzeAndPersistPost(brandPostId) {
 // ── Backfill: procesar posts existentes ─────────────────────────────────────
 
 export async function runContentAnalysisBackfill(brandContainerId = null, batchSize = 200) {
+  if (process.env.POST_SCRAPE_ANALYSIS_ENABLED === "false") return { analyzed: 0, processed: 0, disabled: true };
   console.log("content-analysis: iniciando backfill (rule-based, sin LLM)...");
 
   let query = supabase

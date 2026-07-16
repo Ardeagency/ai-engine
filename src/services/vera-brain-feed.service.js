@@ -68,7 +68,7 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
       .select("id, name, relevance, metadata")
       .in("id", entityIds);
     for (const e of ents || []) {
-      entityCtx[e.id] = { name: e.name, role: e.metadata?.tipo || null, relevance: e.relevance || null };
+      entityCtx[e.id] = { name: e.name, role: e.metadata?.tipo || null, relevance: e.relevance || null, rango: e.metadata?.rango || null };
     }
   }
 
@@ -181,6 +181,39 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
     console.warn("[brain-feed] platform_health (non-blocking):", e?.message || e);
   }
 
+  // ── RADIOGRAFIA DE VISIBILIDAD — ultimo snapshot de Visibilidad IA (GEO) ──
+  // Que tan visible es la marca DENTRO de las respuestas de IA (ChatGPT/Gemini/Claude),
+  // share of voice vs competidores, y las FUENTES que la IA cita y la marca no (source_gap
+  // = donde tiene que estar). Sin esto Vera esta ciega a su propia visibilidad. No bloqueante.
+  let visibility = null;
+  try {
+    const { data: vsnap } = await supabase
+      .from("visibility_snapshots")
+      .select("snapshot_date, ai_visibility_score, ai_share_of_voice, engine_breakdown, top_cited_sources, source_gap, trend_7d, trend_30d, rank_in_category, category_size")
+      .eq("brand_container_id", brandContainerId)
+      .order("snapshot_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    visibility = vsnap || null;
+  } catch (e) {
+    console.warn("[brain-feed] visibility (non-blocking):", e?.message || e);
+  }
+
+  // ── EVOLUCION DE PLATAFORMAS — serie historica (platform_insights_daily) ──
+  // latest vs baseline por cuenta/vendedor: TikTok (followers/plays/ER),
+  // MercadoLibre (visitas/ventas/reputacion). Sin esto Vera solo ve el ultimo
+  // valor y queda ciega a la TENDENCIA en el tiempo. No bloqueante.
+  let platformTrends = null;
+  try {
+    const { data: pt } = await supabase.rpc("get_platform_insights_trend", {
+      p_brand_container_id: brandContainerId,
+      p_days: 30,
+    });
+    platformTrends = (Array.isArray(pt) && pt.length) ? pt : null;
+  } catch (e) {
+    console.warn("[brain-feed] platform_trends (non-blocking):", e?.message || e);
+  }
+
   // ── Construir el payload final, compacto pero rico ──
   const feed = {
     cycle_metadata: {
@@ -215,6 +248,7 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
           señales:           p.signals,
         })),
       } : null,
+      platform_trends:         platformTrends,
     },
 
     competitor_intelligence: {
@@ -225,7 +259,8 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
           handle:       p.profile_handle,
           entity_name:  ctx.name || null,
           role:         ctx.role || null,          // rol dentro del monitoreo
-          relevance:    ctx.relevance || null,     // por que lo seguimos
+          relevance:    ctx.relevance || null,     // por que lo seguimos / que aprender
+          rango:        ctx.rango || null,         // nacional | internacional
           snippet:      (p.content || "").slice(0, 200),
           sentiment:    p.sentiment_text,
           sentiment_score: p.sentiment_score,
@@ -294,6 +329,18 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
     })),
 
     active_strategies: activeStrategies || [],
+
+    // Visibilidad de la marca DENTRO de la IA (GEO). null si el sensor aun no corrio.
+    visibility: visibility ? {
+      fecha:              visibility.snapshot_date,
+      visibilidad_ia:     visibility.ai_visibility_score,   // 0-100
+      share_of_voice:     visibility.ai_share_of_voice,     // vs competidores
+      por_motor:          visibility.engine_breakdown,
+      fuentes_que_cita_la_ia: visibility.top_cited_sources,
+      brecha_de_fuentes:  visibility.source_gap,            // donde gana el competidor y no estas
+      tendencia_7d:       visibility.trend_7d,
+      tendencia_30d:      visibility.trend_30d,
+    } : null,
 
     counts: {
       new_posts:        (competitorPosts || []).length,
@@ -365,10 +412,15 @@ hacer como en lo que decides NO hacer. Pondera:
 - **Emocion objetivo**: que debe sentir la audiencia con esto?
 - **Lo que falta**: que NO se esta diciendo que podemos decir primero?
 
-### 5. MANIFESTACION — Ejecuta con las herramientas que ya tienes
-Cuando decidas actuar, usa las tools listadas abajo con nombres canonicos del protocolo v3.
-Cada llamada debe documentar el "por que" (param \`reason\`) para que manana puedas
-aprender del resultado.
+### 5. MANIFESTACION — NO PROPONES, EJECUTAS
+Cuando decidas actuar sobre algo REVERSIBLE E INTERNO (audiencia, estrategia, ADN,
+producto, keywords, monitoreo, canvas) **CREALO YA** con la tool — no lo dejes como
+propuesta esperando permiso. Ej: si la competencia + las tendencias rinden mejor con un
+perfil ("deportistas"), crea la audiencia con \`upsertAudience\` y sigue. ACTO SEGUIDO
+**informa a la org** con \`createNotification\` lo que HICISTE y POR QUE (evidencia). La
+notificacion comunica lo hecho, no pide permiso. Solo queda como propuesta / boton humano
+lo que GASTA budget del cliente o PUBLICA en canales externos (no tienes esas tools). Cada
+llamada documenta el "por que" (param \`reason\`) para poder aprender del resultado manana.
 
 ### 6. APRENDIZAJE — Cada ciclo refina el siguiente
 Si un patron que predijiste no funciono, no excuses al algoritmo — cuestiona tu propia
@@ -407,16 +459,21 @@ Asi ai-engine evoluciona guiado por ti.
 - \`getScraperStatus(orgId)\` — estado de tus sensores Apify.
 - \`getMonitoringTargets(orgId)\` — quienes monitoreas y a que cadence.
 
-### 4.2 Escritura y Actualizacion (4)
-- \`updateBrandDNA(brandContainerId, field, value, reason)\` — UPDATE de campo del brand_container.
+### 4.2 Escritura y Ejecucion — CREA, no propongas (8)
+- \`upsertAudience(fields, reason)\` — **CREA o actualiza una audiencia conceptual** (perfil/persona: intereses, dolores, deseos). Esta es tu jugada para "enfocar en deportistas": la creas, no la propones.
+- \`updateAudienceConcept(audienceId, fields, reason)\` — refina una audiencia existente.
+- \`buildStrategy(name, goal, reason, brandContainerId)\` — **CREA una estrategia completa** con sus nodos conectados en el Command Center (visible/editable por el humano).
+- \`createStrategy(fields, reason)\` — crea una estrategia simple en el canvas.
+- \`upsertProduct(fields, reason)\` — crea o actualiza una ficha de producto.
 - \`updateProduct(productId, fields, reason)\` — refresca ficha de producto.
+- \`updateBrandDNA(brandContainerId, field, value, reason)\` — UPDATE de campo del brand_container (tono/palabras/mercado).
 - \`updateCampaignConcept(campaignId, fields, reason)\` — solo conceptual, NUNCA Meta/Google Ads.
-- \`updateAudienceConcept(audienceId, fields, reason)\` — refresca persona conceptual.
 
-### 4.3 Inteligencia Activa (5)
+### 4.3 Inteligencia Activa (6)
 - \`addCompetitorToMonitoring(handle, network, brandContainerId, reason)\` — agrega cuenta a Apify.
 - \`addKeywordToTrends(keyword, brandContainerId, geo?, reason)\` — agrega keyword al motor de tendencias.
 - \`removeKeywordFromTrends(keywordId, reason)\` — desactiva keyword ruidosa.
+- \`generateTrendBrief(reason, brandContainerId)\` — corre el motor de tendencias ON-DEMAND (colecta+rankea+genera briefs estrategicos, ~$0.12). YA NO HAY CRON de briefs: TU decides cuando hacerlos. Dispara SOLO con señales frescas relevantes (>=2 fuentes distintas, alineadas al ADN); NUNCA en vacio, NUNCA si ya hay briefs pendientes/recientes en el feed. Execute-and-inform: tras correrlo, \`createNotification\` con lo que arrojo.
 - \`triggerDeepScrape(target, type, brandContainerId, reason)\` — fuerza priority run del scraper (~5min ETA).
 - \`createDefensiveWatch(topic, severity, brandContainerId, reason)\` — vigilancia intensificada con expiry.
 
@@ -424,18 +481,19 @@ Asi ai-engine evoluciona guiado por ti.
 - \`triggerFlow(flowId, params, reason)\` — disparar flow interno de generacion de contenido.
 - \`pauseFlow(flowId, reason)\` — pausar flow que esta generando ruido.
 - \`inspectRun(runId)\` — outputs/errors de una ejecucion.
-- \`createNotification(severity, type, title, body, brandContainerId, actionUrl?)\` — notifica al equipo.
-- \`proposeStrategicRecommendation(title, topic, description, confidence, rationale, brandContainerId)\` — brief 'proposed'.
+- \`createNotification(severity, type, title, body, brandContainerId, actionUrl?)\` — INFORMA al equipo lo que hiciste y por que (tu canal por defecto tras ejecutar).
+- \`initiateConversation(topic, opening_message, reason, audience_role?)\` — **ABRE tu un hilo con un humano** de la org sin esperar a que te escriban: explicar una jugada, rendir cuentas, pedir un dato. audience_role opcional (owner|admin|member).
+- \`proposeStrategicRecommendation(title, topic, description, confidence, rationale, brandContainerId)\` — SOLO como propuesta blanda cuando NO es tu dominio ejecutar (algo que gastaria budget o publicaria). Para lo reversible, EJECUTA (4.2), no propongas.
 
 ## Que hacer paso a paso con este ciclo
 
 1. **Lee los counts primero.** Si los signals totales son <5, este ciclo es silencio. No fuerces acciones.
 2. **Triage por severidad**: vulnerabilidades abiertas y crisis_signals primero.
-3. **Detecta emerging patterns**: alto engagement_rate + alineacion ADN -> \`proposeStrategicRecommendation\`.
+3. **Detecta emerging patterns y EJECUTA**: >=2 señales de fuentes distintas + alineacion ADN -> crea la jugada (\`upsertAudience\` / \`buildStrategy\` / \`upsertProduct\` / \`updateBrandDNA\`) y \`createNotification\` explicando que hiciste y por que. NO te quedes en proponer.
 4. **Brand intelligence loop**: si tu \`palabras_clave\` o \`verbal_dna\` se desfasa de la respuesta del mercado, \`updateBrandDNA\`.
 5. **Catalogo en evolucion**: producto con ficha pobre vs lo que pide el mercado -> \`updateProduct\`.
 6. **Campanas conceptuales**: campana activa fuera de calibracion -> \`updateCampaignConcept\`.
-7. **Inteligencia activa**: nuevo competidor relevante -> \`addCompetitorToMonitoring\`; keyword caliente -> \`addKeywordToTrends\`; amenaza emergente -> \`createDefensiveWatch\` o \`triggerDeepScrape\`.
+7. **Inteligencia activa**: nuevo competidor relevante -> \`addCompetitorToMonitoring\`; keyword caliente -> \`addKeywordToTrends\`; amenaza emergente -> \`createDefensiveWatch\` o \`triggerDeepScrape\`; oportunidad de tendencia que amerita analisis estrategico COMPLETO (>=2 señales frescas de fuentes distintas, alineadas al ADN, SIN brief reciente en el feed) -> \`generateTrendBrief\` y despues \`createNotification\` con lo que arrojo. Los briefs YA NO se hacen por cron: solo cuando TU lo decides aqui.
 8. **Flows internos**: contenido a generar -> \`triggerFlow\`; flow ruidoso -> \`pauseFlow\`.
 9. **Notifica con criterio**: \`createNotification\` solo cuando el humano necesita decidir algo fuera de tu dominio.
 10. **Drill-down**: si el resumen no alcanza -> \`getBrainFeed(feed_id, bucket)\`.
@@ -456,7 +514,8 @@ Asi ai-engine evoluciona guiado por ti.
 1. **SI documenta el porque** en cada tool call con \`reason\`. Es tu memoria futura.
 2. **SI prefiere silencio si no hay senal** — mejor 0 acciones que 5 acciones de relleno.
 3. **SI amarra cada accion al ADN especifico** de esta marca, no al best-practice abstracto.
-4. **SI aprende de \`getBodyMissions\` y \`getPendingBriefs\`** previos antes de proponer algo similar.`;
+4. **SI aprende de \`getBodyMissions\` y \`getPendingBriefs\`** previos antes de ejecutar algo similar — no repitas una jugada ya hecha.
+5. **SI rinde cuentas**: cada jugada que ejecutas la informas (createNotification) o la conversas (initiateConversation). Ejecutar en silencio no es autonomia, es opacidad.`;
 
 // Resumen compacto del feed para inyectar inline en el prompt sin saturar el
 // CLI de openclaw (límite ~16KB efectivo). El JSON completo queda en BD y se
@@ -464,8 +523,12 @@ Asi ai-engine evoluciona guiado por ti.
 function _compactSummary(feed) {
   const top = (arr, n) => (arr || []).slice(0, n);
 
-  const competitorHighlights = top(feed.competitor_intelligence?.new_posts, 5).map(p =>
-    `  - [${p.network}] @${p.handle}: "${(p.snippet || "").slice(0, 90)}" (${p.sentiment || "?"}, eng=${p.engagement || 0})`
+  const roleTag = (r) => ({
+    competidor_directo: "COMPETIDOR-DIR", competidor_indirecto: "COMPETIDOR-IND",
+    referencia_cultural: "REFERENTE", aliado: "ALIADO", owned_media: "PROPIO",
+  }[r] || (r || "?"));
+  const competitorHighlights = top(feed.competitor_intelligence?.new_posts, 6).map(p =>
+    `  - [${roleTag(p.role)}${p.rango ? "/" + p.rango : ""}] @${p.handle}: "${(p.snippet || "").slice(0, 80)}" (${p.sentiment || "?"}, eng=${p.engagement || 0})${p.relevance ? " · aprender: " + p.relevance.slice(0, 55) : ""}`
   ).join("\n");
 
   const trendHighlights = top(feed.trend_signals?.raw_signals, 5).map(s =>
@@ -502,6 +565,16 @@ function _compactSummary(feed) {
     `  - "${(l.que_propuse || "").slice(0, 60)}" [${l.tono || "?"}/${l.hora ?? "?"}h] -> ${l.resultado} (predije ${l.predije ?? "?"}, paso ${l.paso ?? "?"}, err ${l.error_pct ?? "?"}%)`
   ).join("\n");
 
+  const v = feed.visibility;
+  const visibility = v ? (
+    `  - Visibilidad IA: ${v.visibilidad_ia ?? "?"}/100` +
+    (v.share_of_voice != null ? ` | share of voice ${(v.share_of_voice * 100).toFixed(0)}% vs competidores` : "") +
+    (v.tendencia_7d != null ? ` | 7d ${v.tendencia_7d >= 0 ? "+" : ""}${v.tendencia_7d}` : "") +
+    (Array.isArray(v.brecha_de_fuentes) && v.brecha_de_fuentes.length
+      ? `\n  - Brecha de fuentes (donde te cita la IA para el competidor y no a ti): ${v.brecha_de_fuentes.slice(0, 5).map(s => s.domain).join(", ")}`
+      : "")
+  ) : null;
+
   const ph = feed.brand_context?.platform_health;
   const platformHealth = ph && Array.isArray(ph.by_platform) && ph.by_platform.length
     ? ph.by_platform.map(p =>
@@ -522,6 +595,7 @@ function _compactSummary(feed) {
     recentWork:           recentWork           || "  (sin trabajo reciente)",
     activeStrategies:     activeStrategies     || "  (sin estrategias en curso)",
     platformHealth:       platformHealth       || "  (sin redes conectadas)",
+    visibility:           visibility           || "  (sin radiografia de visibilidad aun)",
   };
 }
 
@@ -547,9 +621,12 @@ Pulso (counts):
 Salud de tus redes (MI MARCA — métricas reales de tus integraciones, NO scraping):
 ${s.platformHealth}
 
+Tu Visibilidad en la IA (¿te encuentran ChatGPT/Gemini/Claude cuando buscan tu categoría?):
+${s.visibility}
+
 Distribución de tono detectado: ${s.patternsSummary}
 
-Top posts competidor:
+Top posts de perfiles monitoreados (cada uno con su ROL — NO todos son competencia):
 ${s.competitorHighlights}
 
 Top señales trends:
@@ -585,7 +662,13 @@ ${renderAutonomousToolList([...AUTONOMOUS_TOOLS], { feedId })}
 
 **Reglas operativas**: (1) silencio si no hay nada relevante > ruido por activar. (2) cada accion amarrada al ADN especifico. (3) cada tool call con \`reason\` documentado. (4) no repitas lo que no funciono (chequea \`getBodyMissions\` y \`getPendingBriefs\`).
 
-**MOTOR DE SINTESIS -> ACCION (tu trabajo central, dashboard Estrategia):** No te quedes en briefs. Cuando >=2 señales de FUENTES DISTINTAS (competidor+tendencia, marca+tendencia, etc.) confirmen una oportunidad, emitela como ACCION graduada con proposePendingAction (action_type + reasoning + confidence 0-1 + horizon + source_signals[>=2] + theme). El **theme** es una etiqueta corta y canonica del tema de la accion (ej. "awareness-energia-natural"): REUSA la MISMA etiqueta para el mismo tema. NUNCA propongas una accion cuyo tema ya aparezca como completado o activo en "Tu trabajo reciente" — eres un trabajador, no repites trabajo ya hecho. REGLA DE 2 FUENTES: una sola señal NUNCA genera accion -> usa createNotification. RIESGO por tipo: contenido/tono/monitoreo=BAJO (auto-elegible); pauta/producto=MEDIO; precio/campaña-nueva/publicar=ALTO (approve humano); crisis/legal/posicionamiento=CRITICO -> SOLO createNotification, jamas una accion. **MATERIALIZA LA ESTRATEGIA EN EL COMMAND CENTER (visible para el humano):** cuando una oportunidad merezca una estrategia completa (audiencia + producto/servicio + brief + campana), usa **buildStrategy(brand_container_id, name, goal, reason)** para crear la estrategia visual con sus nodos conectados en el canvas. Para extender una existente usa placeNodeOnCanvas / connectNodes (cada uno con reason). Antes de crear, revisa con listStrategies para NO duplicar una estrategia del mismo objetivo. Asi el humano ve, edita e interactua con la estrategia que vas construyendo.
+**LECTURA POR ROL (cada perfil monitoreado trae role + relevance + rango — NO todo es competencia; aplica tu doctrina de roles):**
+- **Competidor** (directo/indirecto): analizalo para SUPERARLO — debilidades, patrones de conducta, quejas de su audiencia, brechas que no cubre.
+- **Referente**: NO es rival. APRENDE segun su **relevance** (comunicacion, imagen visual, tono, temas, CTA, conversion): extrae la leccion concreta y adaptala a ${brand.nombre_marca}. Nunca lo trates como amenaza ni hables de "capturar su audiencia".
+- **Aliado**: busca la oportunidad de COLABORACION / amplificacion de audiencia compartida.
+El **rango** modula el aprendizaje: internacional = playbook para publico general; nacional = tactica cultural/local. **APRENDE de CADA lote** — lo aprendido de un referente en ciclos previos ya es tuyo (revisa "Tu trabajo reciente" + getBodyMissions): no lo re-aprendas, construye sobre ello. Una leccion de referente que valga la pena adaptar se materializa como body-mission o brief (no como "amenaza").
+
+**MOTOR DE SINTESIS -> EJECUCION (tu trabajo central — NO ES PROPONER, ES EJECUTAR):** No te quedes en briefs ni en propuestas que esperan permiso. Cuando >=2 señales de FUENTES DISTINTAS (competidor+tendencia, marca+tendencia, etc.) confirmen una oportunidad REVERSIBLE E INTERNA (audiencia, estrategia, ADN, producto, keywords, canvas, monitoreo) **CREALA YA** con la tool correspondiente (upsertAudience, buildStrategy, createStrategy, updateBrandDNA, upsertProduct, addKeywordToTrends, addCompetitorToMonitoring...). Ej: si ves que la competencia y las tendencias generan mejor impacto con un perfil ("deportistas"), NO lo propongas — crea la audiencia con upsertAudience y sigue. ACTO SEGUIDO **informa a la org** con createNotification lo que HICISTE y POR QUE ("He creado la audiencia X porque [competidor Y] y [tendencia Z] muestran mejor impacto con este perfil"). La notificacion NO pide permiso: comunica lo hecho, el porque y la evidencia — para que el humano lo vea, lo use o lo ajuste. Cada accion lleva su \`reason\` (queda en el informe). El **theme** es una etiqueta corta y canonica (ej. "awareness-energia-natural"): REUSA la MISMA para el mismo tema y NUNCA repitas una jugada cuyo tema ya aparezca como hecha o activa en "Tu trabajo reciente" — eres una trabajadora, no repites trabajo. REGLA DE 2 FUENTES: una sola señal NUNCA dispara una jugada -> solo createNotification. **LO QUE NO EJECUTAS (queda como proposePendingAction / solo aviso):** cualquier cosa que GASTE el budget del cliente o PUBLIQUE en canales externos (lanzar pauta con presupuesto, postear en IG/FB) — eso es boton humano, tu preparas todo hasta ahi e informas. Crisis/legal/posicionamiento = SOLO createNotification, jamas ejecutes. **MATERIALIZA LA ESTRATEGIA EN EL COMMAND CENTER (visible para el humano):** cuando una oportunidad merezca una estrategia completa (audiencia + producto/servicio + brief + campana), usa **buildStrategy(brand_container_id, name, goal, reason)** para crear la estrategia visual con sus nodos conectados en el canvas. Para extender una existente usa placeNodeOnCanvas / connectNodes (cada uno con reason). Antes de crear, revisa con listStrategies para NO duplicar una estrategia del mismo objetivo. Asi el humano ve, edita e interactua con la estrategia que vas construyendo.
 
 **AUTOCRITICA OBLIGATORIA (Capa 6) — corre esto sobre TUS PROPIAS acciones antes de emitir CUALQUIERA:**
 - Test del "Algo No Encaja": ¿que parte de esto no encaja? Si algo chirria, no avanzas hasta resolverlo.
@@ -601,6 +684,8 @@ Emite SOLO lo que pase esta autocritica. Si nada pasa, 0 acciones es la respuest
 - **lista_publicar** (producciones listas, sin publicar) -> NOTIFICA con createNotification que la estrategia ya genero contenido y esta LISTA PARA PUBLICAR. NO publiques tu: la publicacion la hace el humano manualmente desde el canvas (boton Publicar en cada produccion). Vera NUNCA postea en redes por si misma.
 - **en_vivo / midiendo** -> mide vs plan (getEstrategiaTones/Topics/Platforms) y notifica hallazgos con createNotification.
 Respeta SIEMPRE tu nivel de autonomia: no produzcas ni publiques fuera de lo permitido.
+
+**INICIA TU EL DIALOGO (no esperes a que te escriban):** tienes libertad para abrir una conversacion con cualquier miembro de la org cuando algo lo amerite — explicar una jugada grande que ejecutaste, plantear una decision que quieres conversar, pedir un dato que solo un humano tiene, o simplemente rendir cuentas de lo que hiciste y por que. Usa **initiateConversation(topic, opening_message, reason)** (opcional audience_role para dirigirla a un rol; por defecto va a la org). Es para lo que merece dialogo, no para cada micro-accion (esa se cuenta con createNotification). Habla como Vera: directa, con la evidencia, en primera persona.
 
 **SALIDA CONCISA (critico — generar texto largo te hace exceder el limite de tiempo y el ciclo se pierde vacio):** Razona las 6 capas INTERNAMENTE; NO escribas el analisis extenso ni tablas en tu respuesta. Tu salida visible = SOLO los marcadores [[TOOL:...]] de tus acciones + un journal de MAXIMO 3 lineas (que viste, que decidiste, que verificas). Procede ya.`;
 }
@@ -695,6 +780,14 @@ const AUTONOMOUS_TOOLS = new Set([
   "getMonitoringTargets", "getMonitoringTriggers", "getScraperStatus", "getScraperHealth",
   "getFlows", "getAvailableFlows", "getFlowRuns",
   "getBrainFeed",
+  // CMO (doctrina Ehrenberg-Bass) — Vera razona con estas ANTES de proponer:
+  // penetracion (ley #1), ocasiones de compra (CEPs), demanda creada vs cosechada
+  // (no matar burners que construyen marca) y atribucion a negocio real (leads).
+  "getPenetrationDiagnosis", "getCEPGaps", "getDemandDiagnosis", "getConversionOutcomes",
+  "scoreContentCitability", "getUseCaseExpansion",
+  // NOTA: getDistinctiveAssetsAudit / getPackagingAnalysis / getAuthorityClusterPlan
+  // (vision/LLM, cuestan creditos) NO se listan aqui a proposito — solo on-demand en
+  // chat, para que el ciclo autonomo no queme tokens sin que un humano lo pida.
   // "Que funciona" — rendimiento por tono/tema/plataforma (post_patterns).
   // Alimenta la Capa 6 (Aprendizaje): Vera consulta que performa antes de decidir.
   "getEstrategiaTones", "getEstrategiaTopics", "getEstrategiaPlatforms",
@@ -706,6 +799,7 @@ const AUTONOMOUS_TOOLS = new Set([
   // Inteligencia activa (sin consent)
   "addCompetitorToMonitoring",
   "addKeywordToTrends", "removeKeywordFromTrends",
+  "generateTrendBrief",
   "triggerDeepScrape", "createDefensiveWatch",
   // Flows y notificaciones
   "triggerFlow", "triggerFlowRun", "pauseFlow", "inspectRun",
@@ -713,6 +807,8 @@ const AUTONOMOUS_TOOLS = new Set([
   "createNotification", "createOrgNotification",
   "proposeStrategicRecommendation",
   "proposePendingAction",
+  // Vera inicia el dialogo: abre hilos con humanos de la org sin esperar a que le escriban
+  "initiateConversation",
   // Command Center / canvas de estrategia
   "placeNodeOnCanvas", "moveNodeOnCanvas", "removeNodeFromCanvas", "connectNodes", "disconnectNodes", "setVeraState", "createStrategy", "listStrategies", "createStickyNote", "createGroup", "buildStrategy", "proposeExternalAction",
 ]);
@@ -723,9 +819,32 @@ const WRITE_TOOLS = new Set([
   "updateBrandDNA", "updateBrandContainer", "updateProduct", "upsertProduct",
   "updateCampaignConcept", "updateAudienceConcept", "upsertAudience",
   "addCompetitorToMonitoring", "addKeywordToTrends", "removeKeywordFromTrends",
+  "generateTrendBrief",
   "triggerDeepScrape", "createDefensiveWatch",
   "triggerFlow", "triggerFlowRun", "pauseFlow",
 ]);
+
+// JUGADAS NOTABLES: cuando Vera EJECUTA una de estas (crear/actualizar audiencia,
+// estrategia, ADN, producto, monitoreo de competidor), el sistema garantiza que la
+// org se entere — dispara un auto-informe "he creado/actualizado X porque ..." si
+// Vera no emitio ya una notificacion en el mismo ciclo. Asi el modelo es
+// EJECUTAR-E-INFORMAR, no proponer-y-esperar. (Mata el bug de recomendaciones
+// invisibles: antes proponer y notificar eran acciones desacopladas.)
+const NOTABLE_PLAYS = new Set([
+  "upsertAudience", "updateAudienceConcept",
+  "createStrategy", "buildStrategy",
+  "updateBrandDNA", "updateBrandContainer",
+  "upsertProduct", "updateProduct",
+  "addCompetitorToMonitoring", "createDefensiveWatch",
+]);
+
+// GATE DURO GASTO/PUBLICACION (opcion A, decidida por el owner 2026-07-08):
+// tools que gasten el budget del cliente o publiquen en canales externos quedan
+// SIEMPRE bloqueadas en el ciclo autonomo, sin importar level_of_autonomy (ni
+// "total"). Hoy esta vacio a proposito: esas escrituras NO existen como tool de
+// Vera (viven como boton humano en el frontend). Es un guard defensivo: si algun
+// dia se agrega launchCampaign/publishPost, nace gateado por defecto.
+const SPEND_PUBLISH_TOOLS = new Set([]);
 
 async function executeVeraActions(feedRow, brand, veraResponse) {
   const calls = veraResponse?.tool_calls || [];
@@ -750,7 +869,17 @@ async function executeVeraActions(feedRow, brand, veraResponse) {
     conversationId: `cycle-pulse:${feedRow.id}`,
   };
 
+  // ¿Vera ya avisó a la org en este ciclo? Si emite su propia createNotification
+  // no duplicamos con el auto-informe. Se resuelve al final, sobre lo ejecutado.
+  let veraNotifiedHerself = false;
+  const executedPlays = [];
+
   for (const call of calls) {
+    // Gate duro gasto/publicación: nunca, ni con autonomía total.
+    if (SPEND_PUBLISH_TOOLS.has(call.name)) {
+      taken.push({ name: call.name, status: "blocked_spend_publish" });
+      continue;
+    }
     if (!allowedSet.has(call.name)) {
       const blocked = isRestricted && WRITE_TOOLS.has(call.name);
       taken.push({ name: call.name, status: blocked ? "blocked_restringido" : "skipped_not_autonomous" });
@@ -764,10 +893,23 @@ async function executeVeraActions(feedRow, brand, veraResponse) {
       }
       const result = await _dispatchToolRegistry(call.name, params, secCtx);
       taken.push({ name: call.name, status: "ok", result });
+      if (call.name === "createNotification" || call.name === "createOrgNotification") {
+        veraNotifiedHerself = true;
+      }
+      if (NOTABLE_PLAYS.has(call.name)) {
+        executedPlays.push({ name: call.name, reason: params.reason || params.rationale || null });
+      }
     } catch (e) {
       errors.push({ name: call.name, error: String(e.message).slice(0, 200) });
       taken.push({ name: call.name, status: "failed", error: e.message });
     }
+  }
+
+  // EJECUTAR-E-INFORMAR: si Vera creó/actualizó algo notable y NO avisó ella misma,
+  // el sistema garantiza que la org se entere de lo que Vera hizo y por qué.
+  if (executedPlays.length && !veraNotifiedHerself) {
+    try { await _informOrgOfPlays(brand, executedPlays); }
+    catch (e) { errors.push({ name: "_informOrgOfPlays", error: String(e.message).slice(0, 200) }); }
   }
 
   await supabase
@@ -783,6 +925,44 @@ async function executeVeraActions(feedRow, brand, veraResponse) {
     .eq("id", feedRow.id);
 
   return { taken, errors };
+}
+
+// Auto-informe de EJECUTAR-E-INFORMAR: la org se entera de las jugadas que Vera
+// creó por su cuenta, con el porqué. No pide permiso — comunica lo hecho.
+const _PLAY_LABELS = {
+  upsertAudience:         "creó/actualizó una audiencia",
+  updateAudienceConcept:  "ajustó el concepto de una audiencia",
+  createStrategy:         "creó una estrategia",
+  buildStrategy:          "construyó una estrategia en el Command Center",
+  updateBrandDNA:         "ajustó el ADN de marca",
+  updateBrandContainer:   "actualizó la marca",
+  upsertProduct:          "creó/actualizó un producto",
+  updateProduct:          "actualizó un producto",
+  addCompetitorToMonitoring: "puso un competidor en monitoreo",
+  createDefensiveWatch:   "activó una vigilancia defensiva",
+};
+async function _informOrgOfPlays(brand, plays) {
+  const items = plays.map((pl) => {
+    const label = _PLAY_LABELS[pl.name] || `ejecutó ${pl.name}`;
+    return pl.reason ? `${label} — ${pl.reason}` : label;
+  });
+  const title = plays.length === 1
+    ? `Vera ${_PLAY_LABELS[plays[0].name] || `ejecutó ${plays[0].name}`}`
+    : `Vera ejecutó ${plays.length} jugadas`;
+  const body = `He actuado por mi cuenta con base en lo que la competencia y las tendencias vienen mostrando:\n\n` +
+               items.map((t) => `• ${t}`).join("\n") +
+               `\n\nQuedó hecho y listo para que lo revises. Si algo no encaja, ajústalo o escríbeme.`;
+  const { error, data } = await supabase.from("org_notifications").insert({
+    organization_id:    brand.organization_id,
+    brand_container_id: brand.id,
+    severity:           "info",
+    type:               "vera_executed",
+    title:              title.slice(0, 120),
+    body,
+    metadata:           { source: "vera_execute_and_inform", plays: plays.map((p) => p.name) },
+  }).select("id").single();
+  if (error) throw new Error(error.message);
+  return { notification_id: data.id };
 }
 
 async function _toolCreateNotification(brand, p) {
@@ -906,6 +1086,7 @@ async function _toolTriggerFlow(brand, p) {
  * Idempotente: si ya se generó un feed para este (brand, cycle), no duplica.
  */
 export async function deliverCycleFeed(brandContainerId, cycleId) {
+  if (process.env.VERA_BRAIN_FEED_ENABLED === "false") return { skipped: true, reason: "action_cycle_disabled", disabled: true };
   const windowEnd   = new Date();
   const windowStart = new Date(windowEnd.getTime() - FEED_WINDOW_HOURS * 3600 * 1000);
 

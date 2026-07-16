@@ -22,17 +22,26 @@ const supabase = createClient(
 );
 
 export async function generateMissionsForBrand(brandContainerId, organizationId) {
+  if (process.env.POST_SCRAPE_ANALYSIS_ENABLED === "false") return { generated: 0, skipped: 0, disabled: true };
   if (!brandContainerId || !organizationId) {
     return { generated: 0, skipped: 0, error: "missing ids" };
   }
 
   // 1) pending_actions aprobadas para esta brand
+  // BUG FIX 2026-07-02: excluir action_types que action-executor ejecuta DIRECTO
+  // al aprobarse (executeAction in-process). Antes este generador los convertía en
+  // body_missions execute_* que NINGÚN worker maneja (job-worker solo enruta tipos
+  // de populators) y marcaba la acción 'executing' — bloqueando la ejecución real
+  // (executeAction lockea por status approved/pending). Carrera que mataba
+  // producciones. run_content_flow es el caso crítico (camino de producción).
+  const DIRECT_EXECUTED_TYPES = ["run_content_flow"];
   const { data: approved, error: readErr } = await supabase
     .from("vera_pending_actions")
     .select("id, organization_id, brand_container_id, action_type, target_table, target_id, proposed_payload, vera_reasoning, source_signal_id, priority")
     .eq("brand_container_id", brandContainerId)
     .eq("organization_id",    organizationId)
     .eq("status",             "approved")
+    .not("action_type", "in", `(${DIRECT_EXECUTED_TYPES.join(",")})`)
     .order("priority", { ascending: false })
     .limit(20);
 

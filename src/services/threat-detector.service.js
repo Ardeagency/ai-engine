@@ -20,6 +20,7 @@
  * NO usa LLM. Cero tokens.
  */
 import { createClient } from "@supabase/supabase-js";
+import { bumpStrategicReviewOnEvidence } from "./recommendation-cadence.service.js";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -91,6 +92,13 @@ async function _persistThreat({ brandContainerId, organizationId, entityId, thre
       metadata:            { ...metadata, threat_type: threatType, detector: "threat-detector" },
     });
   if (vErr) console.warn(`[threat-detector] brand_vulnerabilities insert: ${vErr.message}`);
+
+  // Evidencia fuerte (crisis) → adelanta la revision estrategica en vez de esperar
+  // al tick diario. Cadencia disparada por evidencia (fila 28). No bloquea: la fn
+  // maneja sus propios errores. Solo high/medium (low no amerita interrumpir).
+  if (severity === "high" || severity === "medium") {
+    await bumpStrategicReviewOnEvidence(brandContainerId, `amenaza ${threatType} (${severity})`);
+  }
 
   return { signal_id: sig?.id, threat_type: threatType, severity };
 }
@@ -311,6 +319,7 @@ async function detectNegativeSentimentSpike(brandContainerId, organizationId) {
 // ── Entry point ──────────────────────────────────────────────────────────────
 
 export async function runThreatDetection(brandContainerId, organizationId) {
+  if (process.env.POST_SCRAPE_ANALYSIS_ENABLED === "false") return { total_detected: 0, disabled: true };
   if (!brandContainerId || !organizationId) {
     return { error: "missing ids", total_detected: 0 };
   }

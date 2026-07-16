@@ -15,7 +15,10 @@
 import { randomUUID } from "crypto";
 import { supabase } from "../lib/supabase.js";
 import { buildFullBrandContext } from "./context.builder.js";
+import { resolveAnchorProduct } from "./recommendation-producer.service.js";
 import { chatCompletion } from "../lib/openai.js";
+import { contentionGate } from "./contention-guard.service.js";
+import { mapCategoryEntryPoints } from "./map-category-entry-points.service.js";
 
 const MODEL = process.env.STRATEGY_REVIEW_MODEL || "gpt-4o";
 const DEDUP_HOURS = parseInt(process.env.STRATEGY_REVIEW_DEDUP_HOURS || "20", 10);
@@ -60,8 +63,17 @@ function _parseRecommendations(content) {
 }
 
 export async function generateStrategyReviewForBrand(brandContainerId, organizationId) {
+  if (process.env.POST_SCRAPE_ANALYSIS_ENABLED === "false") return { generated: 0, skipped: 0, status: "disabled", disabled: true };
   if (!brandContainerId || !organizationId) {
     return { generated: 0, skipped: 0, error: "missing ids" };
+  }
+
+  // 0) CEPs (ocasiones de la categoría) — foundational, una vez por marca.
+  //    No depende de evidencia reciente ni del dedup; idempotente (skip si ya existen).
+  try {
+    await mapCategoryEntryPoints(brandContainerId, organizationId);
+  } catch (e) {
+    console.warn(`[strategy-review] map CEPs falló brand=${brandContainerId}: ${e.message}`);
   }
 
   // Idempotencia: ¿ya hubo un review reciente?
@@ -74,6 +86,15 @@ export async function generateStrategyReviewForBrand(brandContainerId, organizat
     .gte("generated_at", since);
   if (recentCount && recentCount > 0) {
     return { generated: 0, skipped: recentCount, status: "recent_review_exists" };
+  }
+
+  // 0.5) CONTENCIÓN — no fabricar novedad sin evidencia nueva. Default a la
+  //      consistencia; corta la cadencia determinista cuando no hay causa.
+  //      Va ANTES del contexto y del LLM (ahorra también ese costo). Fail-open.
+  const gate = await contentionGate(brandContainerId);
+  if (!gate.act) {
+    console.log(`[strategy-review] brand=${brandContainerId} SKIP por contención: ${gate.reason}`);
+    return { generated: 0, skipped: 0, status: "contention_gate", reason: gate.reason };
   }
 
   // 1) Contexto rico via builder service-role (context.builder.js) — sin el guard
@@ -123,6 +144,17 @@ export async function generateStrategyReviewForBrand(brandContainerId, organizat
   let generated = 0;
   const batchId = randomUUID();
   for (const r of recs) {
+    // Resolver el producto ancla EN LA FUENTE (Loop V1): el puente
+    // recommendation-producer necesita saber a qué producto apunta la jugada
+    // para producirla; resolverlo aquí evita adivinar aguas abajo.
+    let anchorProduct = null;
+    try {
+      anchorProduct = await resolveAnchorProduct(
+        { title: r.title, description: r.description, copy_seed: r.copy_seed, rationale_commercial: r.rationale_commercial, metadata: {} },
+        brandContainerId
+      );
+    } catch (_) { /* fail-open: el puente reintenta su propia resolución */ }
+
     const { error: insErr } = await supabase.from("strategic_recommendations").insert({
       organization_id:      organizationId,
       brand_container_id:   brandContainerId,
@@ -140,7 +172,8 @@ export async function generateStrategyReviewForBrand(brandContainerId, organizat
       status:               "proposed",
       vera_model:           "via_strategy_review",
       generated_at:         new Date().toISOString(),
-      metadata:             { source: "strategy_review", llm_model: model },
+      anchor_product_name:  anchorProduct?.nombre_producto || null,
+      metadata:             { source: "strategy_review", llm_model: model, ...(anchorProduct ? { product_id: anchorProduct.id } : {}) },
     });
     if (insErr) {
       console.warn(`[strategy-review] insert falló brand=${brandContainerId}: ${insErr.message}`);

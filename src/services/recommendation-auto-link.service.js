@@ -150,9 +150,50 @@ async function _linkRecommendation(rec, post, similarity) {
   return true;
 }
 
+// Link DETERMINISTA (Loop V1, 2026-07-02): las recomendaciones producidas y
+// publicadas por el puente (recommendation-producer) traen metadata.remote_post_id
+// (el ID nativo de la plataforma, seteado al publicar). Cuando el scraper ingiere
+// ese post propio a brand_posts, aquí lo matcheamos por post_id EXACTO — sin
+// Jaccard, sin ambigüedad — y seteamos published_brand_post_id para que
+// measure_recommendation_outcomes tenga material. El Jaccard queda como respaldo
+// para publicaciones hechas fuera del sistema.
+async function runDeterministicLinkCycle() {
+  let linked = 0;
+  const { data: recs } = await supabase
+    .from("strategic_recommendations")
+    .select("id, brand_container_id, metadata")
+    .eq("status", "published")
+    .is("published_brand_post_id", null)
+    .limit(50);
+  for (const rec of recs || []) {
+    const remoteId = rec.metadata?.remote_post_id;
+    if (!remoteId) continue;
+    const { data: bp } = await supabase
+      .from("brand_posts")
+      .select("id, captured_at")
+      .eq("brand_container_id", rec.brand_container_id)
+      .eq("post_id", String(remoteId))
+      .maybeSingle();
+    if (!bp) continue; // el scraper aún no lo ingiere — reintenta el próximo ciclo
+    const { error } = await supabase
+      .from("strategic_recommendations")
+      .update({
+        published_brand_post_id: bp.id,
+        metadata: { ...(rec.metadata || {}), link_method: "deterministic_remote_post_id" },
+      })
+      .eq("id", rec.id);
+    if (!error) {
+      linked++;
+      console.log(`auto-link[det]: rec=${rec.id} → brand_post=${bp.id} (remote_post_id=${remoteId})`);
+    }
+  }
+  return linked;
+}
+
 async function runAutoLinkCycle() {
   let linked = 0, skipped = 0, scanned = 0;
   try {
+    linked += await runDeterministicLinkCycle();
     const recs = await _fetchPendingRecommendations();
     if (!recs.length) {
       return { linked: 0, scanned: 0, message: "no pending recommendations" };

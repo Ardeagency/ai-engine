@@ -10,6 +10,7 @@ credit_kind: 'meta_ads_library_query' (extiende kind via v11 migration).
 """
 from __future__ import annotations
 import os
+import re
 from datetime import datetime, timezone
 from urllib.parse import quote
 
@@ -22,6 +23,18 @@ ACTOR = os.environ.get("APIFY_ACTOR_META_ADS",
 RESULTS_PER_QUERY = int(os.environ.get("TRENDS_META_ADS_RESULTS", "15"))
 COST_PER_RESULT_USD = 0.0005
 
+# FIX 2026-07-14: los dynamic ads de Meta traen variables de plantilla SIN
+# RESOLVER en el creativo scrapeado ({{product.name}},
+# {{product.short_description}}, ...). Si pasan crudas a
+# targeted_trend_signals, el dashboard se las muestra literales al cliente
+# (bug visto en "Océanos azules" de Tendencias). Se limpian aquí, en la
+# frontera de ingesta; un ad que era pura plantilla se descarta.
+_TEMPLATE_VAR = re.compile(r"\{\{[^{}]{0,80}\}\}")
+
+
+def _clean_template_vars(s: str) -> str:
+    return _TEMPLATE_VAR.sub("", s or "").strip(" \t\n—–-|·:;,. ")
+
 
 def _build_url(keyword: str, geo: str) -> str:
     g = (geo or "US").upper()
@@ -31,12 +44,14 @@ def _build_url(keyword: str, geo: str) -> str:
 
 
 def _to_signal(item: dict, query: TrendQuery) -> RawSignal | None:
-    body = (item.get("ad_creative_body") or item.get("body") or
-            (item.get("snapshot") or {}).get("body", {}).get("text") or "").strip()
-    title = (item.get("ad_creative_link_title") or
-             (item.get("snapshot") or {}).get("title") or "").strip()
+    body = _clean_template_vars(
+        (item.get("ad_creative_body") or item.get("body") or
+         (item.get("snapshot") or {}).get("body", {}).get("text") or "").strip())
+    title = _clean_template_vars(
+        (item.get("ad_creative_link_title") or
+         (item.get("snapshot") or {}).get("title") or "").strip())
     text = (title + (" — " + body if body else "")).strip() or body
-    if not text:
+    if not text or len(text) < 20:  # ad que era pura plantilla → sin señal útil
         return None
     page_name = (item.get("page_name") or item.get("pageName") or
                  (item.get("snapshot") or {}).get("page_name") or "")

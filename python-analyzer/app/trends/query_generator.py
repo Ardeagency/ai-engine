@@ -32,6 +32,7 @@ TOP_SERVICES = 5
 TOP_PERSONAS = 5
 TOP_CAMPAIGNS = 3
 TOP_PILLARS = 5
+TOP_LEARNED = 8
 TOP_COMPETITOR_HASHTAGS = 5
 TOP_COMPETITOR_TOPICS = 5
 TOP_KEYWORDS_NICHE = 3
@@ -49,6 +50,7 @@ APIS_BY_ORIGIN: dict[str, list[str]] = {
     "pillar":                ["apify_tiktok", "apify_instagram"],
     "competitor_vocabulary": ["meta_ads_library", "apify_tiktok", "apify_instagram"],
     "niche":                 ["newsapi", "apify_reddit", "apify_tiktok"],
+    "learned_keyword":       ["newsapi", "apify_tiktok"],
 }
 
 
@@ -312,6 +314,29 @@ def compose_niche_queries(brand: dict, geo: str, lang: str) -> list[TrendQuery]:
     return out
 
 
+async def fetch_learned_keywords(brand_container_id: str, limit: int) -> list[dict]:
+    """Terminos ganadores del keyword-discovery loop (trend_keyword_candidates)."""
+    async with httpx.AsyncClient(timeout=10) as cli:
+        return await _get(
+            cli, "trend_keyword_candidates",
+            brand_container_id=f"eq.{brand_container_id}",
+            is_promoted="eq.true",
+            select="term,fitness",
+            order="fitness.desc",
+            limit=limit,
+        )
+
+
+def compose_learned_keyword_queries(learned: list[dict], geo: str, lang: str) -> list[TrendQuery]:
+    """Realimenta el generador con la demanda de categoria ya descubierta y validada."""
+    out: list[TrendQuery] = []
+    for row in learned or []:
+        term = (row.get("term") or "").strip()
+        if term:
+            out.append(_q(term, "learned_keyword", None, geo, lang, priority=9))
+    return out
+
+
 # ── Filtros de seguridad ─────────────────────────────────────────────────────
 def _normalize(text: str) -> str:
     return " ".join(text.lower().split())
@@ -375,6 +400,7 @@ async def generate_queries(brand_container_id: str, cycle_id: str | None = None
     campaigns = await fetch_active_campaigns(brand_container_id, TOP_CAMPAIGNS)
     pillars   = await fetch_pillars(brand_container_id, TOP_PILLARS)
     comp_h, comp_t = await extract_competitor_vocabulary(brand_container_id)
+    learned = await fetch_learned_keywords(brand_container_id, TOP_LEARNED)
 
     queries: list[TrendQuery] = []
     for geo in geos:
@@ -391,6 +417,7 @@ async def generate_queries(brand_container_id: str, cycle_id: str | None = None
             queries.extend(compose_pillar_queries(pl, geo, lang))
         queries.extend(compose_competitor_vocab_queries(comp_h, comp_t, geo, lang))
         queries.extend(compose_niche_queries(brand, geo, lang))
+        queries.extend(compose_learned_keyword_queries(learned, geo, lang))
 
     queries = filter_prohibited(queries, brand.get("palabras_prohibidas"))
     queries = filter_blacklist(queries, blacklist)

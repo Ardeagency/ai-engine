@@ -281,6 +281,17 @@ async def run_cycle(brand_container_id: str, mock: bool = True,
                             s.metadata["trigger_keyword"] = q.keyword
                             break
 
+            # Brand-safety: filtra señales off-topic/NSFW antes de persistir y de
+            # generar briefs — evita que basura de fuentes externas llegue a la org.
+            from .brand_safety import filter_safe_signals
+            scored = await filter_safe_signals(scored, brand_container_id)
+
+            # ANTI-SELF (decision JC 2026-07-15): los ads/posts de la PROPIA marca
+            # que los collectors traen al buscar keywords del nicho (p.ej. su ad
+            # en Meta Ads Library) NO son senal de mercado — la marca no compite
+            # contra si misma. Se descartan por page_name/handle == nombre_marca.
+            scored = _drop_own_brand_signals(scored, brand_container_id)
+
             persisted_ids = await persist_scored_signals(scored, brand_container_id)
             briefs = await generate_briefs(scored, brand_container_id, batch_id=cycle_id)
 
@@ -325,3 +336,45 @@ async def run_cycle(brand_container_id: str, mock: bool = True,
             error_message=str(e)[:500],
         )
         raise
+
+
+def _normalize_brand_token(s: str) -> str:
+    import re
+    return re.sub(r"[^a-z0-9]", "", (s or "").lower())
+
+
+_BRAND_NAME_CACHE: dict = {}
+
+
+def _drop_own_brand_signals(scored, brand_container_id: str):
+    """Descarta senales cuyo page_name/handle es la propia marca (anti-self)."""
+    try:
+        name = _BRAND_NAME_CACHE.get(brand_container_id)
+        if name is None:
+            import httpx as _hx
+            r = _hx.get(f"{SUPABASE_URL}/rest/v1/brand_containers",
+                        headers=H,
+                        params={"id": f"eq.{brand_container_id}",
+                                "select": "nombre_marca"}, timeout=15)
+            rows = r.json() if r.status_code == 200 else []
+            name = (rows[0].get("nombre_marca") if rows else "") or ""
+            _BRAND_NAME_CACHE[brand_container_id] = name
+        token = _normalize_brand_token(name)
+        if not token or len(token) < 4:
+            return scored
+        kept, dropped = [], 0
+        for s in scored:
+            page = _normalize_brand_token(
+                (s.raw_payload or {}).get("page_name", "") if hasattr(s, "raw_payload") and s.raw_payload else
+                (s.metadata or {}).get("page_name", ""))
+            if page and (token in page or page in token):
+                dropped += 1
+                continue
+            kept.append(s)
+        if dropped:
+            log.info("anti-self: %d senal(es) de la propia marca descartadas (%s)",
+                     dropped, name)
+        return kept
+    except Exception as e:  # nunca bloquear el ciclo por este filtro
+        log.warning("anti-self filter fallo (no bloquea): %s", e)
+        return scored

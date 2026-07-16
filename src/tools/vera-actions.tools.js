@@ -184,6 +184,63 @@ export async function addKeywordToTrends(params, brandContainerId, organizationI
 }
 
 /**
+ * generateTrendBrief(reason, brandContainerId, organizationId) — corre el trends engine
+ * ON-DEMAND por DECISION de Vera (ya NO existe cron de briefs, 2026-07-09). Colecta
+ * señales frescas, las rankea y genera briefs estrategicos + los deja en el dashboard de
+ * recomendaciones. Execute-and-inform: reversible, costo ~$0.12/ciclo. Vera lo invoca
+ * desde su ciclo autonomo SOLO cuando su feed muestra señales frescas relevantes (nunca
+ * en vacio, nunca si ya hay briefs pendientes recientes). Si Apify esta bloqueado el
+ * pipeline degrada a 0 señales -> 0 briefs -> sin ruido (falla graciosa).
+ */
+export async function generateTrendBrief(params, brandContainerId, organizationId) {
+  const { reason, brand_container_id } = params || {};
+  if (!reason) throw new Error("reason requerido para auditoria");
+  const bcId = brand_container_id || brandContainerId;
+  const bc = await resolveBrandContainer(bcId, organizationId);
+
+  // Cap de queries derivado del plan (creator=10, team=20, agency=30; fallback 10).
+  // Mismo criterio que el handler trends_run del scraper.
+  let maxQ = 10;
+  try {
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("plans!inner(trends_max_queries)")
+      .eq("organization_id", organizationId)
+      .in("status", ["trial", "active", "past_due"])
+      .maybeSingle();
+    if (sub?.plans?.trends_max_queries) maxQ = sub.plans.trends_max_queries;
+  } catch (e) {
+    console.warn(`generateTrendBrief: plan lookup fallo (${e.message}) — usando default ${maxQ}`);
+  }
+  const envCap = parseInt(process.env.TRENDS_MAX_QUERIES_PER_RUN || "0", 10);
+  if (envCap > 0 && envCap < maxQ) maxQ = envCap;
+
+  const url = `http://127.0.0.1:8001/trends/run/${bc.id}?mock=false&max_queries=${maxQ}`;
+  let result;
+  try {
+    const r = await fetch(url, { method: "POST", signal: AbortSignal.timeout(10 * 60 * 1000) });
+    if (!r.ok) throw new Error(`trends/run HTTP ${r.status}: ${(await r.text()).slice(0, 200)}`);
+    result = await r.json();
+  } catch (e) {
+    throw new Error(`generateTrendBrief: ${e.message}`);
+  }
+
+  const briefs = Number(result?.briefs || 0);
+  return {
+    success: true,
+    brand_container_id: bc.id,
+    briefs_generated: briefs,
+    signals_scored: result?.scored ?? null,
+    cost_usd: result?.total_cost_usd ?? null,
+    cycle_id: result?.cycle_id ?? null,
+    reason,
+    message: briefs > 0
+      ? `Generados ${briefs} brief(s) de tendencias por decision de Vera. Ya estan en el dashboard de recomendaciones.`
+      : `Ciclo de tendencias corrido sin briefs accionables (señales frescas insuficientes). Sin ruido para el cliente.`,
+  };
+}
+
+/**
  * removeKeywordFromTrends(keyword, brandContainerId, reason) — remueve de palabras_clave.
  */
 export async function removeKeywordFromTrends(params, brandContainerId, organizationId) {

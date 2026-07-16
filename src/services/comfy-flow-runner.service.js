@@ -16,6 +16,21 @@ const LOCK_TTL_MIN     = 10;
 const MAX_CONCURRENT   = 5;
 const DISPATCHER_URL   = process.env.DISPATCHER_URL || "https://comfyui.aismartcontent.io";
 const DISPATCHER_TOKEN = process.env.DISPATCHER_TOKEN || "";
+// Media a R2 via worker de ingesta (media.aismartcontent.io); Supabase Storage ya no guarda producciones.
+const R2_INGEST_URL = process.env.R2_INGEST_URL || "";
+const R2_INGEST_KEY = process.env.R2_INGEST_KEY || "";
+
+async function r2Ingest(objPath, bytes, contentType) {
+  const res = await fetch(`${R2_INGEST_URL}/object/${encodeURI(objPath)}`, {
+    method: "PUT",
+    headers: { "x-ingest-key": R2_INGEST_KEY, "content-type": contentType || "application/octet-stream" },
+    body: bytes,
+  });
+  if (!res.ok) throw new Error(`r2 ingest ${res.status}: ${await res.text().catch(() => "")}`);
+  const j = await res.json();
+  if (!j.url) throw new Error("r2 ingest sin url en respuesta");
+  return j.url; // https://media.aismartcontent.io/<path>
+}
 
 let _active = 0, _timer = null;
 
@@ -241,14 +256,14 @@ async function persistOutputs(job, def, worker, outputs, apiGraph, realCost, ide
       try {
         const bytes = await fetchView(worker, m.filename, m.subfolder);
         const objPath = `${bc}/${date}/${batch}/${m.filename}`;
-        await supabase.storage.from("production-outputs").upload(objPath, bytes, { contentType: m.ct, upsert: true });
+        const mediaUrl = await r2Ingest(objPath, bytes, m.ct);
         const gen = findGenNode(apiGraph, nid);
         const model = gen ? modelFor(gen.class_type) : "comfy";
         cost += (CREDIT_RATE[model] ?? CREDIT_RATE.default);
         const prefix = String(m.filename).split("_")[0];
         const { error: insErr } = await supabase.from("runs_outputs").insert({
           output_type: m.ot === "video" ? "video" : "ai_content", status: "completed", provider: "comfy",
-          storage_path: `production-outputs/${objPath}`, organization_id: job.organization_id, brand_container_id: bc, run_id: runId,
+          storage_path: mediaUrl, organization_id: job.organization_id, brand_container_id: bc, run_id: runId,
           prompt_used: gen?.inputs?.prompt || null, models: [model],
           technical_params: gen ? { aspect_ratio: gen.inputs?.aspect_ratio, resolution: gen.inputs?.resolution, output_format: gen.inputs?.output_format } : null,
           reference_image_url: (inp.productos && inp.productos[0]) || null, entity_id: entityMap[prefix] || inp.entity_id || frCtx.entity_id || null,

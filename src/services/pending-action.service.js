@@ -149,6 +149,21 @@ export async function proposeAction({
     }
   }
 
+  // 0.5 HORIZONTE (siembra/cosecha/mixta) — fuente unica: RPC classify_play_horizon.
+  //     Etiqueta la jugada para que el learning loop la mida por el horizonte correcto
+  //     (siembra != lift de engagement a 7d). Nunca bloquea el insert.
+  let horizon = null;
+  try {
+    const { data: hz, error: hzErr } = await supabase.rpc("classify_play_horizon", {
+      p_action_type: actionType,
+      p_payload:     proposedPayload || {},
+    });
+    if (hzErr) console.warn(`[pending-action] classify_play_horizon: ${hzErr.message}`);
+    else horizon = hz || null;
+  } catch (e) {
+    console.warn(`[pending-action] classify_play_horizon excepción: ${e.message}`);
+  }
+
   // 1. INSERT
   const { data: action, error: insertErr } = await supabase
     .from("vera_pending_actions")
@@ -167,6 +182,8 @@ export async function proposeAction({
       expires_at:         expiresAt,
       theme:              theme || null,
       dedup_key:          dedupKey,
+      horizon:            horizon,
+      horizon_reason:     horizon ? "clasificado en proposeAction via classify_play_horizon" : null,
     })
     .select()
     .single();

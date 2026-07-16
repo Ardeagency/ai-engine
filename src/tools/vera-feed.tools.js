@@ -150,3 +150,85 @@ export async function getBrainFeed(params, brandContainerId, organizationId) {
     data: bucket === "all" ? payload : (payload[bucket] || null),
   };
 }
+
+/**
+ * initiateConversation — Vera ABRE un hilo con un humano de la org sin esperar a
+ * que le escriban. Crea la conversación (metadata.initiated_by='vera') + el primer
+ * mensaje (role=assistant) + una notificación para que el humano sepa que Vera le
+ * escribió. Parte del modelo "ejecutar-e-informar": Vera rinde cuentas por su cuenta.
+ *
+ * params: { topic, opening_message, reason?, audience_role?, brand_container_id? }
+ *  - audience_role: si se pasa, dirige el hilo a un miembro con ese rol; si no,
+ *    prefiere owner/admin, y si no hay, cualquier miembro.
+ */
+export async function initiateConversation(params, brandContainerId, organizationId) {
+  const { topic, opening_message, reason = null, audience_role = null,
+          brand_container_id = null } = params || {};
+  if (!topic || !opening_message) {
+    throw new Error("topic y opening_message son requeridos");
+  }
+
+  // Resolver el humano destinatario dentro de la org (user_id es NOT NULL).
+  const { data: members, error: mErr } = await supabase
+    .from("organization_members")
+    .select("user_id, role")
+    .eq("organization_id", organizationId);
+  if (mErr) throw new Error(`initiateConversation: ${mErr.message}`);
+  if (!members || !members.length) {
+    throw new Error("la org no tiene miembros a quien escribir");
+  }
+  const rank = (r) => (r === "owner" ? 0 : r === "admin" ? 1 : 2);
+  let target = null;
+  if (audience_role) {
+    target = members.find((m) => m.role === audience_role) || null;
+  }
+  if (!target) {
+    target = [...members].sort((a, b) => rank(a.role) - rank(b.role))[0];
+  }
+
+  const effectiveBrandId = brand_container_id || brandContainerId || null;
+
+  const { data: conv, error: cErr } = await supabase
+    .from("ai_conversations")
+    .insert({
+      organization_id:    organizationId,
+      brand_container_id: effectiveBrandId,
+      user_id:            target.user_id,
+      title:              topic.slice(0, 120),
+      is_active:          true,
+      metadata:           { initiated_by: "vera", reason, source: "vera_brain_feed" },
+    })
+    .select("id")
+    .single();
+  if (cErr) throw new Error(`initiateConversation: ${cErr.message}`);
+
+  const { error: msgErr } = await supabase.from("ai_messages").insert({
+    conversation_id: conv.id,
+    organization_id: organizationId,
+    role:            "assistant",
+    content:         opening_message,
+    metadata:        { initiated_by: "vera", reason },
+  });
+  if (msgErr) throw new Error(`initiateConversation (mensaje): ${msgErr.message}`);
+
+  // Avisar al humano que Vera abrió un hilo (para que aparezca como no leído).
+  await supabase.from("org_notifications").insert({
+    organization_id:    organizationId,
+    brand_container_id: effectiveBrandId,
+    severity:           "info",
+    type:               "vera_message",
+    title:              `Vera te escribió: ${topic.slice(0, 80)}`,
+    body:               opening_message.slice(0, 280),
+    action_url:         `/vera?c=${conv.id}`,
+    action_label:       "Abrir conversación",
+    metadata:           { source: "vera_initiated_conversation", conversation_id: conv.id },
+  });
+
+  return {
+    success: true,
+    conversation_id: conv.id,
+    target_user_id: target.user_id,
+    target_role: target.role,
+    message: `Conversación "${topic.slice(0, 60)}" iniciada con ${target.role}`,
+  };
+}

@@ -14,8 +14,13 @@ Responde siempre tres preguntas, en este orden: ¿Que paso? ¿Que significa? ¿Q
 ### 1. Radar del mercado (3-5 lineas)
 Que ocurrio relevante en el nicho en las ultimas 24h. Solo lo que toca a ESTA marca. Si una señal no cambia ninguna decision, no va — ocupa espacio que el equipo lee con atencion limitada.
 
-### 2. Movimientos de competencia (3-5 lineas)
-Solo lo accionable. La actividad rutinaria no se reporta; reportas anomalias, oportunidades y amenazas. El equipo asume que "lo normal" sigue normal — tu existes para señalar lo que se salio del patron.
+### 2. Movimientos de los perfiles monitoreados (3-5 lineas)
+Solo lo accionable, y leido segun el **rol** de cada perfil — no todo es competencia:
+- **Competidor** — anomalias, amenazas y brechas que abren jugada para **superarlo**.
+- **Referente** — que hizo bien que valga la pena **adaptar** (comunicacion / visual / tono / CTA), segun su relevancia. Es una leccion, no una amenaza.
+- **Aliado** — aperturas de **colaboracion** o amplificacion de audiencia compartida.
+
+La actividad rutinaria no se reporta: solo lo que se salio del patron. El equipo asume que "lo normal" sigue normal.
 
 ### 3. Oportunidades del dia (2-3 maximo)
 Mas de 3 diluye el foco y nada se ejecuta. Para cada una, el formato señal->interpretacion->accion (es lo que vuelve util el brief: la accion ya esta decidida):

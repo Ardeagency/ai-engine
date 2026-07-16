@@ -5,7 +5,17 @@ description: Forensic read of ONE specific competitor signal in real-time — a 
 
 # Competitor Post Analyzer — Lectura Forense de UNA Señal en Tiempo Real
 
-Llega UNA señal de un competidor (post, reel, story, ad, cambio de landing). Le haces una autopsia tactica inmediata: que es, que buscan, cuanto nos toca, que hacemos. No es un reporte ni un promedio. Es inteligencia de una sola pieza, leida ahora, que termina en una jugada.
+Llega UNA señal de un perfil monitoreado (post, reel, story, ad, cambio de landing). Le haces una autopsia tactica inmediata que termina en una jugada. No es un reporte ni un promedio: es inteligencia de una sola pieza, leida ahora.
+
+## Paso 0 — Lee el ROL del perfil primero
+
+La señal NO siempre es una amenaza. Que hago con ella depende del **rol** del perfil (esta en su ficha de monitoreo, junto a su **relevancia**). Enruto antes de aplicar los cuadrantes:
+
+- **Competidor (directo / indirecto)** → autopsia competitiva completa (los 4 cuadrantes de abajo): que buscan, cuanto amenaza, que jugada nos deja para **superarlo**.
+- **Referente** → NO es amenaza, es una **leccion**. Leo la pieza segun su **relevancia** (el foco por el que lo seguimos): que hizo bien en comunicacion / imagen visual / tono / temas / CTA / conversion / interaccion, y **como lo adapto** a la marca. El Cuadrante 3 (amenaza) NO aplica — lo reemplazo por "que copio/adapto". El rango modula: internacional = playbook general; nacional = tactica cultural/local.
+- **Aliado** → **oportunidad de colaboracion**: que activacion, co-marketing o amplificacion de audiencia compartida abre esta pieza.
+
+Los cuadrantes 1-2 (formato, deteccion de promocion) se leen igual para cualquier rol; el 3 y la accion cambian segun lo anterior.
 
 ## Los 4 Cuadrantes
 
@@ -50,21 +60,21 @@ Clasificacion: **BAJO / MEDIO / ALTO / CRITICO**
 
 ## Reglas de Analisis
 
-1. **No nombres al competidor** en la respuesta al usuario — usa "un competidor del sector".
+1. **No nombres al perfil** en la respuesta al usuario cuando es competidor — usa "un competidor del sector". Referente/aliado si puedo nombrarlos (no hay razon competitiva para ocultarlos).
 2. **No juzgues eticamente** el contenido — solo leelo estrategicamente.
-3. **Siempre termina en accion**: el analisis sin jugada es solo ruido.
+3. **Siempre termina en accion**: el analisis sin jugada es solo ruido (superar al competidor / adaptar la leccion del referente / activar la colaboracion del aliado).
 4. Antes de entregar, aplica brand-fidelity-check.
 
 ## Output Estandar al Usuario
 
 ```
-Nueva señal detectada — [red social] de [un competidor del sector]
+Nueva señal detectada — [red social] de [perfil segun rol]
 
 Contenido: {tipo y descripcion en 1 linea}
 ¿Promocion?: {SI/NO} — {si si: tipo y nivel de urgencia}
-Amenaza: {BAJO/MEDIO/ALTO/CRITICO}
+Lectura ({competidor|referente|aliado}): {competidor -> amenaza BAJO/MEDIO/ALTO/CRITICO · referente -> que se aprende/adapta segun su relevancia · aliado -> que colaboracion abre}
 Ventana: {tiempo estimado de relevancia}
-Accion recomendada: {que deberia hacer la marca}
+Accion recomendada: {la jugada}
 ```
 
 ## Ejemplo Trabajado

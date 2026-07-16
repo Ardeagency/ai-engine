@@ -6,7 +6,7 @@ from google import genai
 from google.genai import types
 
 _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-flash-lite-latest"
 
 VIDEO_PROMPT = """Describe este video en español, máximo 180 palabras. Estructura obligatoria:
 

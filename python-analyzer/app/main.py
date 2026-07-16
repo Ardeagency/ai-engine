@@ -238,7 +238,9 @@ async def _fetch_comments_pending(limit: int):
         return r.json()
 
 
-async def _update_comment(comment_id: str, sentiment_label: str, sentiment_score: float, emotion: str):
+async def _update_comment(comment_id: str, sentiment_label: str, sentiment_score: float, emotion: str,
+                          audience_signal: str = None, audience_signal_confidence: float = None,
+                          audience_signal_cue: str = None):
     async with httpx.AsyncClient(timeout=10) as cli:
         await cli.patch(
             f"{SUPABASE_URL}/rest/v1/brand_post_comments",
@@ -248,9 +250,33 @@ async def _update_comment(comment_id: str, sentiment_label: str, sentiment_score
                 "sentiment": sentiment_label,
                 "sentiment_score": sentiment_score,
                 "emotion": emotion,
+                "audience_signal": audience_signal,
+                "audience_signal_confidence": audience_signal_confidence,
+                "audience_signal_cue": audience_signal_cue,
                 "is_processed": True,
             },
         )
+
+
+def _reconcile_sentiment(label: str, score: float, signal: str):
+    """La INTENCION del comentario corrige la polaridad del modelo (que lee emojis y
+    jerga literal). Un competidor rara vez recibe queja: la demanda insatisfecha y la
+    peticion de producto son intencion POSITIVA, no negatividad.
+      - amor_marca            -> POS
+      - demanda / peticion    -> si el modelo dijo NEG, NEU (interes, no euforia)
+      - queja                 -> NEG (aunque el modelo lo haya suavizado)
+      - pregunta / None       -> se respeta el modelo
+    """
+    if signal == "amor_marca":
+        if label != "POS":
+            return "POS", max(score, 0.5)
+    elif signal in ("demanda_distribucion", "peticion_producto"):
+        if label == "NEG":
+            return "NEU", 0.0
+    elif signal == "queja":
+        if label != "NEG":
+            return "NEG", min(score, -0.4)
+    return label, score
 
 
 @app.post("/comments/analyze-pending")
@@ -261,6 +287,7 @@ async def comments_analyze_pending(req: CommentsPendingReq):
 
     from .tasks.sentiment import analyze_sentiment, detect_lang
     from .tasks.emotion import analyze_emotion
+    from .tasks.audience_signal import detect_audience_signal
 
     ok = 0
     errs = []
@@ -275,13 +302,71 @@ async def comments_analyze_pending(req: CommentsPendingReq):
             lang = detect_lang(content)
             sent = analyze_sentiment(content, lang)
             emo = analyze_emotion(content, lang if lang in ("es", "en") else "en")
-            await _update_comment(c["id"], sent["label"], sent["score"], emo["dominant"])
+            # Señal de demanda de la audiencia (intencion) + reconciliacion del sentimiento
+            sig = detect_audience_signal(content, lang)
+            label, score = _reconcile_sentiment(sent["label"], sent["score"], sig["signal"])
+            await _update_comment(c["id"], label, score, emo["dominant"],
+                                  sig["signal"], sig["confidence"], sig["cue"])
             ok += 1
         except Exception as e:
             errs.append({"id": c["id"], "error": str(e)[:200]})
     return {"processed": ok, "errors": len(errs), "error_samples": errs[:3]}
 
 
+# ── CREATIVE THEME (gancho creativo de posts de competencia) ──────────────────
+# Camino FRIO / batch: solo TOP posts por engagement (donde esta el aprendizaje).
+# Usa caption (no expira) + descripcion de media si existe. LLM acotado a top posts.
+class CreativeThemeReq(BaseModel):
+    limit: int = 60
+    only_competitors: bool = True
+
+
+async def _fetch_posts_for_theme(limit: int, only_competitors: bool):
+    async with httpx.AsyncClient(timeout=20) as cli:
+        params = {
+            "select": "id,content,engagement_total,media_assets,enrichment",
+            "content": "not.is.null",
+            "enrichment->creative_theme": "is.null",
+            "order": "engagement_total.desc.nullslast",
+            "limit": str(limit),
+        }
+        if only_competitors:
+            params["is_competitor"] = "eq.true"
+        r = await cli.get(f"{SUPABASE_URL}/rest/v1/brand_posts", headers=H, params=params)
+        r.raise_for_status()
+        return r.json()
+
+
+async def _persist_theme(post_id: str, enrichment, theme: dict):
+    new_enr = dict(enrichment) if isinstance(enrichment, dict) else {}
+    new_enr["creative_theme"] = theme
+    async with httpx.AsyncClient(timeout=10) as cli:
+        await cli.patch(f"{SUPABASE_URL}/rest/v1/brand_posts", headers=H,
+                        params={"id": f"eq.{post_id}"}, json={"enrichment": new_enr})
+
+
+@app.post("/analyze/creative-theme")
+async def analyze_creative_theme(req: CreativeThemeReq):
+    posts = await _fetch_posts_for_theme(req.limit, req.only_competitors)
+    if not posts:
+        return {"processed": 0, "message": "no posts pending theme"}
+    from .tasks.creative_theme import detect_creative_theme
+
+    ok, errs, cost = 0, [], 0.0
+    for p in posts:
+        try:
+            ma = p.get("media_assets") or {}
+            descs = ma.get("descriptions") if isinstance(ma, dict) else None
+            media_desc = ""
+            if isinstance(descs, list):
+                media_desc = " ".join(str(d.get("description", "")) for d in descs if isinstance(d, dict))[:1500]
+            theme = detect_creative_theme(p.get("content") or "", media_desc)
+            cost += float(theme.get("usd_cost") or 0)
+            await _persist_theme(p["id"], p.get("enrichment"), theme)
+            ok += 1
+        except Exception as e:
+            errs.append({"id": p["id"], "error": str(e)[:200]})
+    return {"processed": ok, "errors": len(errs), "usd_cost": round(cost, 4), "error_samples": errs[:3]}
 
 
 # ── PATTERN MINING (F1) ──────────────────────────────────────────────────────
@@ -328,58 +413,6 @@ async def _get_org_id_for_brand(brand_id: str):
                           headers=H, params={"id": f"eq.{brand_id}", "select": "organization_id"})
         rows = r.json() if r.status_code == 200 else []
         return rows[0]["organization_id"] if rows else None
-
-
-async def _insert_pattern(post_row: dict, pattern: dict):
-    org_id = await _get_org_id_for_brand(post_row.get("brand_container_id"))
-    payload = {
-        "brand_post_id": post_row["id"],
-        "brand_container_id": post_row.get("brand_container_id"),
-        "organization_id": org_id,
-        "is_competitor": bool(post_row.get("is_competitor", True)),
-        "network": post_row.get("network"),
-        "tone": pattern["tone"],
-        "topic": pattern["topic"],
-        "format": pattern["format"],
-        "mood": pattern["mood"],
-        "tone_confidence": pattern["tone_confidence"],
-        "topic_confidence": pattern["topic_confidence"],
-        "engagement_total": pattern["engagement_total"],
-        "engagement_rate": pattern["engagement_rate"],
-        "sentiment_score": pattern["sentiment_score"],
-        "impact_score": pattern["impact_score"],
-        "reach": pattern["reach"],
-        "followers_at_capture": pattern["followers_at_capture"],
-        "posted_at": post_row.get("captured_at"),
-        "classifier_version": "v1",
-    }
-    async with httpx.AsyncClient(timeout=10) as cli:
-        r = await cli.post(
-            f"{SUPABASE_URL}/rest/v1/post_patterns",
-            headers={**H, "Prefer": "resolution=merge-duplicates"},
-            json=payload,
-        )
-        if r.status_code >= 400:
-            raise RuntimeError(f"insert pattern: {r.status_code} {r.text[:200]}")
-
-
-@app.post("/patterns/classify-pending")
-async def patterns_classify_pending(req: PatternsBatchReq):
-    posts = await _fetch_posts_for_patterns(req.limit)
-    if not posts:
-        return {"processed": 0, "message": "no pending patterns"}
-
-    from .tasks.pattern_classifier import classify_post
-    ok = 0
-    errs = []
-    for p in posts:
-        try:
-            pattern = classify_post(p)
-            await _insert_pattern(p, pattern)
-            ok += 1
-        except Exception as e:
-            errs.append({"id": p["id"], "error": str(e)[:200]})
-    return {"processed": ok, "errors": len(errs), "error_samples": errs[:3]}
 
 
 @app.get("/patterns/sample/{post_id}")
@@ -1449,3 +1482,90 @@ def warmup():
     res = analyze_post("Hello world! 🚀", metrics={"likes": 10, "comments": 1})
     print(f"[startup] modelos OK — lang={res.get('language')} sent={res.get('sentiment',{}).get('label')}")
     _models_loaded = True
+
+
+@app.post("/trends/keywords/{brand_container_id}")
+async def trends_keyword_loop(brand_container_id: str, max_calls: int | None = None,
+                              max_rounds: int | None = None):
+    """Keyword discovery loop (flywheel). Gobernador de gasto: max_calls = tope de
+    llamadas Tavily por ciclo. Devuelve winners + creditos Tavily gastados."""
+    from .trends.keyword_loop import run_keyword_loop
+    try:
+        return await run_keyword_loop(brand_container_id, max_calls=max_calls,
+                                      max_rounds=max_rounds)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"keyword_loop error: {str(e)[:300]}")
+
+
+# ── Clasificador LLM (multi-etiqueta, data-driven desde pattern_taxonomy) ──
+class PatternsLLMReq(BaseModel):
+    limit: int = 20
+    global_max: int = 200
+
+
+async def _insert_pattern_llm(post_row: dict, det: dict, llm: dict):
+    org_id = await _get_org_id_for_brand(post_row.get("brand_container_id"))
+    payload = {
+        "brand_post_id": post_row["id"],
+        "brand_container_id": post_row.get("brand_container_id"),
+        "organization_id": org_id,
+        "is_competitor": bool(post_row.get("is_competitor", True)),
+        "network": post_row.get("network"),
+        "tone": llm.get("tone") or det["tone"],
+        "topic": llm.get("topic") or det["topic"],
+        "format": det["format"],
+        "mood": llm.get("mood") or det["mood"],
+        "tone_confidence": llm.get("tone_confidence") or det["tone_confidence"],
+        "topic_confidence": llm.get("topic_confidence") or det["topic_confidence"],
+        "engagement_total": det["engagement_total"],
+        "engagement_rate": det["engagement_rate"],
+        "sentiment_score": det["sentiment_score"],
+        "impact_score": det["impact_score"],
+        "reach": det["reach"],
+        "followers_at_capture": det["followers_at_capture"],
+        "posted_at": post_row.get("captured_at"),
+        "classifier_version": "llm-v3",
+        "topics": llm.get("topics", []),
+        "tones": llm.get("tones", []),
+        "moods": llm.get("moods", []),
+        "sentiments": llm.get("sentiments", []),
+        "audience_sentiment": llm.get("audience_sentiment"),
+        "sentiment_evoked": llm.get("sentiment_evoked"),
+    }
+    async with httpx.AsyncClient(timeout=10) as cli:
+        r = await cli.post(
+            f"{SUPABASE_URL}/rest/v1/post_patterns",
+            headers={**H, "Prefer": "resolution=merge-duplicates"},
+            json=payload,
+        )
+        if r.status_code >= 400:
+            raise RuntimeError(f"insert llm pattern: {r.status_code} {r.text[:200]}")
+
+
+@app.post("/patterns/classify-llm")
+async def patterns_classify_llm(req: PatternsLLMReq):
+    posts = await _fetch_posts_for_patterns(req.limit)
+    if not posts:
+        return {"processed": 0, "message": "no pending patterns"}
+
+    from .tasks.llm_classifier import classify_batch, select_governed
+    from .tasks.pattern_classifier import classify_post
+
+    posts = select_governed(posts, req.global_max)
+    try:
+        llm_by_id = classify_batch(posts)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"llm classify failed: {str(e)[:300]}")
+
+    ok, errs = 0, []
+    for p in posts:
+        try:
+            det = classify_post(p)
+            llm = llm_by_id.get(p["id"], {})
+            await _insert_pattern_llm(p, det, llm)
+            ok += 1
+        except Exception as e:
+            errs.append({"id": p["id"], "error": str(e)[:200]})
+    return {"processed": ok, "errors": len(errs), "error_samples": errs[:3]}

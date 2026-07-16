@@ -216,6 +216,91 @@ HYPE_MARKERS = {
     "world class", "absolutely",
 }
 
+# ── Triggers de TONO conversacional/cercano/curioso (EN+ES) ──────────────────
+# Antes todo post que hablaba directo a la audiencia o hacía una pregunta caía
+# al default "casual". Estos capturan la voz cercana típica de marcas de consumo
+# (comida, bebida, lifestyle) que interpelan al seguidor.
+CONVERSATIONAL_MARKERS = {
+    # ES
+    "cuéntame", "cuéntanos", "y tú", "¿tú", "qué opinas", "déjanos saber",
+    "déjame saber", "dinos", "adivina", "te cuento", "hablemos",
+    "comenta abajo", "comenta si", "etiqueta a", "etiqueta a alguien",
+    # EN
+    "let me know", "let us know", "tell me", "tell us", "what do you think",
+    "you know what", "guess what", "let's talk", "drop a", "comment below",
+    "comment if", "who else", "raise your hand", "tag someone", "tag a friend",
+    "be honest",
+}
+CURIOUS_MARKERS = {
+    # ES
+    "sabías que", "te has preguntado", "imagínate", "adivina qué",
+    "el secreto", "lo que no sabías", "descubre", "misterio", "por qué",
+    # EN
+    "did you know", "ever wondered", "imagine if", "the secret",
+    "what you didn't know", "here's why", "the reason why", "guess what happens",
+    "plot twist", "fun fact",
+}
+
+# ── Triggers de TEMA food / CPG / bienestar (EN+ES) ──────────────────────────
+# La taxonomía nació orientada a marcas globales de deporte/hype y no tenía
+# NADA de comida/consumo, así que recetas, claims de salud e ingredientes caían
+# todos a "informativo". Estos son genéricos y sirven a cualquier marca de
+# alimento, bebida, cuidado personal o wellness.
+RECIPE_USE_MARKERS = {
+    # ES
+    "receta", "recetas", "ingredientes:", "prepara", "preparación",
+    "úsalo en", "combínalo con", "combina con", "acompaña", "para untar",
+    "hazlo en casa", "modo de uso", "cómo usar", "pruébalo con", "topping",
+    # EN
+    "recipe", "recipes", "how to make", "spread it on", "pair it with",
+    "pairs with", "add it to", "add to your", "perfect with", "top it with",
+    "try it with", "use it in", "homemade", "meal prep", "no-bake",
+}
+HEALTH_NUTRITION_MARKERS = {
+    # ES
+    "proteína", "proteínas", "sin azúcar", "sin azúcar añadida", "saludable",
+    "natural", "vegano", "vegana", "keto", "sin gluten", "gluten free",
+    "calorías", "fibra", "energía natural", "nutrición", "nutritivo",
+    "bienestar", "sin conservantes", "orgánico", "bajo en",
+    # EN
+    "protein", "no sugar", "sugar free", "no added sugar", "healthy",
+    "vegan", "plant based", "plant-based", "gluten free", "gluten-free",
+    "calories", "fiber", "fibre", "nutrition", "nutritious", "wholesome",
+    "clean energy", "no preservatives", "organic", "low in", "high in protein",
+    "macros",
+}
+INGREDIENT_QUALITY_MARKERS = {
+    # ES
+    "ingredientes", "un solo ingrediente", "100%", "sin aditivos", "puro",
+    "sin nada raro", "de verdad", "real", "materia prima", "sin químicos",
+    "de origen", "hecho con", "elaborado con", "así se hace",
+    # EN
+    "ingredients", "single ingredient", "one ingredient", "no additives",
+    "no fillers", "just peanuts", "just", "real ", "made with", "sourced",
+    "farm to", "the good stuff", "nothing artificial", "clean label",
+    "what's inside", "what's in it",
+}
+QUESTION_AUDIENCE_MARKERS = {
+    # ES
+    "¿cuál prefieres", "¿cuál es tu", "¿qué prefieres", "vota", "votación",
+    "encuesta", "esto o aquello", "team ", "¿sí o no", "responde",
+    "¿tú qué", "cuéntanos en", "opina",
+    # EN
+    "which one", "this or that", "would you rather", "vote", "poll",
+    "pick one", "yes or no", "your favorite", "what's your", "a or b",
+    "sound off", "let's settle",
+}
+SEASONAL_MARKERS = {
+    # ES
+    "navidad", "año nuevo", "halloween", "san valentín", "día de la madre",
+    "día del padre", "día de", "temporada", "fiestas", "diciembre",
+    "vacaciones", "regalo perfecto",
+    # EN
+    "christmas", "xmas", "new year", "halloween", "valentine", "mother's day",
+    "father's day", "thanksgiving", "holiday season", "this season",
+    "summer ", "back to school", "perfect gift", "gift guide",
+}
+
 
 def _has_any(text_low: str, words) -> int:
     """Return count of dict matches."""
@@ -328,6 +413,17 @@ def classify_tone(post: dict) -> tuple[str, float]:
     if abs(sentiment_score) > 0.7 and intent.get("cta_intent", 0) > 0.3:
         return ("provocador", 0.60)
 
+    # 14. Curioso / intriga (teaser, "sabías que", plot twist) — antes → casual.
+    if _has_any(text_low, CURIOUS_MARKERS) >= 1:
+        return ("curioso", 0.68)
+
+    # 15. Conversacional / cercano (habla directa, pregunta a la audiencia).
+    # Rescata la voz de marca de consumo que interpela al seguidor; sin esto
+    # todo caía a "casual" y el dashboard mostraba un solo tono dominante.
+    convo = _has_any(text_low, CONVERSATIONAL_MARKERS)
+    if convo >= 1 or (text.count("?") + text.count("¿")) >= 2:
+        return ("conversacional", min(0.80, 0.6 + convo * 0.1))
+
     # Antes del default: revisar vocabulario aprendido
     learned = _check_learned_vocab(text_low, "tone")
     if learned:
@@ -355,6 +451,11 @@ def classify_topic(post: dict, network: str) -> tuple[str, float]:
     if promo_hit >= 1 or (intent.get("buying_intent", 0) > 0.7 and "$" in text):
         return ("promo_oferta", 0.85)
 
+    # 1b. Fecha especial / temporada (navidad, san valentín, back to school…).
+    # Antes del launch/producto porque un post estacional es su propia categoría.
+    if _has_any(text_low, SEASONAL_MARKERS) >= 1:
+        return ("fecha_especial", 0.78)
+
     # 2. Producto / Launch
     if any(w in text_low for w in [
         "new ", "launching", "drops", "available", "now available",
@@ -364,9 +465,22 @@ def classify_topic(post: dict, network: str) -> tuple[str, float]:
     ]):
         return ("producto_launch", 0.80)
 
+    # 2b. Receta / uso del producto (comida, bebida, cuidado personal).
+    # Va antes de tutorial: una receta es más específica que un how-to genérico.
+    if _has_any(text_low, RECIPE_USE_MARKERS) >= 1:
+        return ("receta_uso", 0.82)
+
     # 3. Tutorial
     if _has_any_regex(text, TUTORIAL_MARKERS):
         return ("tutorial", 0.85)
+
+    # 3b. Salud / Nutrición (proteína, sin azúcar, vegano, calorías…).
+    if _has_any(text_low, HEALTH_NUTRITION_MARKERS) >= 1:
+        return ("salud_nutricion", 0.80)
+
+    # 3c. Ingredientes / Calidad (qué lleva, un solo ingrediente, sin aditivos).
+    if _has_any(text_low, INGREDIENT_QUALITY_MARKERS) >= 2:
+        return ("ingredientes_calidad", 0.78)
 
     # 4. Datos curiosos / Fun facts
     if _has_any(text_low, FUN_FACT_MARKERS) >= 1:
@@ -377,7 +491,12 @@ def classify_topic(post: dict, network: str) -> tuple[str, float]:
         return ("comparison", 0.78)
 
     # 6. Behind the scenes
-    if any(w in text_low for w in ["behind the scenes", "bts", "tras bambalinas", "making of", "process", "proceso"]):
+    if any(w in text_low for w in [
+        "behind the scenes", "bts", "tras bambalinas", "making of", "process",
+        "proceso", "detrás de cámaras", "detras de camaras", "así se hace",
+        "asi se hace", "cómo se hace", "como se hace", "how it's made",
+        "en la planta", "en la fábrica", "en la fabrica",
+    ]):
         return ("behind_scenes", 0.80)
 
     # 7. Partnership
@@ -400,6 +519,11 @@ def classify_topic(post: dict, network: str) -> tuple[str, float]:
     # 11. Comedia / pranks
     if _has_any(text_low, COMEDY_MARKERS) >= 2 or "prank" in text_low:
         return ("comedia_pranks", 0.75)
+
+    # 11b. Pregunta a la audiencia / interactivo (encuesta, "cuál prefieres",
+    # "esto o aquello"). Motor de engagement universal; antes → informativo.
+    if _has_any(text_low, QUESTION_AUDIENCE_MARKERS) >= 1:
+        return ("pregunta_audiencia", 0.75)
 
     # 12. Comunidad / fans
     if any(w in text_low for w in [
@@ -438,7 +562,16 @@ def classify_topic(post: dict, network: str) -> tuple[str, float]:
 def classify_format(post: dict, network: str) -> str:
     """Determinístico desde metadata."""
     pn = post.get("platform_native", {})
+    if not isinstance(pn, dict):
+        pn = {}
     media = post.get("media_assets", {})
+    # media_assets puede venir como lista de assets (reels/carruseles de IG:
+    # [{type, permalink}, ...]) o como dict. Normalizamos a dict para que los
+    # .get() de abajo no revienten ('list' object has no attribute 'get').
+    if isinstance(media, list):
+        media = {"images": media}
+    elif not isinstance(media, dict):
+        media = {}
 
     if network == "tiktok":
         # Detectar baile/sound trending
@@ -508,7 +641,8 @@ def classify_mood(post: dict, tone: str, topic: str) -> str:
     if tone in ("confrontacional", "provocador"): return "confrontante"
     if tone == "humorístico" or dominant == "amusement": return "divertido"
     if tone == "motivacional" or tone == "optimista": return "inspirador"
-    if topic in ("tutorial", "informativo", "datos_curiosos") and tone == "educativo": return "técnico"
+    if tone == "curioso": return "intrigante"
+    if topic in ("tutorial", "informativo", "datos_curiosos", "receta_uso", "salud_nutricion", "ingredientes_calidad") and tone in ("educativo", "conversacional"): return "técnico"
     if dominant == "joy" and sent_score > 0.6: return "celebratorio"
     if topic == "behind_scenes" or tone == "íntimo": return "emotivo"
     if topic == "comparison" or tone in ("autoritario",): return "intrigante"

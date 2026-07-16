@@ -29,7 +29,9 @@ def detect_lang(text: str) -> str:
 # NEU porque su threshold interno favorece NEU ante ambigüedad. Acá amplificamos
 # señales claras (emojis + keywords de victoria/celebración) que el modelo subestima.
 POS_EMOJI = {"🔥","🏆","💪","🚀","💯","❤️","✨","🎉","💥","⭐","🌟","👑","🥇","💎"}
-NEG_EMOJI = {"💔","😢","😞","😤","😡","💀","🤮","👎","🚨","⚠️","😩","😭"}
+# 😭/😩 NO viven aqui: son multiuso (llanto de emocion/adoracion en jerga de fans).
+# El contexto lo decide la capa audience_signal (detect_audience_signal), no el emoji.
+NEG_EMOJI = {"💔","😢","😞","😤","😡","💀","🤮","👎","🚨","⚠️"}
 POS_KEYWORDS_EN = {
     " win", " winner", "victory", "champion", "champions", "winning",
     "best ", "greatest", "legendary", "iconic", "amazing", "incredible",

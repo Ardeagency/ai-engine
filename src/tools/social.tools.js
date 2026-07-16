@@ -475,10 +475,13 @@ export async function fetchOwnPostsPage({
   );
 
   // Resolver edge + campos + normalizador según red.
-  let edge, fields, normalize, accountLabel = pageName;
+  // accountFollowers: conteo de seguidores de la cuenta (una vez por corrida) para
+  // estampar followers_snapshot en cada post. Sin él, compute_penetration_proxy da 0
+  // en IG/FB (los scrapers Apify no exponen followers por post). Scopes ya presentes.
+  let edge, fields, normalize, accountLabel = pageName, accountFollowers = null;
   if (network === "instagram") {
     const fbPage = await metaGet(`/${pageId}`, pageToken, {
-      fields: "instagram_business_account{id,username}",
+      fields: "instagram_business_account{id,username,followers_count}",
     });
     const igId = fbPage?.instagram_business_account?.id;
     if (!igId) {
@@ -486,6 +489,7 @@ export async function fetchOwnPostsPage({
       e.noIgLinked = true;
       throw e;
     }
+    accountFollowers = fbPage?.instagram_business_account?.followers_count ?? null;
     accountLabel = `@${fbPage.instagram_business_account?.username}`;
     edge   = `/${igId}/media`;
     fields = "id,caption,media_type,permalink,timestamp,like_count,comments_count";
@@ -501,6 +505,10 @@ export async function fetchOwnPostsPage({
       };
     };
   } else { // facebook
+    try {
+      const pg = await metaGet(`/${pageId}`, pageToken, { fields: "followers_count,fan_count" });
+      accountFollowers = pg?.followers_count ?? pg?.fan_count ?? null;
+    } catch (_) { /* fail-open: sin followers, followers_snapshot queda null */ }
     edge   = `/${pageId}/posts`;
     fields = "id,message,story,created_time,full_picture,permalink_url," +
              "likes.summary(true),comments.summary(true),shares";
@@ -541,6 +549,7 @@ export async function fetchOwnPostsPage({
 
     for (const it of items) {
       const post = normalize(it);
+      post.followers = accountFollowers;   // para brand_posts.followers_snapshot (penetración)
       const ts = post.created_at ? new Date(post.created_at).getTime() : null;
       if (cutoffMs && ts != null && ts < cutoffMs) { reachedCutoff = true; break; }
       posts.push(post);

@@ -29,44 +29,38 @@ import { supabase } from "../lib/supabase.js";
 const SYNC_INTERVAL_MS = parseInt(process.env.BRAND_SENSOR_SYNC_INTERVAL_MS || "300000", 10); // 5 min
 
 const BRAND_WIDE_SENSORS = [
-  { sensor_type: "meta_audience_demographics",     cadence: "daily",    cadence_value: "1", priority: 6 },
-  { sensor_type: "ga4_audience_demographics",      cadence: "daily",    cadence_value: "1", priority: 6 },
-  { sensor_type: "meta_ads_audiences_sync",        cadence: "daily",    cadence_value: "1", priority: 5 },
-  { sensor_type: "meta_campaign_audience_demographics", cadence: "daily", cadence_value: "1", priority: 5 },
-  { sensor_type: "meta_campaign_ad_insights",      cadence: "daily",    cadence_value: "1", priority: 6 },
+  { sensor_type: "meta_audience_demographics",     cadence: "daily",    cadence_value: "1", priority: 6, requires: "facebook" },
+  { sensor_type: "ga4_audience_demographics",      cadence: "daily",    cadence_value: "1", priority: 6, requires: "google" },
+  { sensor_type: "meta_ads_audiences_sync",        cadence: "daily",    cadence_value: "1", priority: 5, requires: "facebook" },
+  { sensor_type: "meta_campaign_audience_demographics", cadence: "daily", cadence_value: "1", priority: 5, requires: "facebook" },
+  { sensor_type: "meta_campaign_ad_insights",      cadence: "daily",    cadence_value: "1", priority: 6, requires: "facebook" },
   { sensor_type: "audience_alignment_analysis",    cadence: "daily",    cadence_value: "1", priority: 4 },
   { sensor_type: "brand_audience_heatmap_compute", cadence: "daily",    cadence_value: "1", priority: 5 },
   { sensor_type: "mission_generation",             cadence: "interval", cadence_value: "5", priority: 7 },
   { sensor_type: "strategic_review",               cadence: "daily",    cadence_value: "1", priority: 6 },
   { sensor_type: "brand_indexer",                  cadence: "daily",    cadence_value: "1", priority: 4 },
   { sensor_type: "threat_detection",               cadence: "daily",    cadence_value: "1", priority: 6 },
-  { sensor_type: "meta_ad_library_sync",           cadence: "daily",    cadence_value: "1", priority: 5 },
-  // Trends engine — pipeline Apify+NewsAPI+OpenAI+Sonnet que genera briefs
-  // estratégicos. Costo ~$0.08-0.15 por ciclo, daily es suficiente.
-  { sensor_type: "trends_run",                     cadence: "daily",    cadence_value: "1", priority: 7 },
+  { sensor_type: "meta_ad_library_sync",           cadence: "daily",    cadence_value: "1", priority: 5, requires: "facebook" },
+  { sensor_type: "tiktok_video_insights",          cadence: "daily",    cadence_value: "1", priority: 5, requires: "tiktok" },
+  { sensor_type: "mercadolibre_metrics",           cadence: "daily",    cadence_value: "1", priority: 5, requires: "mercadolibre" },
+  { sensor_type: "google_ads_insights",            cadence: "daily",    cadence_value: "1", priority: 5, requires: "google" },
+  { sensor_type: "shopify_metrics",                cadence: "daily",    cadence_value: "1", priority: 5, requires: "shopify" },
+  // NOTA (2026-07-09): trends_run (brief estratégico) YA NO se auto-crea como cron.
+  // Decisión del usuario: los briefs NO se producen por cron ni de forma protocolar —
+  // Vera decide cuándo generarlos. El pipeline y el endpoint POST /trends/run siguen
+  // vivos; solo se removió el disparo programado. NO re-agregar aquí.
 ];
 
 let _interval = null;
 
-// Resuelve cadencia del sensor `trends_run` desde plans.trends_cadence_days.
-// Plan agency = daily, team = 2 días, creator = 7 días. Fallback 7 (lo más
-// conservador) si la org no tiene plan activo.
-async function _resolveTrendsCadence(organizationId) {
-  const { data: sub } = await supabase
-    .from("subscriptions")
-    .select("plans!inner(trends_cadence_days)")
-    .eq("organization_id", organizationId)
-    .in("status", ["trial", "active", "past_due"])
-    .maybeSingle();
-  const days = sub?.plans?.trends_cadence_days ?? 7;
-  // cadence_value en minutos para soportar valores arbitrarios sin nuevo type
-  return { cadence: "interval", cadence_value: String(days * 24 * 60) };
-}
-
-async function ensureSensorsForBrand(brandContainerId, organizationId) {
+async function ensureSensorsForBrand(brandContainerId, organizationId, platforms = null) {
   let created = 0, existed = 0;
   for (let i = 0; i < BRAND_WIDE_SENSORS.length; i++) {
     const s = BRAND_WIDE_SENSORS[i];
+
+    // Sensores atados a una plataforma solo se crean si la marca tiene esa
+    // integracion activa (evita triggers que fallarian en vacio cada dia).
+    if (s.requires && platforms && !platforms.has(s.requires)) continue;
 
     const { data: existing } = await supabase
       .from("monitoring_triggers")
@@ -81,14 +75,8 @@ async function ensureSensorsForBrand(brandContainerId, organizationId) {
       continue;
     }
 
-    // Para trends_run, derivar cadencia del plan de la org (no del array estático).
-    let cadence = s.cadence;
-    let cadenceValue = s.cadence_value;
-    if (s.sensor_type === "trends_run") {
-      const resolved = await _resolveTrendsCadence(organizationId);
-      cadence = resolved.cadence;
-      cadenceValue = resolved.cadence_value;
-    }
+    const cadence = s.cadence;
+    const cadenceValue = s.cadence_value;
 
     // Escalonar next_run_at por 2 min para evitar stampede
     const nextRunAt = new Date(Date.now() + i * 2 * 60_000).toISOString();
@@ -119,7 +107,7 @@ async function runBrandSensorSync() {
     // 1. Lee todas las brand_integrations activas con su brand_container y org
     const { data: activeIntegrations, error: readErr } = await supabase
       .from("brand_integrations")
-      .select("brand_container_id, brand_containers!inner(id, organization_id)")
+      .select("brand_container_id, platform, brand_containers!inner(id, organization_id)")
       .eq("is_active", true);
 
     if (readErr) {
@@ -130,11 +118,14 @@ async function runBrandSensorSync() {
 
     // 2. Únicos brand_container_ids con su org
     const uniqueBrands = new Map();
+    const brandPlatforms = new Map();
     for (const i of activeIntegrations) {
       const bcId  = i.brand_container_id;
       const orgId = i.brand_containers?.organization_id;
       if (!bcId || !orgId) continue;
       if (!uniqueBrands.has(bcId)) uniqueBrands.set(bcId, orgId);
+      if (!brandPlatforms.has(bcId)) brandPlatforms.set(bcId, new Set());
+      if (i.platform) brandPlatforms.get(bcId).add(i.platform);
     }
     if (!uniqueBrands.size) return;
 
@@ -142,7 +133,7 @@ async function runBrandSensorSync() {
     let totalCreated = 0;
     const brandsWithNew = [];
     for (const [brandId, orgId] of uniqueBrands) {
-      const r = await ensureSensorsForBrand(brandId, orgId);
+      const r = await ensureSensorsForBrand(brandId, orgId, brandPlatforms.get(brandId));
       if (r.created > 0) {
         totalCreated += r.created;
         brandsWithNew.push({ brandId, created: r.created });

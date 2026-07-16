@@ -55,6 +55,7 @@ import { generateMissionsForBrand } from "./mission-generator.service.js";
 import { generateStrategyReviewForBrand } from "./strategy-review.service.js";
 import { runBrandIndexer } from "./brand-indexer.service.js";
 import { runThreatDetection } from "./threat-detector.service.js";
+import { runTikTokVideoInsights, runMercadoLibreMetrics, runMetaAccountInsights, runGoogleAdsInsights, runShopifyMetrics } from "./platform-insights-sensors.service.js";
 
 // Service-role: el scraper escribe directo a Supabase sin RLS
 const supabase = createClient(
@@ -396,6 +397,20 @@ async function persistNewPosts(posts, entity) {
       questions_sample:  post.questions_sample  || null,
     };
 
+    // LINAJE DEL DATO (decision JC 2026-07-15): ai-engine NO analiza, pero SI
+    // distingue de quien es cada post. El rol sale del tipo de la entidad:
+    // solo competidor_directo/indirecto es COMPETENCIA; referencia_cultural es
+    // REFERENCIA (aprender, no rivalizar); aliado es ALIADO; owned_media es
+    // PROPIO. Sin tipo declarado se conserva el comportamiento historico
+    // (competitor) para no re-clasificar a ciegas.
+    const entityTipo = String(entity.metadata?.tipo || "").toLowerCase();
+    const isRealCompetitor = entityTipo ? entityTipo.startsWith("competidor") : true;
+    const postSource = !entityTipo ? "competitor"
+      : entityTipo === "owned_media" ? "own"
+      : isRealCompetitor ? "competitor"
+      : entityTipo === "aliado" ? "ally"
+      : "reference";
+
     const bpRow = {
       brand_container_id: entity.brand_container_id,
       entity_id:          entity.id,
@@ -409,8 +424,8 @@ async function persistNewPosts(posts, entity) {
       // Sin followers_snapshot, post_patterns.engagement_rate = 0 y
       // discover_emerging_patterns nunca detecta nada (filtra por avg > 1.5x baseline).
       followers_snapshot: post.author?.followers_count || null,
-      is_competitor: true,
-      post_source:   "competitor",
+      is_competitor: isRealCompetitor,
+      post_source:   postSource,
       captured_at:   post.timestamp,
     };
 
@@ -528,6 +543,10 @@ async function getTriggersToRun() {
       "meta_campaign_ad_insights",
       "trends_run",
       "trends_keywords",
+      "tiktok_video_insights",
+      "mercadolibre_metrics",
+      "google_ads_insights",
+      "shopify_metrics",
     ])
     .order("priority", { ascending: false })
     .order("next_run_at", { ascending: true })
@@ -877,7 +896,11 @@ export async function runCompetitorScraper(brandContainerId = null) {
         trigger.sensor_type === "meta_ad_library_sync" ||
         trigger.sensor_type === "meta_campaign_ad_insights" ||
         trigger.sensor_type === "trends_run" ||
-        trigger.sensor_type === "trends_keywords"
+        trigger.sensor_type === "trends_keywords" ||
+        trigger.sensor_type === "tiktok_video_insights" ||
+        trigger.sensor_type === "mercadolibre_metrics" ||
+        trigger.sensor_type === "google_ads_insights" ||
+        trigger.sensor_type === "shopify_metrics"
       ) {
         await runOwnedAnalyticsSensor(trigger, entity, sensorRunId);
         await delay(jitter(2000));
@@ -1194,13 +1217,65 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
     // backfill se re-agenda pronto; al terminar pasa a diario).
     let nextRunOverride = null;
 
-    if (sensorType === "meta_page_insights") {
-      const result = await getMetaPageInsights({ brandContainerId, organizationId, range: "30d" });
-      await persistAnalyticsSnapshot(brandContainerId, "facebook", "monthly", result);
+    if (sensorType === "shopify_metrics") {
+      const result = await runShopifyMetrics({ brandContainerId, organizationId });
       stats = {
-        platform:    result.platform,
-        fans:        result.page?.total_fans,
-        engagements: result.metrics?.post_engagements,
+        shop:         result.shop || null,
+        orders_30d:   result.orders_30d ?? null,
+        revenue_30d:  result.revenue_30d ?? null,
+        orders_total: result.orders_total ?? null,
+        skipped:      result.skipped || false,
+        reason:       result.reason || null,
+        errors:       (result.errors && result.errors.length) || 0,
+      };
+
+    } else if (sensorType === "google_ads_insights") {
+      const result = await runGoogleAdsInsights({ brandContainerId, organizationId });
+      stats = {
+        customers:     result.customers ?? 0,
+        campaign_days: result.campaign_days ?? 0,
+        account_days:  result.account_days ?? 0,
+        skipped:       result.skipped || false,
+        reason:        result.reason || null,
+        errors:        (result.errors && result.errors.length) || 0,
+      };
+
+    } else if (sensorType === "tiktok_video_insights") {
+      const result = await runTikTokVideoInsights({ brandContainerId, organizationId });
+      stats = {
+        handle:     result.handle || null,
+        videos:     result.videos_pulled ?? 0,
+        updated:    result.updated ?? 0,
+        inserted:   result.inserted ?? 0,
+        followers:  result.followers ?? null,
+        skipped:    result.skipped || false,
+        reason:     result.reason || null,
+      };
+
+    } else if (sensorType === "mercadolibre_metrics") {
+      const result = await runMercadoLibreMetrics({ brandContainerId, organizationId });
+      stats = {
+        seller_id:           result.seller_id || null,
+        visits_30d:          result.visits_30d ?? null,
+        orders_30d:          result.orders_30d ?? null,
+        revenue_30d_sampled: result.revenue_30d_sampled ?? null,
+        questions_unanswered: result.questions_unanswered ?? null,
+        skipped:             result.skipped || false,
+        reason:              result.reason || null,
+        errors:              (result.errors && result.errors.length) || 0,
+      };
+
+    } else if (sensorType === "meta_page_insights") {
+      // Insights de CUENTA de Facebook Page + Instagram Business. Escribe el
+      // snapshot (estado actual, como antes) Y la serie historica diaria en
+      // platform_insights_daily. Antes solo guardaba FB e ignoraba IG a nivel cuenta.
+      const result = await runMetaAccountInsights({ brandContainerId, organizationId });
+      stats = {
+        fb_fans:        result.facebook?.fans ?? null,
+        fb_engagements: result.facebook?.engagements ?? null,
+        ig_followers:   result.instagram?.followers ?? null,
+        ig_reach:       result.instagram?.reach ?? null,
+        errors:         (result.errors && result.errors.length) || 0,
       };
 
     } else if (sensorType === "meta_posts") {
@@ -1508,6 +1583,17 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
 
   } catch (e) {
     const reason = e?.needsReauth ? "needs_reauth" : (e?.noIntegration ? "no_integration" : "error");
+    // Integracion AUSENTE (no reauth): la marca no tiene esa integracion conectada.
+    // No es un error del sistema — es un sensor huerfano (p.ej. ga4 en una marca sin
+    // Google). Se cierra 'skipped' (no ensucia como fallo) y se ELIMINA el trigger
+    // para no reintentar a diario. brand-sensor-sync lo recreara — gated por
+    // `requires` — solo si esa integracion aparece. Asi se auto-sana sin ruido.
+    if (e?.noIntegration) {
+      console.log(`scraper [${sensorType}]: brand ${trigger.brand_container_id} sin integracion — trigger huerfano eliminado`);
+      await closeSensorRun(sensorRunId, "skipped", { reason }, "sin integracion conectada (sensor no aplica a esta marca)");
+      await supabase.from("monitoring_triggers").delete().eq("id", trigger.id).then(() => {}, () => {});
+      return;
+    }
     console.warn(`scraper [${sensorType}]: ${entity?.name || "—"} falló (${reason}) — ${e.message}`);
     const nextRunAt = computeNextRunAt(trigger.cadence, trigger.cadence_value);
     await updateTriggerAfterRun(trigger.id, "failed", nextRunAt);
@@ -1995,6 +2081,8 @@ async function persistOwnPosts(posts, brandContainerId, entityId) {
           // hashtags: backfill de posts propios existentes en cada ciclo (DATA-002).
           // Deterministico desde el mismo texto -> idempotente.
           ...(Array.isArray(post.hashtags) ? { hashtags: post.hashtags } : {}),
+          // followers_snapshot: backfill para que compute_penetration_proxy deje de dar 0 en IG/FB.
+          ...(post.followers != null ? { followers_snapshot: post.followers } : {}),
           updated_at: new Date().toISOString(),
         })
         .eq("entity_id", entityId)
@@ -2019,6 +2107,7 @@ async function persistOwnPosts(posts, brandContainerId, entityId) {
         ? [{ url: post.image, type: "image", permalink: post.permalink }]
         : (post.permalink ? [{ permalink: post.permalink, type: post.media_type || "link" }] : []),
       metrics:            post.metrics || {},
+      followers_snapshot: post.followers ?? null,   // penetración (IG/FB): antes quedaba NULL
       is_competitor:      false,
       post_source:        "own",
       captured_at:        post.created_at,
@@ -2250,26 +2339,78 @@ async function _runSocialBatchPass(socialTriggers) {
   return { postsByTrigger, batchOkTriggers };
 }
 
-// Alerta throttled cuando Apify bloquea la cuenta (limite mensual excedido / 403).
+// Alerta cuando Apify bloquea la cuenta (limite mensual excedido / 403).
 // Antes esto fallaba en SILENCIO (marcaba success con 0 posts) -> Vera ciega sin avisar.
+//
+// DESTINO = developer_notifications (centro de notificaciones DEV in-app del portal
+// /dev, por-usuario). NUNCA al feed org_notifications del CLIENTE, NUNCA a push de
+// dispositivo (ntfy). Regla del usuario: los errores de sistema de AISC viven DENTRO
+// de AISC (in-app); el push a dispositivos es solo para sensores de negocio, no para
+// fallas del sistema. El hard-limit de Apify es infra/billing interno de ARDE.
+//
+// THROTTLE PERSISTENTE via external_api_cache: el throttle viejo era solo una var de
+// modulo, asi que CADA restart/deploy lo reseteaba a 0 y re-disparaba al instante (por
+// eso el spam pese al "limite 1/12h"). Ahora la ventana sobrevive reinicios. La var de
+// modulo queda como fast-path para no tocar la DB en cada 403 del mismo proceso.
+const APIFY_BLOCK_THROTTLE_MS = 12 * 3_600_000; // 1 alerta / 12h
+const APIFY_BLOCK_CACHE_KEY = "ops_alert:apify_account_blocked";
 let _lastApifyBlockAlert = 0;
 async function _alertApifyAccountBlocked(organizationId, rawMsg) {
   const now = Date.now();
-  if (now - _lastApifyBlockAlert < 12 * 3_600_000) return; // throttle: 1 alerta / 12h
+  // Fast-path en memoria (evita ir a la DB en cada 403 del mismo proceso).
+  if (now - _lastApifyBlockAlert < APIFY_BLOCK_THROTTLE_MS) return;
+
+  // Throttle persistente: sobrevive restarts/deploys.
+  try {
+    const { data: row } = await supabase
+      .from("external_api_cache")
+      .select("expires_at")
+      .eq("cache_key", APIFY_BLOCK_CACHE_KEY)
+      .maybeSingle();
+    if (row?.expires_at && new Date(row.expires_at).getTime() > now) {
+      _lastApifyBlockAlert = now; // resync memoria con la ventana persistida
+      return;
+    }
+  } catch (e) {
+    console.warn(`scraper: throttle-check apify-block fallo (sigo) - ${e.message}`);
+  }
+
   _lastApifyBlockAlert = now;
   const msg = String(rawMsg || "").replace(/\s+/g, " ").slice(0, 200);
+
+  // 1) Notificar a los DEVELOPERS in-app (portal /dev), 1 fila por dev. No cliente, no push.
   try {
-    await supabase.from("org_notifications").insert({
-      organization_id: organizationId,
-      severity: "critical",
-      type: "scraping_blocked",
-      title: "Scraping detenido - limite de Apify excedido",
-      body: `Apify bloqueo los scrapers (cuenta sin presupuesto mensual). Vera esta sin data fresca de redes/competencia hasta que se suba el limite en la cuenta de Apify. Detalle: ${msg}`,
-      metadata: { source: "apify", code: "account_blocked" },
-    });
-    console.error("scraper: ALERTA scraping_blocked creada (Apify monthly limit). Sube el limite en la cuenta Apify.");
+    const { data: devs, error: devErr } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("is_developer", true);
+    if (devErr) throw devErr;
+    const rows = (devs || []).map((d) => ({
+      recipient_user_id: d.id,
+      severity: "alert",
+      title: "Apify bloqueado (hard-limit mensual)",
+      message: `Los scrapers estan bloqueados por el limite mensual de la cuenta Apify. Vera esta sin data fresca de redes/competencia hasta subir el limite en la cuenta de Apify. Detalle: ${msg}`,
+    }));
+    if (rows.length) {
+      await supabase.from("developer_notifications").insert(rows);
+      console.error(`scraper: developer_notifications creada (${rows.length} dev) — Apify hard-limit. Subir limite en la cuenta Apify.`);
+    } else {
+      console.error("scraper: Apify hard-limit pero no hay developers para notificar (subir limite en Apify).");
+    }
   } catch (e) {
-    console.warn(`scraper: no se pudo crear alerta scraping_blocked - ${e.message}`);
+    console.warn(`scraper: no se pudo crear developer_notifications apify-block - ${e.message}`);
+  }
+
+  // 2) Persistir la ventana de throttle (12h) para sobrevivir restarts.
+  try {
+    await supabase.from("external_api_cache").upsert({
+      cache_key: APIFY_BLOCK_CACHE_KEY,
+      provider: "ops",
+      payload: { source: "apify", code: "account_blocked", last_msg: msg, org: organizationId || null },
+      expires_at: new Date(now + APIFY_BLOCK_THROTTLE_MS).toISOString(),
+    }, { onConflict: "cache_key" });
+  } catch (e) {
+    console.warn(`scraper: persist throttle apify-block fallo - ${e.message}`);
   }
 }
 

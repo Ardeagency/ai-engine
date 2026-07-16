@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { startDiagnosisScheduler } from "./services/vera-dashboard-session.service.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -25,10 +26,12 @@ import { startOrgSyncService }  from "./services/org-sync.service.js";
 import { startTokenRefreshService } from "./services/token-refresh.service.js";
 import { startBrandSensorSync } from "./services/brand-sensor-sync.service.js";
 import { startRecommendationAutoLink } from "./services/recommendation-auto-link.service.js";
+import { startRecommendationProducer } from "./services/recommendation-producer.service.js";
 import { startDailyBriefingJob } from "./services/daily-briefing-job.service.js";
 import { startOutcomeMeasurement } from "./services/outcome-measurement.service.js";
 import { retryOrphanReplies } from "./services/retry-orphan-replies.service.js";
 import { startSelfRepair } from "./services/self-repair.service.js";
+import { startVisibilitySensor } from "./services/visibility-sensor.service.js";
 import { AVAILABLE_TOOL_NAMES } from "./services/tool.dispatcher.js";
 import { TOOLS_BY_PHASE } from "./lib/tool-phases.js";
 
@@ -154,6 +157,30 @@ app.listen(PORT, () => {
   if (process.env.RECOMMENDATION_AUTO_LINK_ENABLED !== "false") {
     startRecommendationAutoLink();
     startDailyBriefingJob();
+  }
+
+  // Puente Loop V1 "aprobar → producir": detecta strategic_recommendations
+  // aprobadas en la cata y dispara la producción por el mismo camino del Studio
+  // (deduct_credits_and_create_run → runs_inputs → webhook n8n). El gate humano
+  // queda en PUBLICAR. Cada 10 min. Deshabilitar con RECOMMENDATION_PRODUCER_ENABLED=false
+  if (process.env.RECOMMENDATION_PRODUCER_ENABLED !== "false") {
+    startRecommendationProducer();
+  }
+
+  // PROTOCOLO LIBERTAD (JC 2026-07-16): Vera se activa SOLA por cadencia de plan
+  // y genera su diagnóstico de marca en formato libre (vera_dashboard_readings,
+  // scope diagnostico). Deshabilitar con VERA_DIAG_SCHEDULER_ENABLED=false
+  if (process.env.VERA_DIAG_SCHEDULER_ENABLED !== "false") {
+    startDiagnosisScheduler();
+  }
+
+  // Radiografia de Visibilidad — sensor GEO: mide si la marca aparece en respuestas
+  // de IA (motores grounded), share of voice vs competidores y fuentes citadas, para
+  // que Vera deje de estar ciega a su propia visibilidad. Barrido cada 6h; corre solo
+  // marcas "due" segun cadencia del plan. Presupuesto acotado por prompt/motor/marca.
+  // Deshabilitar con VISIBILITY_SENSOR_ENABLED=false
+  if (process.env.VISIBILITY_SENSOR_ENABLED !== "false") {
+    startVisibilitySensor();
   }
 
   // Loop de retroalimentación post-ejecución: mide outcomes de las

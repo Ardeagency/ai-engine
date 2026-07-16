@@ -17,7 +17,7 @@ const DANGEROUS_PATTERNS = ["__proto__", "constructor", "prototype", "<script", 
 // separadores markdown) produce falsos positivos. A estos campos se les exime
 // del escaneo SQL completo, pero igual se les aplica un escaneo ESTRICTO
 // (XSS/prototype) para que un <script> o __proto__ nunca pase al renderer.
-const FREETEXT_PARAMS = { createArtifact: ["content", "html"], webSearch: ["query"] };
+const FREETEXT_PARAMS = { createArtifact: ["content", "html"], webSearch: ["query"], initiateConversation: ["opening_message", "topic", "reason"], scoreContentCitability: ["text"] };
 const STRICT_PATTERNS = ["<script", "__proto__", "javascript:", "onerror="];
 
 const MAX_TOOL_CALLS_PER_ROUND = 5;
@@ -72,6 +72,8 @@ export const TOOL_SCHEMAS = {
   getFlows:                  {},
   getFlowInputs:             { flowId: "uuid", params: "object", brandContainerId: "uuid" },
   forgeProductionPrompt:     { params: "object", brandContainerId: "uuid" },
+  generateImageDirect:       { params: "object", brandContainerId: "uuid" },
+  generateVideoDirect:       { params: "object", brandContainerId: "uuid" },
   getRunsAwaitingApproval:   { brandContainerId: "uuid" },
   approveRunStage:           { params: "object", brandContainerId: "uuid" },
   getScraperStatus:          {},
@@ -93,6 +95,7 @@ export const TOOL_SCHEMAS = {
   pauseFlow:                 { params: "object" },
   updateCampaignConcept:     { params: "object" },
   addKeywordToTrends:        { params: "object" },
+  generateTrendBrief:        { params: "object" },
   removeKeywordFromTrends:   { params: "object" },
   createDefensiveWatch:      { params: "object" },
   triggerDeepScrape:         { params: "object" },

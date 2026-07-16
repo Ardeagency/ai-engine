@@ -263,15 +263,20 @@ export async function generateAssistantReply(ctx) {
   });
 
   // ── 8b. Contexto completo de la marca (productos, audiencias, campañas…) ──
+  // pull-via-tools (CHAT_PULL_VIA_TOOLS_ORGS): las orgs listadas NO reciben el
+  // bloque de catalogo inyectado — Vera lo LEE con tools. Vacio = viejo comportamiento.
+  const _pullOrgs = (process.env.CHAT_PULL_VIA_TOOLS_ORGS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  const pullViaTools = _pullOrgs.includes("*") || _pullOrgs.includes(organizationId);
+
   let serializedBrandData = null;
-  if (brandContainerId) {
+  if (!pullViaTools && brandContainerId) {
     try {
       const fullCtx = await buildFullBrandContext(brandContainerId, organizationId);
       serializedBrandData = serializeOrgContext(fullCtx);
     } catch (e) {
       console.warn("ai.service: buildFullBrandContext error:", e.message);
     }
-  } else if (orgContext.brand_containers?.length === 1) {
+  } else if (!pullViaTools && orgContext.brand_containers?.length === 1) {
     // Si solo hay una marca en la org, la cargamos automáticamente
     try {
       const autoId = orgContext.brand_containers[0].id;
@@ -294,6 +299,7 @@ export async function generateAssistantReply(ctx) {
     sessionId,
     toolResults: null,
     serializedBrandData,
+    pullViaTools,
     recentHistory: memory.recent ?? [],
     conversationId,
   });
@@ -369,6 +375,7 @@ export async function generateAssistantReply(ctx) {
       sessionId,
       toolResults: allToolResults,
       serializedBrandData,
+      pullViaTools,
       recentHistory: memory.recent ?? [],
       conversationId,
     });
@@ -401,7 +408,7 @@ export async function generateAssistantReply(ctx) {
     });
   }
 
-  return { message: finalText, actions: [], enriched_input_length: enrichedInputLength };
+  return { message: finalText, actions: [], enriched_input_length: enrichedInputLength, agent_failed: openClawResp.agent_failed === true };
 }
 
 // ── Background processor ───────────────────────────────────────────────────────
@@ -416,6 +423,7 @@ export async function processAndSaveReply({ message, attachments = [], organizat
   let aiText;
   let metadata = {};
   let enrichedInputLength = 0;
+  let agentFailed = false;
 
   // Si el usuario aprobo el [CONFIRM] pidiendo version simplificada, inyectamos
   // una nota system al mensaje para que VERA reduzca scope sin perder calidad.
@@ -424,7 +432,7 @@ export async function processAndSaveReply({ message, attachments = [], organizat
     : message;
 
   try {
-    const { message: text, actions = [], enriched_input_length = 0 } = await generateAssistantReply({
+    const { message: text, actions = [], enriched_input_length = 0, agent_failed = false } = await generateAssistantReply({
       message: effectiveMessage,
       attachments,
       organizationId,
@@ -434,6 +442,7 @@ export async function processAndSaveReply({ message, attachments = [], organizat
     aiText = text;
     if (actions.length) metadata.actions = actions;
     enrichedInputLength = enriched_input_length;
+    agentFailed = agent_failed === true;
   } catch (err) {
     console.error(`ai.service: processAndSaveReply error [org=${organizationId}]:`, err.message);
     aiText =
@@ -523,7 +532,7 @@ export async function processAndSaveReply({ message, attachments = [], organizat
   // el guard `row.role !== 'error_preflight'` queda preparado para cuando
   // marquemos esos casos explicitamente (hoy NUNCA matchea, se cobra todo
   // lo que se persistio).
-  if (insertSucceeded && row.role !== "error_preflight") {
+  if (insertSucceeded && row.role !== "error_preflight" && !metadata.error && !agentFailed) {
     try {
       const { data: charged, error: chargeErr } = await supabase.rpc("use_credits_numeric", {
         p_organization_id: organizationId,

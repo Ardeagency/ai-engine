@@ -41,7 +41,7 @@ function _getOrCreateSessionId(sessionKey) {
 
 // ── Message builder ───────────────────────────────────────────────────────────
 
-function _buildEnrichedMessage({ message, attachmentsContext, viewModel, toolResults, serializedBrandData, recentHistory = [], conversationId = null }) {
+function _buildEnrichedMessage({ message, attachmentsContext, viewModel, toolResults, serializedBrandData, pullViaTools = false, recentHistory = [], conversationId = null }) {
   const parts = [];
 
   // Conversation ID — INTERNO. Vera lo usa solo para invocar tools que requieren
@@ -118,6 +118,11 @@ function _buildEnrichedMessage({ message, attachmentsContext, viewModel, toolRes
   if (serializedBrandData) {
     parts.push(serializedBrandData);
   } else {
+    if (pullViaTools) {
+      parts.push(
+        "[MODO LECTURA POR HERRAMIENTAS] Los datos de catalogo (productos, servicios, audiencias, campanas, entidades de marca, tendencias detectadas) NO estan inyectados en este contexto. Cuando los necesites para responder, LEELOS con tus herramientas de lectura: getProducts, getAudiences, getCampaigns, getBrandDNA, getBrandProfile, getIntelligenceEntities, getTrendTopics, getBrandPosts. No asumas que ya los tienes delante; consultalos con la tool correspondiente."
+      );
+    }
     const brandContainers = viewModel?.activity?.brand_containers;
     if (brandContainers?.length) {
       const brandsText = brandContainers.map((bc) => `  - ${bc.nombre_marca}`).join("\n");
@@ -768,7 +773,13 @@ async function _callRemoteOpenClaw({ orgEntry, agentId, enrichedMessage, clawSes
 
   if (!res.ok) {
     const errorBody = await res.text().catch(() => "");
-    throw new Error(`org-server respondió ${res.status}: ${errorBody.slice(0, 200)}`);
+    // head + tail: el comando gigante (message inline) se come el head; el stderr real
+    // (p.ej. "Argument list too long") esta al FINAL. Logueamos ambos + tamano del mensaje.
+    const _errShown = errorBody.length > 900
+      ? errorBody.slice(0, 300) + ` [..${errorBody.length} chars..] ` + errorBody.slice(-500)
+      : errorBody;
+    console.warn(`openclaw.adapter: remote ${res.status} — msgLen=${(enrichedMessage||"").length} body=${_errShown}`);
+    throw new Error(`org-server respondió ${res.status}: ${_errShown}`);
   }
 
   const data = await res.json();
@@ -798,6 +809,7 @@ export async function callOpenClaw({
   sessionId,
   toolResults,
   serializedBrandData,
+  pullViaTools = false,
   recentHistory = [],
   conversationId = null,
 }) {
@@ -847,7 +859,7 @@ export async function callOpenClaw({
   }
 
   const enrichedMessage = _buildEnrichedMessage({
-    message, attachmentsContext, viewModel, toolResults, serializedBrandData, recentHistory,
+    message, attachmentsContext, viewModel, toolResults, serializedBrandData, pullViaTools, recentHistory,
     conversationId,
   });
 
@@ -877,6 +889,7 @@ export async function callOpenClaw({
     );
     return {
       text:             "El agente no pudo procesar la solicitud en este momento. Por favor intenta nuevamente.",
+      agent_failed:     true,
       tool_calls:       [],
       requires_consent: false,
       enriched_input_length: enrichedMessage.length,

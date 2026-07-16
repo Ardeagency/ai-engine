@@ -23,6 +23,8 @@ export const PHASE_A_TOOLS = [
   "getAvailableFlows",
   "getFlowInputs",
   "forgeProductionPrompt",
+  "generateImageDirect",
+  "generateVideoDirect",
   "getRunsAwaitingApproval",
   // Dashboard tools (read-only, sin consent) — Vera puede responder cualquier
   // pregunta de "cómo voy", "quién me amenaza", "top tema", etc. desde Phase A.
@@ -153,11 +155,24 @@ export const PHASE_B_TOOLS = [
   "getMonitoringTargets",
   "addKeywordToTrends",
   "removeKeywordFromTrends",
+  "generateTrendBrief",
   "createDefensiveWatch",
   "triggerDeepScrape",
   // Fase B bloque 3: ultimas 2 tools MISSING v3 (cobertura 26/26)
   "getBrandHealthMetrics",
   "searchIntelligence",
+  // CMO: penetración (ley #1) + ocasiones de compra (CEPs) + demanda creada vs
+  // cosechada + atribución a negocio real (leads/órdenes, no vanidad)
+  "getPenetrationDiagnosis",
+  "getCEPGaps",
+  "getDemandDiagnosis",
+  "getConversionOutcomes",
+  // CMO: visibilidad IA / contenido citable + crecimiento (casos de uso) + activos (vision)
+  "scoreContentCitability",
+  "getUseCaseExpansion",
+  "getDistinctiveAssetsAudit",
+  "getPackagingAnalysis",
+  "getAuthorityClusterPlan",
   // Command Center / canvas de estrategia (Vera materializa estrategias)
   "placeNodeOnCanvas","moveNodeOnCanvas","removeNodeFromCanvas","connectNodes","disconnectNodes","setVeraState","createStrategy","listStrategies","createStickyNote","createGroup","buildStrategy","proposeExternalAction",
 ];

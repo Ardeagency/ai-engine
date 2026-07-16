@@ -22,9 +22,11 @@ import * as socialTools from "../tools/social.tools.js";
 import * as scraperTools from "../tools/scraper.tools.js";
 import * as dashboardTools from "../tools/dashboard.tools.js";
 import * as strategyTools from "../tools/strategy.tools.js";
+import * as cmoTools from "../tools/cmo.tools.js";
 import * as veraFeedTools from "../tools/vera-feed.tools.js";
 import * as veraActionsTools from "../tools/vera-actions.tools.js";
 import * as promptForgeTools from "../tools/prompt-forge.tools.js";
+import * as directGen from "./direct-generator.service.js";
 import * as decisionTools from "../tools/decision.tools.js";
 import * as canvasTools from "../tools/canvas.tools.js";
 import * as integrationDataTools from "../tools/integration-data.tools.js";
@@ -149,6 +151,18 @@ const TOOL_REGISTRY = {
     fn: ({ params, brandContainerId, organizationId, userId, ...rest }) =>
       promptForgeTools.forgeProductionPrompt({ ...(params || {}), ...rest }, brandContainerId, organizationId),
     requiresConsent: false,
+  },
+  generateImageDirect: {
+    fn: ({ params, brandContainerId, organizationId, conversationId }) =>
+      directGen.generateImageDirect(params || {}, brandContainerId, organizationId, conversationId),
+    requiresConsent: false,
+    timeout: 30_000,
+  },
+  generateVideoDirect: {
+    fn: ({ params, brandContainerId, organizationId, conversationId }) =>
+      directGen.generateVideoDirect(params || {}, brandContainerId, organizationId, conversationId),
+    requiresConsent: false,
+    timeout: 30_000,
   },
   getRunsAwaitingApproval: {
     fn: ({ brandContainerId, organizationId }) =>
@@ -487,6 +501,11 @@ const TOOL_REGISTRY = {
     fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => veraFeedTools.getBrainFeed({ ...(params || {}), ...rest }, brandContainerId, organizationId),
     requiresConsent: false,
   },
+  // Vera inicia el dialogo con un humano de la org (ejecutar-e-informar)
+  initiateConversation: {
+    fn: ({ params, brandContainerId, organizationId, userId, ...rest }) => veraFeedTools.initiateConversation({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
 
   // ── Aliases canonicos v3 (protocolo VERA <-> ai-engine v3) ────────────────
   // Mismos handlers que los canonical, solo cambia el naming para que VERA
@@ -583,6 +602,11 @@ const TOOL_REGISTRY = {
       veraActionsTools.addKeywordToTrends({ ...(params || {}), ...rest }, brandContainerId, organizationId),
     requiresConsent: false,
   },
+  generateTrendBrief: {
+    fn: ({ params, brandContainerId, organizationId, ...rest }) =>
+      veraActionsTools.generateTrendBrief({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
   removeKeywordFromTrends: {
     fn: ({ params, brandContainerId, organizationId, ...rest }) =>
       veraActionsTools.removeKeywordFromTrends({ ...(params || {}), ...rest }, brandContainerId, organizationId),
@@ -597,6 +621,49 @@ const TOOL_REGISTRY = {
     fn: ({ brandContainerId, organizationId, windowHours }) =>
       veraActionsTools.getBrandHealthMetrics(brandContainerId, organizationId, windowHours),
     requiresConsent: false,
+  },
+  getPenetrationDiagnosis: {
+    fn: ({ brandContainerId, organizationId, windowDays }) =>
+      cmoTools.getPenetrationDiagnosis(brandContainerId, organizationId, windowDays),
+    requiresConsent: false,
+  },
+  getCEPGaps: {
+    fn: ({ brandContainerId, organizationId, windowDays }) =>
+      cmoTools.getCEPGaps(brandContainerId, organizationId, windowDays),
+    requiresConsent: false,
+  },
+  getDemandDiagnosis: {
+    fn: ({ brandContainerId, organizationId, windowDays }) =>
+      cmoTools.getDemandDiagnosis(brandContainerId, organizationId, windowDays),
+    requiresConsent: false,
+  },
+  getConversionOutcomes: {
+    fn: ({ brandContainerId, organizationId, windowDays }) =>
+      cmoTools.getConversionOutcomes(brandContainerId, organizationId, windowDays),
+    requiresConsent: false,
+  },
+  scoreContentCitability: {
+    fn: ({ text }) => cmoTools.scoreContentCitability(text),
+    requiresConsent: false,
+  },
+  getUseCaseExpansion: {
+    fn: ({ brandContainerId, organizationId, ...p }) => cmoTools.getUseCaseExpansion(brandContainerId, organizationId, p),
+    requiresConsent: false,
+  },
+  getDistinctiveAssetsAudit: {
+    fn: ({ brandContainerId, organizationId, ...p }) => cmoTools.getDistinctiveAssetsAudit(brandContainerId, organizationId, p),
+    requiresConsent: false,
+    timeout: 40000,
+  },
+  getPackagingAnalysis: {
+    fn: ({ brandContainerId, organizationId, ...p }) => cmoTools.getPackagingAnalysis(brandContainerId, organizationId, p),
+    requiresConsent: false,
+    timeout: 40000,
+  },
+  getAuthorityClusterPlan: {
+    fn: ({ brandContainerId, organizationId, ...p }) => cmoTools.getAuthorityClusterPlan(brandContainerId, organizationId, p),
+    requiresConsent: false,
+    timeout: 40000,
   },
   searchIntelligence: {
     fn: ({ params, brandContainerId, organizationId, ...rest }) =>

@@ -13,6 +13,78 @@
 import { getOrgEntry } from "./openclaw.registry.js";
 import { processAttachments } from "./media-processor.service.js";
 import { renderEnabledToolsBlock } from "../lib/tool-catalog.js";
+import { supabase } from "../lib/supabase.js";
+
+// ── MEDICIÓN DE GASTO REAL DE VERA (JC 2026-07-16) ──────────────────────────
+// El org-server devuelve el `usage` REAL de cada turno de Claude en su respuesta
+// ({input, output, cacheRead, cacheWrite, total}). Antes esto se perdía: el
+// anthropic-proxy debía loguearlo pero tenía 0 registros. Ahora se captura aquí,
+// en el ÚNICO punto por donde pasan TODAS las llamadas a Vera (chat, brain feed,
+// dashboard, diagnóstico) → credit_usage con el costo exacto. Así se puede
+// calcular cuánto gasta una Vera real. El cache-read domina (Vera recarga su
+// system prompt de ~32KB en cada tool call interno).
+// Precios claude-sonnet-4-6 (USD por millón de tokens):
+const SONNET_USD_PER_MTOK = { input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 };
+
+function _extractUsageTotals(raw) {
+  const s = String(raw || "");
+  const tot = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0, turns: 0 };
+  const re = /"usage"\s*:\s*\{/g;
+  let m;
+  while ((m = re.exec(s))) {
+    let depth = 0, i = s.indexOf("{", m.index), j = i;
+    for (; j < s.length && j < i + 3000; j++) {
+      if (s[j] === "{") depth++;
+      else if (s[j] === "}") { depth--; if (depth === 0) break; }
+    }
+    const blk = s.slice(i, j + 1);
+    const g = (k) => { const mm = blk.match(new RegExp('"' + k + '"\\s*:\\s*(\\d+)')); return mm ? Number(mm[1]) : null; };
+    const cr = g("cacheRead"), cw = g("cacheWrite");
+    // Solo los bloques de facturación por-turno (tienen cacheRead+cacheWrite),
+    // no el bloque de sesión (promptTokens/lastCallUsage anidados).
+    if (cr !== null && cw !== null) {
+      tot.input += g("input") || 0;
+      tot.output += g("output") || 0;
+      tot.cacheRead += cr;
+      tot.cacheWrite += cw;
+      tot.total += g("total") || 0;
+      tot.turns++;
+    }
+  }
+  return tot.turns ? tot : null;
+}
+
+function _usageToUsd(u) {
+  const p = SONNET_USD_PER_MTOK;
+  return (u.input / 1e6) * p.input + (u.output / 1e6) * p.output +
+         (u.cacheRead / 1e6) * p.cacheRead + (u.cacheWrite / 1e6) * p.cacheWrite;
+}
+
+async function _logVeraUsage(organizationId, raw, meta = {}) {
+  try {
+    const u = _extractUsageTotals(raw);
+    if (!u) return;
+    const usd = Number(_usageToUsd(u).toFixed(6));
+    await supabase.from("credit_usage").insert({
+      organization_id: organizationId,
+      kind: "claude_tokens",
+      credits_delta: usd,
+      usd_cost: usd,
+      source_table: "openclaw_adapter",
+      source_id: meta.conv || meta.session || null,
+      metadata: {
+        model: "claude-sonnet-4-6",
+        ...u,
+        usd,
+        session_key: meta.sessionKey || null,
+        at: new Date().toISOString(),
+      },
+    });
+  } catch (e) {
+    // Nunca romper la respuesta a Vera por el logging.
+    console.warn("openclaw.adapter: log vera usage:", e.message);
+  }
+}
 
 const OPENCLAW_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS) || 60_000;
 const SESSION_TTL_MS      = 2 * 60 * 60 * 1000; // 2 horas
@@ -819,6 +891,7 @@ export async function callOpenClaw({
     console.error("openclaw.adapter: llamada sin organizationId válido — bloqueada");
     return {
       text:             "Error interno: contexto de organización no disponible.",
+      agent_failed:     true,
       tool_calls:       [],
       requires_consent: false,
     };
@@ -829,6 +902,7 @@ export async function callOpenClaw({
     console.error(`openclaw.adapter: org "${organizationId}" sin agente registrado — NO hay fallback`);
     return {
       text:             "El agente de esta organización no está disponible. Por favor intenta en unos momentos.",
+      agent_failed:     true,
       tool_calls:       [],
       requires_consent: false,
     };
@@ -839,6 +913,7 @@ export async function callOpenClaw({
     console.warn(`openclaw.adapter: org "${organizationId}" está en sleep — despertando...`);
     return {
       text:             "Tu asistente está iniciando. Por favor vuelve a intentarlo en aproximadamente 90 segundos.",
+      agent_failed:     true,
       tool_calls:       [],
       requires_consent: false,
     };
@@ -866,6 +941,9 @@ export async function callOpenClaw({
   try {
     console.log(`openclaw.adapter: [remote] org "${organizationId}" → ${orgEntry.ip}:${orgEntry.port}`);
     const raw = await _callRemoteOpenClaw({ orgEntry, agentId, enrichedMessage, clawSessionId });
+
+    // Medición de gasto real de Vera (fire-and-forget; no bloquea la respuesta).
+    _logVeraUsage(organizationId, raw, { conv: conversationId, sessionKey, session: clawSessionId });
 
     const normalized = _normalizeOpenClawResponse(raw, { org: organizationId, conv: conversationId });
 

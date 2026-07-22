@@ -235,6 +235,12 @@ segundos. Orden OBLIGATORIO de narrative:
      suficiente para juzgarlo, OMITELO — una fila inventada envenena la tabla.
    - aprendizaje: concreto y accionable para ESTA marca. De un competidor,
      por donde rebasarlo; de un referente, que codigo adaptar.
+6) SOLO EN COMPETENCIA: un bloque observacion_perfil por perfil del que tengas
+   algo que DECIR de este ciclo. Es la card "Observaciones".
+   - Es lo que PASO ahora (movio, se callo, cambio de formato, gano/perdio),
+     no el retrato estable del perfil — eso ya va en perfil_analisis.
+   - Si de un perfil no paso nada digno de mencion, NO lo incluyas. Una
+     observacion de relleno ("sigue publicando contenido") no vale nada.
 
 FORMATO EXACTO de salida (SOLO esto):
 [[READING_JSON]]
@@ -247,6 +253,7 @@ FORMATO EXACTO de salida (SOLO esto):
     {"type":"signal_triangulation","signals":[{"observation":"...","source_ref":"ev1"},{"observation":"...","source_ref":"ev2"}],"so_what":"..."},
     {"type":"hypothesis","statement":"...","confidence":"alta|media|exploratoria","how_to_verify":"...","evidence":["ev1"]},
     {"type":"receipt","quote":"cita textual real ≤280","author_handle":"@...","platform":"instagram","engagement":123,"source_ref":"ev1"},
+    {"type":"observacion_perfil","perfil":"<nombre EXACTO>","rol":"competidor_directo|competidor_indirecto|referente|aliado","observacion":"lo que PASO con ese perfil en este ciclo, <=200 chars","severidad":"opportunity|warning|threat|neutral","evidence":["ev1"]},
     {"type":"perfil_analisis","perfil":"<nombre EXACTO del perfil>","rol":"competidor_directo|competidor_indirecto|referente|aliado","plataformas":["tiktok","instagram"],"temas":["≤4 temas de los que habla"],"tono":"su voz en ≤60 chars","formatos":["reel receta","carousel"],"aprendizaje":"que se lleva ESTA marca de ese perfil, ≤160 chars","evidence":["ev1"]},
     {"type":"watchlist_item","what":"...","why_watching":"...","check_back":"YYYY-MM-DD"},
     {"type":"delta","changed":"...","direction":"up|down|new|gone"}

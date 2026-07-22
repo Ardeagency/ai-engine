@@ -318,16 +318,23 @@ async function persistNewPosts(posts, entity) {
   for (const post of allPosts) {
     if (knownIds.has(post.external_id)) {
       // Solo actualizar métricas (likes/comments/etc.) — no re-señalizar
+      const patch = {
+        metrics: {
+          likes:    post.like_count,
+          comments: post.comment_count,
+          shares:   post.share_count  || 0,
+          plays:    post.play_count   || 0,
+        },
+        updated_at: new Date().toISOString(),
+      };
+      // SEGUNDA VENTANA DE RESCATE: el actor devuelve URLs frescas también de
+      // los posts que ya teníamos. Si a este le falta la copia permanente y
+      // ahora llega una miniatura viva, se archiva — así lo capturado antes
+      // del archivado se recupera solo, corrida a corrida.
+      const rescued = await rescueArchivedThumb(entity, post);
+      if (rescued) patch.media_assets = rescued;
       await supabase.from("brand_posts")
-        .update({
-          metrics: {
-            likes:    post.like_count,
-            comments: post.comment_count,
-            shares:   post.share_count  || 0,
-            plays:    post.play_count   || 0,
-          },
-          updated_at: new Date().toISOString(),
-        })
+        .update(patch)
         .eq("entity_id", entity.id)
         .eq("post_id", post.external_id);
     }
@@ -2551,4 +2558,31 @@ async function _ownPostAssets(post, brandContainerId) {
   });
   if (archived) assets.archived_url = archived;
   return assets;
+}
+
+/**
+ * Archiva la miniatura de un post YA GUARDADO al que le falta la copia en R2.
+ * Devuelve el media_assets actualizado, o null si no hay nada que hacer.
+ * Barato: una sola lectura, y solo intenta archivar cuando de verdad falta.
+ */
+async function rescueArchivedThumb(entity, post) {
+  const fresh = post.display_url || post.cover_image || post.thumbnail_url || null;
+  if (!fresh) return null;
+  const { data } = await supabase.from("brand_posts")
+    .select("media_assets")
+    .eq("entity_id", entity.id)
+    .eq("post_id", post.external_id)
+    .maybeSingle();
+  const current = (data?.media_assets && typeof data.media_assets === "object" && !Array.isArray(data.media_assets))
+    ? data.media_assets : {};
+  if (current.archived_url) return null;              // ya rescatado
+  const archived = await archiveThumb({
+    mediaAssets:      { display_url: fresh },
+    brandContainerId: entity.brand_container_id,
+    network:          post.network,
+    postId:           post.external_id,
+  });
+  if (!archived) return null;
+  // Se refresca también la URL viva del CDN: sirve de respaldo inmediato.
+  return { ...current, display_url: fresh, archived_url: archived };
 }

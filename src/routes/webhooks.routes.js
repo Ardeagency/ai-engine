@@ -17,6 +17,7 @@ import {
   runScraperController,
 } from "../controllers/signal-webhook.controller.js";
 import { enqueueComfyFlow, enqueueStudioComfyRun } from "../services/comfy-flow-runner.service.js";
+import { ingestHarvest } from "../services/comment-harvest.service.js";
 
 const router = express.Router();
 
@@ -33,6 +34,32 @@ function requireInternalToken(req, res, next) {
 // definido en index.js — disponible aquí sin middlewares adicionales en la ruta.
 // El HMAC de Supabase se valida en signalWebhookController usando req.rawBody.
 router.post("/signal", signalWebhookController);
+
+// Cosecha de comentarios bajo demanda: Apify avisa al terminar la corrida.
+// Se responde ANTES de ingerir — el dataset puede tener cientos de comentarios
+// y Apify reintenta si la respuesta tarda.
+router.post("/apify-comments", async (req, res) => {
+  const expected = process.env.INTERNAL_WEBHOOK_SECRET;
+  if (!expected) return res.status(500).json({ error: "INTERNAL_WEBHOOK_SECRET no configurado" });
+  if (req.headers["x-webhook-secret"] !== expected) return res.status(403).json({ error: "Forbidden" });
+
+  const body = req.body || {};
+  // Apify solo interpola variables de primer nivel: llega `resource` entero.
+  const recurso = body.resource || {};
+  const jobId = body.jobId || null;
+  const runId = body.runId || recurso.id || null;
+  const datasetId = body.datasetId || recurso.defaultDatasetId || null;
+  const status = body.status || recurso.status || null;
+  if (!jobId && !runId) return res.status(400).json({ error: "falta jobId o runId" });
+  res.json({ received: true });
+
+  try {
+    const r = await ingestHarvest({ jobId, runId, datasetId, status });
+    console.log(`[apify-comments] job ${jobId || runId}: ${JSON.stringify(r)}`);
+  } catch (e) {
+    console.error(`[apify-comments] job ${jobId || runId} fallo:`, e?.message || e);
+  }
+});
 
 // El usuario o el sistema envía una URL para análisis inmediato
 router.post("/url-trigger", urlTriggerController);

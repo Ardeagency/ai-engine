@@ -31,12 +31,14 @@ import * as decisionTools from "../tools/decision.tools.js";
 import * as canvasTools from "../tools/canvas.tools.js";
 import * as integrationDataTools from "../tools/integration-data.tools.js";
 import * as webTools from "../tools/web.tools.js";
+import * as missionTools from "../tools/missions.tools.js";
 import * as artifactTools from "../tools/artifact.tools.js";
 import { validateToolCall } from "../lib/tool-call.validator.js";
 import { captureSynthError } from "../lib/synth-error-capture.js";
 import { checkPolicy, getActionCreditCost } from "../lib/policy.engine.js";
 import { audit } from "../lib/audit-logger.js";
 import { emitToolActivity } from "../lib/activity-emitter.js";
+import * as commentHarvest from "./comment-harvest.service.js";
 
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS) || 8_000;
 
@@ -122,6 +124,14 @@ const TOOL_REGISTRY = {
   getCampaigns: {
     fn: ({ organizationId }) =>
       campaignTools.getCampaigns(null, organizationId),
+    requiresConsent: false,
+  },
+  getPaidIntelligence: {
+    fn: ({ brandContainerId, organizationId }) => dashboardTools.getPaidIntelligence({ brandContainerId, organizationId }),
+    requiresConsent: false,
+  },
+  getContentIntelligence: {
+    fn: ({ brandContainerId, organizationId, source, limit }) => dashboardTools.getContentIntelligence({ brandContainerId, organizationId, source, limit }),
     requiresConsent: false,
   },
   getCampaignDetail: {
@@ -312,11 +322,6 @@ const TOOL_REGISTRY = {
       scraperTools.getCompetitorAnalysis(entityName, null, organizationId),
     requiresConsent: false,
   },
-  getContentAnalysisSummary: {
-    fn: ({ organizationId }) =>
-      scraperTools.getContentAnalysisSummary(null, organizationId),
-    requiresConsent: false,
-  },
   // WRITE (Phase B) — Vera ajusta su monitoreo (sin consent: son herramientas internas, no afectan datos de cliente)
   updateMonitoringTrigger: {
     fn: (params) =>
@@ -357,6 +362,22 @@ const TOOL_REGISTRY = {
   getBodyMissions: {
     fn: ({ organizationId, status, limit }) =>
       strategyTools.getBodyMissions({ organizationId, status, limit }),
+    requiresConsent: false,
+  },
+  // Misiones = pasos de una estrategia. VERA los registra, avanza y RETOMA entre sesiones.
+  logMission: {
+    fn: ({ organizationId, brandContainerId, strategyId, seq, missionType, description, pendingActionId }) =>
+      missionTools.logMission({ organizationId, brandContainerId, strategyId, seq, missionType, description, pendingActionId }),
+    requiresConsent: false,
+  },
+  completeMission: {
+    fn: ({ missionId, status, summary, resultReference, pendingActionId }) =>
+      missionTools.completeMission({ missionId, status, summary, resultReference, pendingActionId }),
+    requiresConsent: false,
+  },
+  getOpenMissions: {
+    fn: ({ organizationId, strategyId, limit }) =>
+      missionTools.getOpenMissions({ organizationId, strategyId, limit }),
     requiresConsent: false,
   },
   getBriefingHoy: {
@@ -430,7 +451,6 @@ const TOOL_REGISTRY = {
   getPlatformHealth:        { fn: ({ params, organizationId }) => dashboardTools.getPlatformHealth({ ...(params || {}), organizationId }), requiresConsent: false },
   getBrandActivityHistory:  { fn: ({ params, organizationId }) => dashboardTools.getBrandActivityHistory({ ...(params || {}), organizationId }), requiresConsent: false },
   getBrandEngagementTrend:  { fn: ({ params, organizationId }) => dashboardTools.getBrandEngagementTrend({ ...(params || {}), organizationId }), requiresConsent: false },
-  getBrandSentimentActivity:{ fn: ({ params, organizationId }) => dashboardTools.getBrandSentimentActivity({ ...(params || {}), organizationId }), requiresConsent: false },
   getBrandPostingHours:     { fn: ({ params, organizationId }) => dashboardTools.getBrandPostingHours({ ...(params || {}), organizationId }), requiresConsent: false },
   getFeaturedProfile:       { fn: ({ params, organizationId }) => dashboardTools.getFeaturedProfile({ ...(params || {}), organizationId }), requiresConsent: false },
   getFeaturedProfileDetails:{ fn: ({ params, organizationId, brandContainerId }) => dashboardTools.getFeaturedProfileDetails({ ...(params || {}), organizationId, brandContainerId }), requiresConsent: false },
@@ -448,16 +468,54 @@ const TOOL_REGISTRY = {
   getCompetenciaFeatured:   { fn: ({ params, organizationId }) => dashboardTools.getCompetenciaFeatured({ ...(params || {}), organizationId }), requiresConsent: false },
   getCompetenciaTopPosts:   { fn: ({ params, organizationId }) => dashboardTools.getCompetenciaTopPosts({ ...(params || {}), organizationId }), requiresConsent: false },
   getCompetenciaActorDetails:{ fn: ({ params, organizationId }) => dashboardTools.getCompetenciaActorDetails({ ...(params || {}), organizationId }), requiresConsent: false },
+
+  // ── Cosecha de comentarios BAJO DEMANDA ──────────────────────────────────
+  // Los scrapers de perfil solo traen la primera tanda de comentarios (en la DB:
+  // 6% de cobertura en Instagram, 0% en el resto de redes). Estos actores cobran
+  // POR COMENTARIO, asi que no tienen cron: los dispara Vera cuando el hilo
+  // completo de un post concreto vale lo que cuesta.
+  harvestPostComments: {
+    fn: async ({ params }) => {
+      const p = params || {};
+      const started = await commentHarvest.requestHarvest({
+        brandPostId: p.brand_post_id,
+        cap: p.cap,
+        reason: p.reason || null,
+      });
+      if (started.reused && started.status !== "running") {
+        return { ...started, ...(await commentHarvest.getHarvest({ jobId: started.job_id })) };
+      }
+      // Espera activa acotada: el actor suele tardar 30-90s y la ventana de una
+      // tool no da para mucho mas. Si no llega, el job_id es la continuacion.
+      const espera = Math.max(0, Math.min(180, Number(p.wait_seconds ?? 120)));
+      const hasta = Date.now() + espera * 1000;
+      while (Date.now() < hasta) {
+        await new Promise((r) => setTimeout(r, 5000));
+        const estado = await commentHarvest.getHarvest({ jobId: started.job_id });
+        if (estado.listo) return { ...started, ...estado, esperado_s: Math.round((Date.now() - (hasta - espera * 1000)) / 1000) };
+      }
+      return {
+        ...started, listo: false,
+        note: "la cosecha sigue en curso; recogela con getHarvestedComments(job_id) en tu siguiente paso",
+      };
+    },
+    requiresConsent: true,
+  },
+  getHarvestedComments: {
+    fn: ({ params }) => commentHarvest.getHarvest({
+      jobId: (params || {}).job_id,
+      limit: (params || {}).limit,
+    }),
+    requiresConsent: false,
+  },
   getCompetenciaRisk:       { fn: ({ params, organizationId }) => dashboardTools.getCompetenciaRisk({ ...(params || {}), organizationId }), requiresConsent: false },
   getBrandVsCompetencia:    { fn: ({ params, organizationId }) => dashboardTools.getBrandVsCompetencia({ ...(params || {}), organizationId }), requiresConsent: false },
   searchCompetidor:         { fn: ({ params, organizationId }) => dashboardTools.searchCompetidor({ ...(params || {}), organizationId }), requiresConsent: false },
 
-  // Estrategia
-  getEstrategiaTopics:           { fn: ({ params, organizationId }) => dashboardTools.getEstrategiaTopics({ ...(params || {}), organizationId }), requiresConsent: false },
+  // Estrategia — SOLO métricas reales (hashtags/plataformas). Tonos/temas/
+  // sentimientos de la vieja lógica de clasificación ELIMINADOS (JC 2026-07-16).
   getEstrategiaHashtags:         { fn: ({ params, organizationId }) => dashboardTools.getEstrategiaHashtags({ ...(params || {}), organizationId }), requiresConsent: false },
-  getEstrategiaTones:            { fn: ({ params, organizationId }) => dashboardTools.getEstrategiaTones({ ...(params || {}), organizationId }), requiresConsent: false },
   getEstrategiaPlatforms:        { fn: ({ params, organizationId }) => dashboardTools.getEstrategiaPlatforms({ ...(params || {}), organizationId }), requiresConsent: false },
-  getEstrategiaSentimentsByBrand:{ fn: ({ params, organizationId }) => dashboardTools.getEstrategiaSentimentsByBrand({ ...(params || {}), organizationId }), requiresConsent: false },
 
   // ── VERA Cycle Pulse — tools que Vera usa al recibir un brain feed ────────
   // NOTA: estos wrappers aceptan params PLANOS o ANIDADOS indistintamente

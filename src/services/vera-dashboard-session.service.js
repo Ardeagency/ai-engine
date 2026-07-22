@@ -249,6 +249,20 @@ segundos. Orden OBLIGATORIO de narrative:
      prioridad alta, nada lo es.
    - Si de un perfil no paso nada digno de mencion, NO lo incluyas. Una
      observacion de relleno ("sigue publicando contenido") no vale nada.
+7) SOLO EN COMPETENCIA: bloques audiencia_competidor — el carrusel "Audiencias".
+   A QUIEN esta pescando cada competidor, leido de sus posts y sobre todo de
+   sus COMENTARIOS (quien responde, que pide, con que se identifica).
+   - NO es demografia ("mujeres 25-34"). Es un grupo con un hambre concreta:
+     "mamas que hornean el domingo con los hijos", "gente en deficit que
+     extraña el postre".
+   - Cada ficha se puede AGREGAR a la biblioteca de audiencias de la marca con
+     un boton: escribela para que sirva ahi. dolores/deseos son los campos que
+     se copian tal cual a la persona, y el gancho es el gatillo de compra.
+   - Solo audiencias que de verdad VISTE mordiendo el anzuelo en la evidencia.
+     Si la inventas, la marca va a producir contenido para gente que no existe.
+   - Si necesitas leer el hilo completo de comentarios de un post para
+     entenderla, usa harvestPostComments — cuesta dinero, uselo cuando la
+     audiencia lo valga.
 
 FORMATO EXACTO de salida (SOLO esto):
 [[READING_JSON]]
@@ -261,6 +275,7 @@ FORMATO EXACTO de salida (SOLO esto):
     {"type":"signal_triangulation","signals":[{"observation":"...","source_ref":"ev1"},{"observation":"...","source_ref":"ev2"}],"so_what":"..."},
     {"type":"hypothesis","statement":"...","confidence":"alta|media|exploratoria","how_to_verify":"...","evidence":["ev1"]},
     {"type":"receipt","quote":"cita textual real ≤280","author_handle":"@...","platform":"instagram","engagement":123,"source_ref":"ev1"},
+    {"type":"audiencia_competidor","nombre":"como se llama a esa gente, <=60 chars","perfil":"<competidor que la pesca>","descripcion":"quien es y por que muerde ese anzuelo, <=200 chars","dolores":["<=4"],"deseos":["<=4"],"gancho":"el hilo con el que la pesca, <=90 chars","evidence":["ev1"]},
     {"type":"observacion_perfil","perfil":"<nombre EXACTO>","rol":"competidor_directo|competidor_indirecto|referente|aliado","titulo":"el hallazgo en <=60 chars","observacion":"que viste y QUE IMPLICA para la marca, <=240 chars","severidad":"opportunity|warning|threat|neutral","prioridad":"alta|media|baja","evidence":["ev1"]},
     {"type":"perfil_analisis","perfil":"<nombre EXACTO del perfil>","rol":"competidor_directo|competidor_indirecto|referente|aliado","plataformas":["tiktok","instagram"],"temas":["≤4 temas de los que habla"],"tono":"su voz en ≤60 chars","formatos":["reel receta","carousel"],"aprendizaje":"que se lleva ESTA marca de ese perfil, ≤160 chars","evidence":["ev1"]},
     {"type":"watchlist_item","what":"...","why_watching":"...","check_back":"YYYY-MM-DD"},

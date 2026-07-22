@@ -23,6 +23,7 @@ import { meliGet } from "../lib/mercadolibre-rest.js";
 import { getMetaPageInsights, getInstagramInsights } from "../tools/social.tools.js";
 import { searchStream } from "../lib/googleads-rest.js";
 import { shopifyRestGet, shopifyRestGetAllPages } from "../lib/shopify-rest.js";
+import { archiveThumb } from "./media-archive.service.js";
 
 const INTEG_COLS =
   "id, brand_container_id, platform, shop_domain, access_token, refresh_token, token_expires_at, metadata, scope, is_active";
@@ -183,7 +184,7 @@ export async function runTikTokVideoInsights({ brandContainerId, organizationId 
             post_id: String(v.id),
             content: desc,
             permalink: v.share_url || null,
-            media_assets: v.cover_image_url ? [{ type: "image", url: v.cover_image_url }] : null,
+            media_assets: await _tiktokAssets(v, brandContainerId),
             metrics,
             followers_snapshot: user.follower_count ?? null,
             hashtags: extractHashtags(desc),
@@ -688,4 +689,24 @@ function extractHashtags(text) {
   const re = /#([\p{L}\p{N}_]+)/gu;
   while ((m = re.exec(text)) !== null) out.push(m[1]);
   return [...new Set(out)];
+}
+
+/**
+ * media_assets de un video propio de TikTok, con la miniatura ya archivada.
+ * Las URLs del CDN de TikTok caducan; se copia la portada a R2 al capturar,
+ * que es la unica ventana en que esa URL sirve. Fail-open: sin archivo, se
+ * conserva la original.
+ */
+async function _tiktokAssets(v, brandContainerId) {
+  const cover = v?.cover_image_url || null;
+  if (!cover) return null;
+  const assets = { cover_image: cover };
+  const archived = await archiveThumb({
+    mediaAssets:      assets,
+    brandContainerId,
+    network:          "tiktok",
+    postId:           String(v.id),
+  });
+  if (archived) assets.archived_url = archived;
+  return assets;
 }

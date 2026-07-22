@@ -50,12 +50,24 @@ import {
 import { runAlignmentForBrand } from "./audience-alignment.service.js";
 import { runCampaignPerformanceForBrand } from "./campaign-performance.service.js";
 import { syncMetaAdInsightsForBrand } from "./sync-meta-ad-insights.service.js";
-import { analyzeAndPersistPost, runContentAnalysisBackfill } from "./content-analysis.service.js";
-import { generateMissionsForBrand } from "./mission-generator.service.js";
-import { generateStrategyReviewForBrand } from "./strategy-review.service.js";
 import { runBrandIndexer } from "./brand-indexer.service.js";
-import { runThreatDetection } from "./threat-detector.service.js";
+import { archiveThumb } from "./media-archive.service.js";
 import { runTikTokVideoInsights, runMercadoLibreMetrics, runMetaAccountInsights, runGoogleAdsInsights, runShopifyMetrics } from "./platform-insights-sensors.service.js";
+
+// Media analysis event-driven: al ingerir un post nuevo, pedimos al python-analyzer
+// que describa su imagen/video si aun no tiene media analysis. Fire-and-forget.
+async function triggerMediaAnalysis(postId) {
+  if (!postId) return;
+  try {
+    await fetch("http://127.0.0.1:8001/analyze/media-post", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: postId }),
+    });
+  } catch (e) {
+    console.warn(`scraper: media-analysis ${postId} — ${e.message}`);
+  }
+}
 
 // Service-role: el scraper escribe directo a Supabase sin RLS
 const supabase = createClient(
@@ -342,6 +354,20 @@ async function persistNewPosts(posts, entity) {
       cover_image:     post.cover_image     || null,  // TikTok
     };
 
+    // ARCHIVO DE MINIATURA (2026-07-22): Instagram y TikTok firman las URLs de
+    // su CDN con expiracion — a las pocas semanas dan 403 y el dashboard pierde
+    // la cara del contenido. La UNICA ventana en que esa URL sirve es ahora, al
+    // capturar. Se copia la miniatura a R2 y se guarda la URL permanente; el
+    // frontend la prefiere y cae a la original si no existe.
+    // Fail-open: si el archivado falla, el post se guarda igual.
+    const archivedUrl = await archiveThumb({
+      mediaAssets:      media_assets,
+      brandContainerId: entity.brand_container_id,
+      network:          post.network,
+      postId:           post.external_id,
+    });
+    if (archivedUrl) media_assets.archived_url = archivedUrl;
+
     // B1 — metrics expandido
     const metrics = {
       likes:            post.like_count      || 0,
@@ -491,12 +517,9 @@ async function persistNewPosts(posts, entity) {
       );
     }
 
-    // brand_content_analysis: analyzer rule-based (sin LLM) — pobla tono,
-    // emoción, pilar narrativo, claridad, fatigue_risk + sentiment en brand_posts.
+    // Media analysis: describe imagen/video del post nuevo (event-driven).
     if (savedBrandPostId) {
-      await analyzeAndPersistPost(savedBrandPostId).catch((e) =>
-        console.warn(`scraper: content-analysis(competitor) ${savedBrandPostId} — ${e.message}`)
-      );
+      await triggerMediaAnalysis(savedBrandPostId);
     }
 
     inserted++;
@@ -1455,22 +1478,6 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
         window_days:      365,
       };
 
-    } else if (sensorType === "mission_generation") {
-      const result = await generateMissionsForBrand(brandContainerId, organizationId);
-      stats = {
-        missions_generated: result.generated,
-        skipped_existing:   result.skipped,
-      };
-
-    } else if (sensorType === "strategic_review") {
-      const result = await generateStrategyReviewForBrand(brandContainerId, organizationId);
-      stats = {
-        recommendations_generated: result.generated,
-        skipped:                   result.skipped || 0,
-        status:                    result.status || null,
-        error:                     result.error || null,
-      };
-
     } else if (sensorType === "brand_indexer") {
       const result = await runBrandIndexer(brandContainerId, organizationId);
       stats = {
@@ -1484,25 +1491,6 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
       if (result.error && result.indexed === 0 && result.skipped_unchanged === 0) {
         throw new Error(`brand_indexer: ${result.error}`);
       }
-
-      // Analiza contenido pendiente (pilares/tono) de posts propios - rule-based, IG+FB.
-      // Los posts own los sincroniza el sync de Meta (Netlify), que no analiza inline.
-      try {
-        const _ca = await runContentAnalysisBackfill(brandContainerId, 300);
-        stats.content_analyzed = _ca.analyzed;
-        stats.content_pending  = _ca.processed;
-      } catch (_e) {
-        console.warn(`brand_indexer: content-analysis backfill - ${_e.message}`);
-      }
-
-    } else if (sensorType === "threat_detection") {
-      const result = await runThreatDetection(brandContainerId, organizationId);
-      stats = {
-        total_detected:           result.total_detected,
-        competitor_virality:      result.competitor_virality?.detected || 0,
-        own_engagement_drop:      result.own_engagement_drop?.detected || 0,
-        negative_sentiment_spike: result.negative_sentiment_spike?.detected || 0,
-      };
 
     } else if (sensorType === "meta_ad_library_sync") {
       const result = await runMetaAdLibrarySync(brandContainerId, organizationId);
@@ -2103,9 +2091,7 @@ async function persistOwnPosts(posts, brandContainerId, entityId) {
       post_id:            post.id,
       content:            post.text || post.caption || "",
       hashtags:           Array.isArray(post.hashtags) ? post.hashtags : [],
-      media_assets:       post.image
-        ? [{ url: post.image, type: "image", permalink: post.permalink }]
-        : (post.permalink ? [{ permalink: post.permalink, type: post.media_type || "link" }] : []),
+      media_assets:       await _ownPostAssets(post, brandContainerId),
       metrics:            post.metrics || {},
       followers_snapshot: post.followers ?? null,   // penetración (IG/FB): antes quedaba NULL
       is_competitor:      false,
@@ -2148,8 +2134,7 @@ async function persistOwnPosts(posts, brandContainerId, entityId) {
         .catch((e) => console.warn(`scraper [own-posts]: trend_topics — ${e.message}`));
     }
     if (savedBrandPostId) {
-      await analyzeAndPersistPost(savedBrandPostId)
-        .catch((e) => console.warn(`scraper [own-posts]: content-analysis ${savedBrandPostId} — ${e.message}`));
+      await triggerMediaAnalysis(savedBrandPostId);
     }
 
     inserted++;
@@ -2541,4 +2526,29 @@ async function _persistInlineComments(posts, entity) {
     .upsert(rows, { onConflict: "network,external_comment_id", ignoreDuplicates: true });
   if (error) console.warn("scraper [comments-upsert]: " + error.message);
   return rows.length;
+}
+
+/**
+ * media_assets de un post PROPIO (Meta IG/FB), con la miniatura archivada.
+ *
+ * Antes se guardaba un array crudo `[{url,type,permalink}]` que ningun lector
+ * consumia — el resolver de miniaturas solo busca claves de objeto, asi que
+ * esas imagenes nunca se pintaban. Ahora es un objeto de la misma forma que el
+ * resto del sistema, y la portada se copia a R2 al capturar (las URLs de Meta
+ * tambien caducan). Fail-open: sin archivo, queda la original.
+ */
+async function _ownPostAssets(post, brandContainerId) {
+  const assets = {};
+  if (post.permalink) assets.permalink = post.permalink;
+  if (post.media_type) assets.media_type = post.media_type;
+  if (!post.image) return Object.keys(assets).length ? assets : null;
+  assets.display_url = post.image;
+  const archived = await archiveThumb({
+    mediaAssets:      assets,
+    brandContainerId,
+    network:          post.platform,
+    postId:           post.id,
+  });
+  if (archived) assets.archived_url = archived;
+  return assets;
 }

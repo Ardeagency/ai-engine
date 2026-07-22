@@ -16,6 +16,7 @@ import { BasePopulator } from "./base.populator.js";
 import { supabase } from "../../lib/supabase.js";
 import { getMe, getRecentVideos } from "../../lib/tiktok-rest.js";
 import { normalizeMetrics } from "../../lib/platform-metrics.js";
+import { archiveThumb } from "../media-archive.service.js";
 
 function extractTags(text, prefix) {
   if (!text) return [];
@@ -110,7 +111,7 @@ export class TikTokPopulator extends BasePopulator {
           post_id:             String(v.id),
           content:             desc,
           permalink:           v.share_url || null,
-          media_assets:        v.cover_image_url ? [{ type: "image", url: v.cover_image_url }] : null,
+          media_assets:        await _tiktokAssets(v, brand_container_id),
           metrics:             metrics,
           hashtags:            extractTags(desc, "#"),
           mentions:            extractTags(desc, "@"),
@@ -161,4 +162,24 @@ export class TikTokPopulator extends BasePopulator {
 
     return { ok: true, status: "bootstrap_completed", posts_indexed: count || 0 };
   }
+}
+
+/**
+ * media_assets de un video propio de TikTok, con la miniatura ya archivada.
+ * Las URLs del CDN de TikTok caducan; se copia la portada a R2 al capturar,
+ * que es la unica ventana en que esa URL sirve. Fail-open: sin archivo, se
+ * conserva la original.
+ */
+async function _tiktokAssets(v, brandContainerId) {
+  const cover = v?.cover_image_url || null;
+  if (!cover) return null;
+  const assets = { cover_image: cover };
+  const archived = await archiveThumb({
+    mediaAssets:      assets,
+    brandContainerId,
+    network:          "tiktok",
+    postId:           String(v.id),
+  });
+  if (archived) assets.archived_url = archived;
+  return assets;
 }

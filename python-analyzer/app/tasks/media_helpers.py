@@ -27,6 +27,12 @@ def extract_image_urls(media_assets, network: str) -> tuple[list[str], str]:
     if not isinstance(media_assets, dict):
         return [], "none"
 
+    # archived_url PRIMERO en toda red: es nuestra copia en R2 y no expira. Las
+    # URLs firmadas de fbcdn/tiktokcdn mueren en dias y devuelven 403.
+    arch = media_assets.get("archived_url")
+    if isinstance(arch, str) and arch.startswith("http"):
+        return [arch], "image"
+
     if network == "instagram":
         # Single (camelCase y snake_case + cover de Reels)
         for key in ("displayUrl", "display_url", "cover_image", "thumbnail_url", "main_image_url"):

@@ -8,8 +8,6 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from .analyzer import analyze_post
-from .persistence import fetch_post, fetch_pending, update_post
 from .tasks.media_helpers import extract_image_urls, already_described
 from .tasks.media_orchestrator import describe_media
 
@@ -21,7 +19,7 @@ H = {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}", "Content-T
 
 app = FastAPI(title="ai-engine python-analyzer", version="2.0.0")
 _started_at = time.time()
-_models_loaded = False
+_models_loaded = True
 
 
 class AnalyzeTextReq(BaseModel):
@@ -45,57 +43,6 @@ class AnalyzeMediaReq(BaseModel):
 @app.get("/health")
 def health():
     return {"status": "ok", "uptime_sec": int(time.time() - _started_at), "models_loaded": _models_loaded, "version": "2.0.0"}
-
-
-@app.post("/analyze/text")
-def analyze_text(req: AnalyzeTextReq):
-    return analyze_post(req.content, req.metrics, req.follower_count)
-
-
-@app.post("/analyze/post")
-async def analyze_one(req: AnalyzeOneReq):
-    post = await fetch_post(req.post_id)
-    if not post:
-        raise HTTPException(404, f"post {req.post_id} not found")
-    analysis = analyze_post(post["content"] or "", post.get("metrics"), post.get("followers_snapshot"))
-    if "error" in analysis:
-        raise HTTPException(400, analysis["error"])
-    await update_post(req.post_id, analysis)
-    return {"post_id": req.post_id, "ok": True, "summary": {
-        "lang": analysis["language"], "sentiment": analysis["sentiment"]["label"],
-        "score": analysis["sentiment"]["score"], "dominant_emotion": analysis["emotion"]["dominant"],
-        "topics": [t["kw"] for t in analysis["topics"]],
-        "impact": analysis["impact"]["impact_score"], "risk": analysis["risk"]["level"],
-    }}
-
-
-@app.post("/analyze/batch")
-async def analyze_batch(req: AnalyzeBatchReq):
-    results = {"ok": [], "errors": []}
-    for pid in req.post_ids:
-        try:
-            post = await fetch_post(pid)
-            if not post:
-                results["errors"].append({"post_id": pid, "error": "not_found"})
-                continue
-            analysis = analyze_post(post["content"] or "", post.get("metrics"), post.get("followers_snapshot"))
-            if "error" in analysis:
-                results["errors"].append({"post_id": pid, "error": analysis["error"]})
-                continue
-            await update_post(pid, analysis)
-            results["ok"].append(pid)
-        except Exception as e:
-            results["errors"].append({"post_id": pid, "error": str(e)[:200]})
-    return {"processed": len(results["ok"]), "errors": len(results["errors"]), **results}
-
-
-@app.post("/analyze/pending")
-async def analyze_pending(req: AnalyzePendingReq):
-    pending = await fetch_pending(req.limit)
-    if not pending:
-        return {"processed": 0, "message": "no pending posts"}
-    pids = [p["id"] for p in pending]
-    return await analyze_batch(AnalyzeBatchReq(post_ids=pids))
 
 
 # ── NUEVO: análisis de media (imágenes) ──────────────────────────────────────
@@ -321,135 +268,15 @@ class CreativeThemeReq(BaseModel):
     only_competitors: bool = True
 
 
-async def _fetch_posts_for_theme(limit: int, only_competitors: bool):
-    async with httpx.AsyncClient(timeout=20) as cli:
-        params = {
-            "select": "id,content,engagement_total,media_assets,enrichment",
-            "content": "not.is.null",
-            "enrichment->creative_theme": "is.null",
-            "order": "engagement_total.desc.nullslast",
-            "limit": str(limit),
-        }
-        if only_competitors:
-            params["is_competitor"] = "eq.true"
-        r = await cli.get(f"{SUPABASE_URL}/rest/v1/brand_posts", headers=H, params=params)
-        r.raise_for_status()
-        return r.json()
-
-
-async def _persist_theme(post_id: str, enrichment, theme: dict):
-    new_enr = dict(enrichment) if isinstance(enrichment, dict) else {}
-    new_enr["creative_theme"] = theme
-    async with httpx.AsyncClient(timeout=10) as cli:
-        await cli.patch(f"{SUPABASE_URL}/rest/v1/brand_posts", headers=H,
-                        params={"id": f"eq.{post_id}"}, json={"enrichment": new_enr})
-
-
-@app.post("/analyze/creative-theme")
-async def analyze_creative_theme(req: CreativeThemeReq):
-    posts = await _fetch_posts_for_theme(req.limit, req.only_competitors)
-    if not posts:
-        return {"processed": 0, "message": "no posts pending theme"}
-    from .tasks.creative_theme import detect_creative_theme
-
-    ok, errs, cost = 0, [], 0.0
-    for p in posts:
-        try:
-            ma = p.get("media_assets") or {}
-            descs = ma.get("descriptions") if isinstance(ma, dict) else None
-            media_desc = ""
-            if isinstance(descs, list):
-                media_desc = " ".join(str(d.get("description", "")) for d in descs if isinstance(d, dict))[:1500]
-            theme = detect_creative_theme(p.get("content") or "", media_desc)
-            cost += float(theme.get("usd_cost") or 0)
-            await _persist_theme(p["id"], p.get("enrichment"), theme)
-            ok += 1
-        except Exception as e:
-            errs.append({"id": p["id"], "error": str(e)[:200]})
-    return {"processed": ok, "errors": len(errs), "usd_cost": round(cost, 4), "error_samples": errs[:3]}
-
-
 # ── PATTERN MINING (F1) ──────────────────────────────────────────────────────
 class PatternsBatchReq(BaseModel):
     limit: int = 100
-
-
-async def _fetch_posts_for_patterns(limit: int):
-    async with httpx.AsyncClient(timeout=20) as cli:
-        r = await cli.get(
-            f"{SUPABASE_URL}/rest/v1/brand_posts",
-            headers=H,
-            params={
-                "select": "id,brand_container_id,network,content,metrics,engagement_total,followers_snapshot,sentiment_score,sentiment,enrichment,media_assets,is_competitor,captured_at,updated_at",
-                "ai_analyzed_at": "not.is.null",
-                "sentiment_score": "not.is.null",
-                # ORDER por updated_at (cuándo se persistió/analizó), no captured_at
-                # (fecha del post original). Con captured_at, los posts scrapeados
-                # hoy de hace años quedan al fondo y nunca se procesan.
-                "order": "updated_at.desc",
-                # 5x para sobrevivir al filtro de duplicados (los más recientes ya
-                # están en post_patterns).
-                "limit": str(limit * 5),
-            },
-        )
-        r.raise_for_status()
-        # filtrar los que no estén ya en post_patterns
-        posts = r.json()
-        if not posts: return []
-        ids = ",".join(p["id"] for p in posts)
-        r2 = await cli.get(
-            f"{SUPABASE_URL}/rest/v1/post_patterns",
-            headers=H,
-            params={"brand_post_id": f"in.({ids})", "select": "brand_post_id"},
-        )
-        already = set(x["brand_post_id"] for x in (r2.json() if r2.status_code == 200 else []))
-        return [p for p in posts if p["id"] not in already][:limit]
-
-
-async def _get_org_id_for_brand(brand_id: str):
-    if not brand_id: return None
-    async with httpx.AsyncClient(timeout=10) as cli:
-        r = await cli.get(f"{SUPABASE_URL}/rest/v1/brand_containers",
-                          headers=H, params={"id": f"eq.{brand_id}", "select": "organization_id"})
-        rows = r.json() if r.status_code == 200 else []
-        return rows[0]["organization_id"] if rows else None
-
-
-@app.get("/patterns/sample/{post_id}")
-async def patterns_sample(post_id: str):
-    """Debug: clasifica un post sin insertar."""
-    async with httpx.AsyncClient(timeout=10) as cli:
-        r = await cli.get(
-            f"{SUPABASE_URL}/rest/v1/brand_posts",
-            headers=H,
-            params={"id": f"eq.{post_id}", "select": "*"},
-        )
-        rows = r.json()
-        if not rows: raise HTTPException(404, "not found")
-    from .tasks.pattern_classifier import classify_post
-    return classify_post(rows[0])
-
-
 
 
 # ── F3 — DAILY BRIEF ─────────────────────────────────────────────────────────
 class GenerateBriefReq(BaseModel):
     brand_container_id: str
     date: str | None = None  # ISO date YYYY-MM-DD; default today
-
-
-async def _fetch_brief_data(brand_id: str, target_date: str | None):
-    body = {"target_brand_id": brand_id}
-    if target_date:
-        body["target_date"] = target_date
-    async with httpx.AsyncClient(timeout=20) as cli:
-        r = await cli.post(
-            f"{SUPABASE_URL}/rest/v1/rpc/brief_aggregate",
-            headers=H, json=body,
-        )
-        if r.status_code >= 400:
-            raise HTTPException(r.status_code, r.text[:300])
-        return r.json()
 
 
 async def _fetch_brand_name(brand_id: str) -> str:
@@ -468,257 +295,16 @@ async def _fetch_brand_org(brand_id: str) -> str | None:
         return rows[0].get("organization_id") if rows else None
 
 
-async def _save_brief(brand_id: str, org_id: str, brief_date: str, markdown: str, data: dict, metrics: dict):
-    payload = {
-        "brand_container_id": brand_id, "organization_id": org_id,
-        "brief_date": brief_date, "markdown": markdown,
-        "data": data, "metrics": metrics, "generator_version": "v1",
-    }
-    async with httpx.AsyncClient(timeout=15) as cli:
-        await cli.post(
-            f"{SUPABASE_URL}/rest/v1/daily_briefs?on_conflict=brand_container_id,brief_date",
-            headers={**H, "Prefer": "resolution=merge-duplicates,return=minimal"},
-            json=payload,
-        )
-
-
-@app.post("/brief/daily")
-async def generate_daily_brief(req: GenerateBriefReq):
-    """Genera (o regenera) el brief de un brand para una fecha."""
-    from datetime import date
-    target_date = req.date or date.today().isoformat()
-    org_id = await _fetch_brand_org(req.brand_container_id)
-    if not org_id:
-        raise HTTPException(404, "brand not found")
-    brand_name = await _fetch_brand_name(req.brand_container_id)
-
-    data = await _fetch_brief_data(req.brand_container_id, target_date)
-    if not data:
-        raise HTTPException(500, "brief_aggregate returned empty")
-
-    from .tasks.daily_brief import render_brief_markdown, compute_metrics_summary
-    markdown = render_brief_markdown(data, brand_name=brand_name)
-    metrics = compute_metrics_summary(data)
-
-    await _save_brief(req.brand_container_id, org_id, target_date, markdown, data, metrics)
-
-    return {
-        "brand_container_id": req.brand_container_id,
-        "date": target_date,
-        "metrics": metrics,
-        "markdown_preview": markdown[:500],
-        "markdown_full_chars": len(markdown),
-    }
-
-
-@app.get("/brief/daily/{brand_id}/markdown")
-async def get_brief_markdown(brand_id: str, date: str | None = None):
-    """Retorna el markdown puro (text/markdown). Genera si no existe."""
-    from fastapi.responses import PlainTextResponse
-    from datetime import date as date_cls
-    target_date = date or date_cls.today().isoformat()
-
-    # Intenta leer cache
-    async with httpx.AsyncClient(timeout=10) as cli:
-        r = await cli.get(
-            f"{SUPABASE_URL}/rest/v1/daily_briefs",
-            headers=H,
-            params={
-                "brand_container_id": f"eq.{brand_id}",
-                "brief_date": f"eq.{target_date}",
-                "select": "markdown,generated_at",
-            },
-        )
-        rows = r.json() if r.status_code == 200 else []
-        if rows and rows[0].get("markdown"):
-            return PlainTextResponse(rows[0]["markdown"], media_type="text/markdown; charset=utf-8")
-
-    # No cached — generar
-    org_id = await _fetch_brand_org(brand_id)
-    if not org_id:
-        raise HTTPException(404, "brand not found")
-    brand_name = await _fetch_brand_name(brand_id)
-    data = await _fetch_brief_data(brand_id, target_date)
-    from .tasks.daily_brief import render_brief_markdown, compute_metrics_summary
-    markdown = render_brief_markdown(data, brand_name=brand_name)
-    metrics = compute_metrics_summary(data)
-    await _save_brief(brand_id, org_id, target_date, markdown, data, metrics)
-    return PlainTextResponse(markdown, media_type="text/markdown; charset=utf-8")
-
-
-
-
 # ── F5.a — WEEKLY STRATEGY MEMO ──────────────────────────────────────────────
 class GenerateMemoReq(BaseModel):
     brand_container_id: str
     week_start: str | None = None  # YYYY-MM-DD del lunes; default = lunes actual
 
 
-async def _fetch_memo_data(brand_id: str, week_start: str | None):
-    body = {"target_brand_id": brand_id}
-    if week_start:
-        body["target_week_start"] = week_start
-    async with httpx.AsyncClient(timeout=20) as cli:
-        r = await cli.post(
-            f"{SUPABASE_URL}/rest/v1/rpc/weekly_memo_aggregate",
-            headers=H, json=body,
-        )
-        if r.status_code >= 400:
-            raise HTTPException(r.status_code, r.text[:300])
-        return r.json()
-
-
-async def _save_memo(brand_id: str, org_id: str, week_start: str, week_end: str, markdown: str, data: dict, metrics: dict):
-    async with httpx.AsyncClient(timeout=15) as cli:
-        await cli.post(
-            f"{SUPABASE_URL}/rest/v1/weekly_memos",
-            headers={**H, "Prefer": "resolution=merge-duplicates"},
-            json={
-                "brand_container_id": brand_id, "organization_id": org_id,
-                "week_start": week_start, "week_end": week_end,
-                "markdown": markdown, "data": data, "metrics": metrics,
-                "generator_version": "v1",
-            },
-        )
-
-
-@app.post("/memo/weekly")
-async def generate_weekly_memo(req: GenerateMemoReq):
-    from datetime import date, timedelta
-    if req.week_start:
-        week_start = req.week_start
-    else:
-        today = date.today()
-        week_start = (today - timedelta(days=today.weekday())).isoformat()  # lunes actual
-
-    org_id = await _fetch_brand_org(req.brand_container_id)
-    if not org_id: raise HTTPException(404, "brand not found")
-    brand_name = await _fetch_brand_name(req.brand_container_id)
-
-    data = await _fetch_memo_data(req.brand_container_id, week_start)
-    if not data: raise HTTPException(500, "weekly_memo_aggregate returned empty")
-
-    from .tasks.weekly_memo import render_weekly_memo, compute_memo_metrics
-    markdown = render_weekly_memo(data, brand_name=brand_name)
-    metrics = compute_memo_metrics(data)
-    week_end = data.get("week_end") or week_start
-
-    await _save_memo(req.brand_container_id, org_id, week_start, week_end, markdown, data, metrics)
-
-    return {
-        "brand_container_id": req.brand_container_id,
-        "week_start": week_start, "week_end": week_end,
-        "metrics": metrics,
-        "markdown_preview": markdown[:600],
-        "markdown_full_chars": len(markdown),
-    }
-
-
-@app.get("/memo/weekly/{brand_id}/markdown")
-async def get_weekly_memo_md(brand_id: str, week_start: str | None = None):
-    from fastapi.responses import PlainTextResponse
-    from datetime import date, timedelta
-    if not week_start:
-        today = date.today()
-        week_start = (today - timedelta(days=today.weekday())).isoformat()
-
-    async with httpx.AsyncClient(timeout=10) as cli:
-        r = await cli.get(
-            f"{SUPABASE_URL}/rest/v1/weekly_memos",
-            headers=H,
-            params={
-                "brand_container_id": f"eq.{brand_id}",
-                "week_start": f"eq.{week_start}",
-                "select": "markdown,generated_at",
-            },
-        )
-        rows = r.json() if r.status_code == 200 else []
-        if rows and rows[0].get("markdown"):
-            return PlainTextResponse(rows[0]["markdown"], media_type="text/markdown; charset=utf-8")
-
-    # Generar
-    org_id = await _fetch_brand_org(brand_id)
-    if not org_id: raise HTTPException(404, "brand not found")
-    brand_name = await _fetch_brand_name(brand_id)
-    data = await _fetch_memo_data(brand_id, week_start)
-    from .tasks.weekly_memo import render_weekly_memo, compute_memo_metrics
-    markdown = render_weekly_memo(data, brand_name=brand_name)
-    metrics = compute_memo_metrics(data)
-    week_end = data.get("week_end") or week_start
-    await _save_memo(brand_id, org_id, week_start, week_end, markdown, data, metrics)
-    return PlainTextResponse(markdown, media_type="text/markdown; charset=utf-8")
-
-
-
-
 # ── F5.b — CREATOR BRIEF GENERATOR ───────────────────────────────────────────
 class CreatorBriefReq(BaseModel):
     brand_container_id: str
     recommendation_index: int = 0  # cuál de las top recos usar (default top 1)
-
-
-async def _fetch_brand_data(brand_id: str):
-    async with httpx.AsyncClient(timeout=10) as cli:
-        r = await cli.get(
-            f"{SUPABASE_URL}/rest/v1/brand_containers",
-            headers=H,
-            params={"id": f"eq.{brand_id}", "select": "id,nombre_marca,nicho_core,sub_nichos,mercado_objetivo,verbal_dna,arquetipo,palabras_clave,palabras_prohibidas"},
-        )
-        rows = r.json() if r.status_code == 200 else []
-        return rows[0] if rows else None
-
-
-async def _fetch_top_recommendations(brand_id: str, limit: int = 5):
-    async with httpx.AsyncClient(timeout=15) as cli:
-        r = await cli.post(
-            f"{SUPABASE_URL}/rest/v1/rpc/cross_brand_recommendations",
-            headers=H, json={"target_brand_id": brand_id},
-        )
-        if r.status_code >= 400:
-            raise HTTPException(r.status_code, r.text[:300])
-        recos = r.json() or []
-        return recos[:limit]
-
-
-@app.post("/brief/creator")
-async def generate_creator_brief(req: CreatorBriefReq):
-    brand_data = await _fetch_brand_data(req.brand_container_id)
-    if not brand_data:
-        raise HTTPException(404, "brand not found")
-    recos = await _fetch_top_recommendations(req.brand_container_id, limit=10)
-    if not recos:
-        raise HTTPException(404, "no recommendations available — clasifica posts primero")
-    if req.recommendation_index >= len(recos):
-        raise HTTPException(400, f"recommendation_index {req.recommendation_index} fuera de rango (max {len(recos)-1})")
-    reco = recos[req.recommendation_index]
-
-    from .tasks.creator_brief import render_creator_brief
-    brand_name = brand_data.get("nombre_marca") or "Tu Marca"
-    markdown = render_creator_brief(reco, brand_data, brand_name=brand_name)
-
-    return {
-        "brand_container_id": req.brand_container_id,
-        "recommendation": reco,
-        "markdown_full_chars": len(markdown),
-        "markdown": markdown,
-    }
-
-
-@app.get("/brief/creator/{brand_id}/markdown")
-async def get_creator_brief_md(brand_id: str, index: int = 0):
-    from fastapi.responses import PlainTextResponse
-    brand_data = await _fetch_brand_data(brand_id)
-    if not brand_data: raise HTTPException(404, "brand not found")
-    recos = await _fetch_top_recommendations(brand_id, limit=10)
-    if not recos or index >= len(recos):
-        raise HTTPException(404, "reco no disponible")
-    reco = recos[index]
-    from .tasks.creator_brief import render_creator_brief
-    brand_name = brand_data.get("nombre_marca") or "Tu Marca"
-    markdown = render_creator_brief(reco, brand_data, brand_name=brand_name)
-    return PlainTextResponse(markdown, media_type="text/markdown; charset=utf-8")
-
-
 
 
 # ── F6 — DELIVERY LAYER ──────────────────────────────────────────────────────
@@ -1340,28 +926,6 @@ class MarkPublishedReq(BaseModel):
     brand_post_id: str
 
 
-@app.post("/strategy/synthesize")
-async def strategy_synthesize(req: SynthesizeReq):
-    """Trigger Vera para generar batch de propuestas estratégicas."""
-    from .vera_strategist import generate_for_brand
-    try:
-        result = await generate_for_brand(req.brand_id, req.num_proposals)
-        return result
-    except Exception as e:
-        raise HTTPException(500, f"vera-strategist error: {str(e)[:300]}")
-
-
-@app.post("/strategy/regenerate")
-async def strategy_regenerate(req: RegenerateReq):
-    """Regenerar propuesta iterada (humano dio feedback en /strategy/iterate)."""
-    from .vera_strategist import regenerate_with_feedback
-    try:
-        result = await regenerate_with_feedback(req.rec_id)
-        return result
-    except Exception as e:
-        raise HTTPException(500, f"vera-regenerate error: {str(e)[:300]}")
-
-
 @app.post("/strategy/approve")
 async def strategy_approve(req: ApproveReq):
     """Aprobar recomendación → pasa a estado approved (humano puede luego producir)."""
@@ -1474,16 +1038,6 @@ async def strategy_dashboard_master(brand_id: str):
         return r.json()
 
 
-@app.on_event("startup")
-def warmup():
-    global _models_loaded
-    print("[startup] cargando modelos…")
-    from .analyzer import analyze_post
-    res = analyze_post("Hello world! 🚀", metrics={"likes": 10, "comments": 1})
-    print(f"[startup] modelos OK — lang={res.get('language')} sent={res.get('sentiment',{}).get('label')}")
-    _models_loaded = True
-
-
 @app.post("/trends/keywords/{brand_container_id}")
 async def trends_keyword_loop(brand_container_id: str, max_calls: int | None = None,
                               max_rounds: int | None = None):
@@ -1505,67 +1059,44 @@ class PatternsLLMReq(BaseModel):
     global_max: int = 200
 
 
-async def _insert_pattern_llm(post_row: dict, det: dict, llm: dict):
-    org_id = await _get_org_id_for_brand(post_row.get("brand_container_id"))
-    payload = {
-        "brand_post_id": post_row["id"],
-        "brand_container_id": post_row.get("brand_container_id"),
-        "organization_id": org_id,
-        "is_competitor": bool(post_row.get("is_competitor", True)),
-        "network": post_row.get("network"),
-        "tone": llm.get("tone") or det["tone"],
-        "topic": llm.get("topic") or det["topic"],
-        "format": det["format"],
-        "mood": llm.get("mood") or det["mood"],
-        "tone_confidence": llm.get("tone_confidence") or det["tone_confidence"],
-        "topic_confidence": llm.get("topic_confidence") or det["topic_confidence"],
-        "engagement_total": det["engagement_total"],
-        "engagement_rate": det["engagement_rate"],
-        "sentiment_score": det["sentiment_score"],
-        "impact_score": det["impact_score"],
-        "reach": det["reach"],
-        "followers_at_capture": det["followers_at_capture"],
-        "posted_at": post_row.get("captured_at"),
-        "classifier_version": "llm-v3",
-        "topics": llm.get("topics", []),
-        "tones": llm.get("tones", []),
-        "moods": llm.get("moods", []),
-        "sentiments": llm.get("sentiments", []),
-        "audience_sentiment": llm.get("audience_sentiment"),
-        "sentiment_evoked": llm.get("sentiment_evoked"),
-    }
-    async with httpx.AsyncClient(timeout=10) as cli:
-        r = await cli.post(
-            f"{SUPABASE_URL}/rest/v1/post_patterns",
-            headers={**H, "Prefer": "resolution=merge-duplicates"},
-            json=payload,
-        )
-        if r.status_code >= 400:
-            raise RuntimeError(f"insert llm pattern: {r.status_code} {r.text[:200]}")
+# ── Media analysis per-post (event-driven: scraper llama al ingerir un post) ──
+class MediaPostReq(BaseModel):
+    post_id: str
 
 
-@app.post("/patterns/classify-llm")
-async def patterns_classify_llm(req: PatternsLLMReq):
-    posts = await _fetch_posts_for_patterns(req.limit)
-    if not posts:
-        return {"processed": 0, "message": "no pending patterns"}
+@app.post("/analyze/media-post")
+async def analyze_media_post(req: MediaPostReq):
+    """Describe la media (imagen/carrusel) de UN post si aun no tiene media analysis."""
+    async with httpx.AsyncClient(timeout=15) as cli:
+        r = await cli.get(f"{SUPABASE_URL}/rest/v1/brand_posts", headers=H,
+                          params={"id": f"eq.{req.post_id}",
+                                  "select": "id,network,content,media_assets,brand_container_id"})
+        rows = r.json() if r.status_code == 200 else []
+    if not rows:
+        raise HTTPException(404, "post not found")
+    p = rows[0]
+    ma = p.get("media_assets")
+    if already_described(ma):
+        return {"post_id": p["id"], "skipped": "already_described"}
+    if isinstance(ma, dict) and ma.get("image_extraction_error") and not ma.get("archived_url"):
+        # Con copia en R2 el error viejo ya no aplica: se reintenta.
+        return {"post_id": p["id"], "skipped": "prior_error"}
+    urls, kind = extract_image_urls(ma, p["network"])
+    if kind == "none":
+        await _mark_extraction_error(p["id"], ma, "no_image_urls")
+        return {"post_id": p["id"], "error": "no_image_urls"}
+    org_id = await _get_org_id_for_brand(p["brand_container_id"])
+    r = describe_media(urls[0], "image", org_id) if kind == "image" \
+        else describe_media("|||".join(urls), "carousel", org_id)
+    if "error" in r:
+        await _mark_extraction_error(p["id"], ma, f"describe_failed:{r['error'][:120]}")
+        return {"post_id": p["id"], "error": r["error"][:120]}
+    await _persist_media_description(p["id"], ma or {}, [{
+        "kind": kind, "model": r.get("model"), "description": r.get("description"),
+        "url": urls[0] if kind == "image" else None,
+        "url_count": len(urls) if kind == "carousel" else 1,
+        "tokens_in": r.get("tokens_in"), "tokens_out": r.get("tokens_out"),
+        "usd_cost": r.get("usd_cost", 0), "cached": r.get("cached", False),
+    }])
+    return {"post_id": p["id"], "ok": True, "kind": kind, "cached": r.get("cached", False)}
 
-    from .tasks.llm_classifier import classify_batch, select_governed
-    from .tasks.pattern_classifier import classify_post
-
-    posts = select_governed(posts, req.global_max)
-    try:
-        llm_by_id = classify_batch(posts)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"llm classify failed: {str(e)[:300]}")
-
-    ok, errs = 0, []
-    for p in posts:
-        try:
-            det = classify_post(p)
-            llm = llm_by_id.get(p["id"], {})
-            await _insert_pattern_llm(p, det, llm)
-            ok += 1
-        except Exception as e:
-            errs.append({"id": p["id"], "error": str(e)[:200]})
-    return {"processed": ok, "errors": len(errs), "error_samples": errs[:3]}

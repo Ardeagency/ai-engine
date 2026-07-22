@@ -492,14 +492,27 @@ export async function fetchOwnPostsPage({
     accountFollowers = fbPage?.instagram_business_account?.followers_count ?? null;
     accountLabel = `@${fbPage.instagram_business_account?.username}`;
     edge   = `/${igId}/media`;
-    fields = "id,caption,media_type,permalink,timestamp,like_count,comments_count";
+    // media_url/thumbnail_url: SIN esto el post propio entra sin imagen y ni se
+    // archiva en R2 ni se puede describir. children = las piezas del carrusel.
+    // Son campos baratos (no insights): no disparan total_time.
+    fields = "id,caption,media_type,permalink,timestamp,like_count,comments_count," +
+             "media_url,thumbnail_url,children{media_url,thumbnail_url,media_type}";
     normalize = (m) => {
       const likes = m.like_count || 0, comments = m.comments_count || 0;
+      // En VIDEO/REEL media_url es el mp4: la portada que se puede describir es
+      // thumbnail_url. En carrusel el padre no trae media_url — se usa la 1a pieza.
+      const kids = (m.children?.data || []).map((c) => c.media_url || c.thumbnail_url).filter(Boolean);
+      const tipo = (m.media_type || "IMAGE").toUpperCase();
+      const portada = tipo === "IMAGE" ? (m.media_url || m.thumbnail_url)
+                    : tipo === "CAROUSEL_ALBUM" ? (kids[0] || m.media_url || m.thumbnail_url)
+                    : (m.thumbnail_url || m.media_url);
       return {
         id: m.id, platform: "instagram",
         text: (m.caption || "").slice(0, 2000),
         hashtags: extractHashtags(m.caption || ""),
-        created_at: m.timestamp, permalink: m.permalink, image: null,
+        created_at: m.timestamp, permalink: m.permalink,
+        image: portada || null,
+        images: kids,
         media_type: (m.media_type || "IMAGE").toLowerCase(),
         metrics: { likes, comments, shares: 0, total_interactions: likes + comments },
       };
@@ -796,7 +809,7 @@ export async function getBrandContent({ brandContainerId = null, organizationId,
   const cutoff = new Date(Date.now() - daysWindow * 86_400_000).toISOString();
   const { data: posts } = await supabase
     .from("brand_posts")
-    .select("sentiment, captured_at, network, is_competitor")
+    .select("captured_at, network, is_competitor")
     .in("brand_container_id", brandIds)
     .gte("captured_at", cutoff);
 

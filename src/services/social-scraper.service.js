@@ -2070,6 +2070,11 @@ async function persistOwnPosts(posts, brandContainerId, entityId) {
   // Update silencioso de métricas en posts ya conocidos
   for (const post of posts) {
     if (knownIds.has(post.id)) {
+      // Rescate de imagen: los posts propios de IG se guardaron sin foto porque
+      // al Graph nunca se le pedía media_url. Ahora que llega, se archiva la que
+      // siga viva en el CDN y se manda a describir — es la única ventana para
+      // recuperarlas (las URLs firmadas expiran en días).
+      const rescatado = await _rescueOwnThumb(entityId, post, brandContainerId);
       await supabase.from("brand_posts")
         .update({
           metrics:    post.metrics || {},
@@ -2078,10 +2083,12 @@ async function persistOwnPosts(posts, brandContainerId, entityId) {
           ...(Array.isArray(post.hashtags) ? { hashtags: post.hashtags } : {}),
           // followers_snapshot: backfill para que compute_penetration_proxy deje de dar 0 en IG/FB.
           ...(post.followers != null ? { followers_snapshot: post.followers } : {}),
+          ...(rescatado ? { media_assets: rescatado.media_assets } : {}),
           updated_at: new Date().toISOString(),
         })
         .eq("entity_id", entityId)
         .eq("post_id", post.id);
+      if (rescatado) await triggerMediaAnalysis(rescatado.id);
     }
   }
 
@@ -2550,6 +2557,8 @@ async function _ownPostAssets(post, brandContainerId) {
   if (post.media_type) assets.media_type = post.media_type;
   if (!post.image) return Object.keys(assets).length ? assets : null;
   assets.display_url = post.image;
+  // Las piezas del carrusel: el describer las manda en UNA sola request.
+  if (Array.isArray(post.images) && post.images.length > 1) assets.images = post.images;
   const archived = await archiveThumb({
     mediaAssets:      assets,
     brandContainerId,
@@ -2558,6 +2567,39 @@ async function _ownPostAssets(post, brandContainerId) {
   });
   if (archived) assets.archived_url = archived;
   return assets;
+}
+
+/**
+ * Rescata la imagen de un post PROPIO ya guardado que no tiene copia en R2.
+ * Devuelve { id, media_assets } listo para el update, o null si no hay nada que
+ * hacer (sin imagen fresca, post inexistente, ya archivado o R2 no respondió).
+ * Se borra `image_extraction_error`: con copia permanente el fallo viejo deja de
+ * aplicar y el describer puede reintentar.
+ */
+async function _rescueOwnThumb(entityId, post, brandContainerId) {
+  if (!post.image) return null;
+  const { data } = await supabase.from("brand_posts")
+    .select("id, media_assets")
+    .eq("entity_id", entityId)
+    .eq("post_id", post.id)
+    .maybeSingle();
+  if (!data) return null;
+  const cur = (data.media_assets && typeof data.media_assets === "object" && !Array.isArray(data.media_assets))
+    ? data.media_assets : {};
+  if (cur.archived_url) return null;                  // ya rescatado
+  const archived = await archiveThumb({
+    mediaAssets:      { display_url: post.image },
+    brandContainerId,
+    network:          post.platform,
+    postId:           post.id,
+  });
+  if (!archived) return null;
+  const next = { ...cur, display_url: post.image, archived_url: archived };
+  if (post.permalink) next.permalink = post.permalink;
+  if (post.media_type) next.media_type = post.media_type;
+  if (Array.isArray(post.images) && post.images.length > 1) next.images = post.images;
+  delete next.image_extraction_error;
+  return { id: data.id, media_assets: next };
 }
 
 /**

@@ -27,7 +27,7 @@ def _calc_cost(tin: int, tout: int) -> float:
     return round((tin * 0.30 / 1_000_000) + (tout * 2.50 / 1_000_000), 5)
 
 
-def describe_video_url(video_url: str) -> dict:
+def describe_video_url(video_url: str, prompt: str | None = None) -> dict:
     """Para YouTube: pasa URL directa. Para otros: descarga + Files API."""
     if not video_url or not video_url.startswith("http"):
         return {"error": "invalid_url"}
@@ -38,7 +38,7 @@ def describe_video_url(video_url: str) -> dict:
                 model=MODEL,
                 contents=types.Content(parts=[
                     types.Part(file_data=types.FileData(file_uri=video_url, mime_type="video/mp4")),
-                    types.Part(text=VIDEO_PROMPT),
+                    types.Part(text=prompt or VIDEO_PROMPT),
                 ]),
             )
             usage = response.usage_metadata
@@ -88,7 +88,7 @@ def describe_video_via_upload(video_url: str, max_size_mb: int = 100) -> dict:
                 model=MODEL,
                 contents=types.Content(parts=[
                     types.Part(file_data=types.FileData(file_uri=file_obj.uri, mime_type=file_obj.mime_type)),
-                    types.Part(text=VIDEO_PROMPT),
+                    types.Part(text=prompt or VIDEO_PROMPT),
                 ]),
             )
             usage = response.usage_metadata

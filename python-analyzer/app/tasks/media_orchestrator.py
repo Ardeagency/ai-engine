@@ -69,7 +69,8 @@ def charge_org(organization_id: str, usd_cost: float, kind: str, metadata: dict)
                  })
 
 
-def describe_media(url: str, media_type: str, organization_id: str | None = None) -> dict:
+def describe_media(url: str, media_type: str, organization_id: str | None = None,
+                   prompt: str | None = None, prompt_tag: str | None = None) -> dict:
     """
     Entry point: cache-aware describe.
     media_type ∈ {'image', 'video', 'carousel'}.
@@ -80,9 +81,16 @@ def describe_media(url: str, media_type: str, organization_id: str | None = None
 
     if media_type == "carousel":
         urls = [u for u in url.split("|||") if u]
-        uhash = hashlib.sha256("|||".join(sorted(urls)).encode()).hexdigest()
+        clave = "|||".join(sorted(urls))
     else:
-        uhash = url_hash(url)
+        urls = []
+        clave = url
+    # prompt_tag entra en la clave del cache: la misma imagen descrita con el
+    # prompt generico y con el de marca son dos descripciones distintas, y la
+    # segunda no puede quedar tapada por la primera.
+    if prompt_tag:
+        clave = f"{clave}##{prompt_tag}"
+    uhash = hashlib.sha256(clave.encode()).hexdigest() if (media_type == "carousel" or prompt_tag) else url_hash(url)
 
     # 1. Cache lookup
     cached = cache_lookup(uhash)
@@ -95,13 +103,13 @@ def describe_media(url: str, media_type: str, organization_id: str | None = None
 
     # 2. Generate
     if media_type == "image":
-        result = describe_image(url)
+        result = describe_image(url, prompt)
         kind = "claude_describe"
     elif media_type == "carousel":
-        result = describe_carousel(urls)
+        result = describe_carousel(urls, prompt)
         kind = "claude_describe"
     elif media_type == "video":
-        result = describe_video_url(url)
+        result = describe_video_url(url, prompt)
         kind = "gemini_describe"
     else:
         return {"error": f"unknown media_type: {media_type}"}

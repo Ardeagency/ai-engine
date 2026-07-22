@@ -74,7 +74,7 @@ def _download_image(url: str) -> tuple[str, str]:
     return base64.standard_b64encode(data).decode("utf-8"), media_type
 
 
-def describe_image(url: str) -> dict:
+def describe_image(url: str, prompt: str | None = None) -> dict:
     """Describe una imagen. Costo aprox: $0.0042 por imagen 1024x1024."""
     if not url or not url.startswith("http"):
         return {"error": "invalid_url"}
@@ -91,7 +91,7 @@ def describe_image(url: str) -> dict:
                 "role": "user",
                 "content": [
                     {"type": "image", "source": {"type": "base64", "media_type": mime, "data": b64}},
-                    {"type": "text", "text": IMAGE_PROMPT},
+                    {"type": "text", "text": prompt or IMAGE_PROMPT},
                 ],
             }],
         )
@@ -109,7 +109,7 @@ def describe_image(url: str) -> dict:
     }
 
 
-def describe_carousel(urls: list[str]) -> dict:
+def describe_carousel(urls: list[str], prompt: str | None = None) -> dict:
     """Describe un carrusel en 1 sola request (más barato que N descripciones)."""
     if not urls or not all(u.startswith("http") for u in urls):
         return {"error": "invalid_urls"}

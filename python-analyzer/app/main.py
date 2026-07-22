@@ -99,10 +99,13 @@ async def _get_org_id_for_brand(brand_id: str) -> str | None:
         return rows[0]["organization_id"] if rows else None
 
 
-async def _persist_media_description(post_id: str, media_assets: dict, descriptions: list[dict]):
+async def _persist_media_description(post_id: str, media_assets: dict, descriptions: list[dict],
+                                     analysis_tag: str | None = None):
     """Merge descriptions into media_assets jsonb + summary en enrichment."""
     new_media_assets = dict(media_assets)
     new_media_assets["descriptions"] = descriptions
+    if analysis_tag:
+        new_media_assets["analysis_tag"] = analysis_tag
     summary_lines = [d.get("description", "") for d in descriptions if d.get("description")]
     new_media_assets["description"] = " | ".join(summary_lines)[:2000]
     payload = {"media_assets": new_media_assets, "updated_at": "now()"}
@@ -1059,6 +1062,70 @@ class PatternsLLMReq(BaseModel):
     global_max: int = 200
 
 
+
+# ── Analisis visual de las publicaciones PROPIAS ────────────────────────────
+#
+# Para la media de la marca no basta una descripcion bonita: hay que saber QUE
+# PRODUCTO aparece, y cuando no aparece ninguno, de que trata la publicacion.
+# Sin el catalogo delante, el modelo describe "un pouch amarillo de crema de
+# mani" aunque sea de marañon, y esa confusion contamina todo el analisis de
+# producto. Por eso el prompt lleva el catalogo real de la organizacion y
+# obliga a elegir de esa lista o decir "ninguno".
+# Firma del prompt de marca: al cambiarla, la media propia se reanaliza.
+MARCA_TAG = "marca-v1"
+_CATALOGO_CACHE: dict[str, tuple[str, str]] = {}
+
+
+async def _catalogo_de_marca(brand_container_id: str) -> tuple[str, str]:
+    """(nombre de la marca, catalogo en texto) para el prompt. Cacheado en proceso."""
+    if brand_container_id in _CATALOGO_CACHE:
+        return _CATALOGO_CACHE[brand_container_id]
+    marca, lineas = "", []
+    async with httpx.AsyncClient(timeout=10) as cli:
+        r = await cli.get(f"{SUPABASE_URL}/rest/v1/brand_containers", headers=H,
+                          params={"id": f"eq.{brand_container_id}", "select": "nombre_marca,organization_id"})
+        rows = r.json() if r.status_code == 200 else []
+        if not rows:
+            return ("", "")
+        marca = rows[0].get("nombre_marca") or ""
+        org = rows[0].get("organization_id")
+        rf = await cli.get(f"{SUPABASE_URL}/rest/v1/product_families", headers=H,
+                           params={"organization_id": f"eq.{org}", "activo": "eq.true",
+                                   "select": "nombre", "order": "nombre"})
+        familias = [f["nombre"] for f in (rf.json() if rf.status_code == 200 else [])]
+        rp = await cli.get(f"{SUPABASE_URL}/rest/v1/products", headers=H,
+                           params={"organization_id": f"eq.{org}", "select": "nombre_producto",
+                                   "order": "nombre_producto"})
+        productos = [p["nombre_producto"] for p in (rp.json() if rp.status_code == 200 else [])]
+    for fam in familias:
+        variantes = [x for x in productos if fam.split()[-1].lower() in x.lower()]
+        lineas.append(f"- {fam}" + (f" (variantes: {', '.join(variantes)})" if variantes else ""))
+    sueltos = [x for x in productos if not any(f.split()[-1].lower() in x.lower() for f in familias)]
+    lineas += [f"- {x}" for x in sueltos]
+    out = (marca, "\n".join(lineas))
+    _CATALOGO_CACHE[brand_container_id] = out
+    return out
+
+
+def _prompt_marca(marca: str, catalogo: str, es_video: bool) -> str:
+    medio = "video" if es_video else "imagen"
+    return f"""Eres el analista visual de la marca {marca or 'de la organizacion'}.
+
+CATALOGO OFICIAL DE LA MARCA:
+{catalogo or '(sin catalogo cargado)'}
+
+Analiza este {medio} en español, maximo 170 palabras, con este formato EXACTO:
+
+PRODUCTOS: los productos del catalogo que aparecen, con su nombre tal cual esta arriba, separados por coma. Si no aparece ninguno escribe exactamente "ninguno". No adivines: si ves un empaque de la marca pero no puedes leer de cual producto es, escribe "producto de la marca sin identificar". Nunca nombres un producto que no puedas ver.
+TEMA: de que trata la publicacion en pocas palabras (futbol, buceo, vacaciones, niños, mujeres, cocina, oficina, gimnasio, navidad, humor...). Es obligatorio incluso si aparecen productos.
+ESCENA: donde ocurre, momento del dia, ambiente.
+PERSONAS: cuantas, edad aproximada, genero, expresion, vestimenta. Si no hay, escribe "ninguna".
+ACCION: que esta pasando{', y como avanza a lo largo del video' if es_video else ''}.
+TEXTO EN PANTALLA: transcribe literal lo que se lea. Si no hay, escribe "ninguno".
+FORMATO: UGC / anuncio / producto en estudio / lifestyle / receta / meme...
+
+Se especifico y no inventes. Lo que no se ve, no se escribe."""
+
 # ── Media analysis per-post (event-driven: scraper llama al ingerir un post) ──
 class MediaPostReq(BaseModel):
     post_id: str
@@ -1070,15 +1137,19 @@ async def analyze_media_post(req: MediaPostReq):
     async with httpx.AsyncClient(timeout=15) as cli:
         r = await cli.get(f"{SUPABASE_URL}/rest/v1/brand_posts", headers=H,
                           params={"id": f"eq.{req.post_id}",
-                                  "select": "id,network,content,media_assets,brand_container_id"})
+                                  "select": "id,network,content,media_assets,brand_container_id,post_source"})
         rows = r.json() if r.status_code == 200 else []
     if not rows:
         raise HTTPException(404, "post not found")
     p = rows[0]
     ma = p.get("media_assets")
-    if already_described(ma):
+    es_propio = p.get("post_source") == "own"
+    # La media propia descrita con el prompt generico se reanaliza UNA vez
+    # contra el catalogo: la descripcion vieja no dice que producto aparece.
+    pendiente_de_marca = es_propio and (not isinstance(ma, dict) or ma.get("analysis_tag") != MARCA_TAG)
+    if already_described(ma) and not pendiente_de_marca:
         return {"post_id": p["id"], "skipped": "already_described"}
-    if isinstance(ma, dict) and ma.get("image_extraction_error") and not ma.get("archived_url"):
+    if isinstance(ma, dict) and ma.get("image_extraction_error") and not ma.get("archived_url") and not pendiente_de_marca:
         # Con copia en R2 el error viejo ya no aplica: se reintenta.
         return {"post_id": p["id"], "skipped": "prior_error"}
     urls, kind = extract_image_urls(ma, p["network"])
@@ -1086,12 +1157,19 @@ async def analyze_media_post(req: MediaPostReq):
         await _mark_extraction_error(p["id"], ma, "no_image_urls")
         return {"post_id": p["id"], "error": "no_image_urls"}
     org_id = await _get_org_id_for_brand(p["brand_container_id"])
-    r = describe_media(urls[0], "image", org_id) if kind == "image" \
-        else describe_media("|||".join(urls), "carousel", org_id)
+    # Solo la media PROPIA se analiza contra el catalogo: en la de un competidor
+    # nuestro catalogo no aplica, y el prompt generico describe mejor.
+    prompt = tag = None
+    if es_propio:
+        marca, catalogo = await _catalogo_de_marca(p["brand_container_id"])
+        prompt = _prompt_marca(marca, catalogo, es_video=False)
+        tag = MARCA_TAG
+    r = describe_media(urls[0], "image", org_id, prompt, tag) if kind == "image" \
+        else describe_media("|||".join(urls), "carousel", org_id, prompt, tag)
     if "error" in r:
         await _mark_extraction_error(p["id"], ma, f"describe_failed:{r['error'][:120]}")
         return {"post_id": p["id"], "error": r["error"][:120]}
-    await _persist_media_description(p["id"], ma or {}, [{
+    await _persist_media_description(p["id"], ma or {}, analysis_tag=tag, descriptions=[{
         "kind": kind, "model": r.get("model"), "description": r.get("description"),
         "url": urls[0] if kind == "image" else None,
         "url_count": len(urls) if kind == "carousel" else 1,

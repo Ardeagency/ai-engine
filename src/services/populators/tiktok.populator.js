@@ -17,6 +17,7 @@ import { supabase } from "../../lib/supabase.js";
 import { getMe, getRecentVideos } from "../../lib/tiktok-rest.js";
 import { normalizeMetrics } from "../../lib/platform-metrics.js";
 import { archiveThumb } from "../media-archive.service.js";
+import { triggerMediaAnalysis } from "../media-analysis.service.js";
 
 function extractTags(text, prefix) {
   if (!text) return [];
@@ -69,7 +70,7 @@ export class TikTokPopulator extends BasePopulator {
 
     const { videos } = await getRecentVideos(integ, { maxPages: 2, perPage: 20 });
 
-    const stats = { videos_pulled: videos.length, posts_created: 0, skipped_existing: 0, errors: 0 };
+    const stats = { videos_pulled: videos.length, posts_created: 0, skipped_existing: 0, rescued: 0, errors: 0 };
     if (!videos.length) {
       await supabase.from("brand_integrations")
         .update({ last_sync_at: new Date().toISOString() }).eq("id", brand_integration_id);
@@ -80,16 +81,39 @@ export class TikTokPopulator extends BasePopulator {
     const ids = videos.map((v) => String(v.id));
     const { data: existing } = await supabase
       .from("brand_posts")
-      .select("post_id")
+      .select("id, post_id, media_assets")
       .eq("brand_container_id", brand_container_id)
       .eq("network", "tiktok")
       .in("post_id", ids);
-    const seen = new Set((existing || []).map((r) => String(r.post_id)));
+    const seen = new Map((existing || []).map((r) => [String(r.post_id), r]));
 
     const rows = [];
     for (const v of videos) {
       try {
-        if (seen.has(String(v.id))) { stats.skipped_existing++; continue; }
+        // Ya guardado: no se re-inserta, pero SI se aprovecha el pase para
+        // refrescar metricas y rescatar la portada. El cover de TikTok que
+        // devuelve la API es fresco; el guardado caduca en dias, asi que esta
+        // es la unica ventana para copiarlo a R2 y describirlo.
+        const previo = seen.get(String(v.id));
+        if (previo) {
+          stats.skipped_existing++;
+          const rescatado = await _rescueTiktokAssets(previo, v, brand_container_id);
+          const metricasFrescas = normalizeMetrics("tiktok", {
+            like_count:    v.like_count,
+            comment_count: v.comment_count,
+            share_count:   v.share_count,
+            view_count:    v.view_count,
+          });
+          await supabase.from("brand_posts")
+            .update({
+              metrics: metricasFrescas,
+              ...(rescatado ? { media_assets: rescatado } : {}),
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", previo.id);
+          if (rescatado) { stats.rescued++; await triggerMediaAnalysis(previo.id); }
+          continue;
+        }
         const desc = v.video_description || v.title || "";
         // Normaliza las claves nativas de TikTok (like_count, view_count…) a las
         // canónicas que entienden las columnas generadas y los ~100 RPCs.
@@ -129,7 +153,12 @@ export class TikTokPopulator extends BasePopulator {
       const { data: inserted, error } = await supabase
         .from("brand_posts").insert(rows).select("id");
       if (error) { stats.errors++; console.error("tiktok-populator: insert error:", error.message); }
-      else stats.posts_created = inserted.length;
+      else {
+        stats.posts_created = inserted.length;
+        // Sin esto los videos propios entraban sin analisis visual: el populador
+        // no disparaba la descripcion que si dispara el scraper de IG/FB.
+        for (const r of inserted) await triggerMediaAnalysis(r.id);
+      }
     }
 
     await supabase.from("brand_integrations")
@@ -162,6 +191,30 @@ export class TikTokPopulator extends BasePopulator {
 
     return { ok: true, status: "bootstrap_completed", posts_indexed: count || 0 };
   }
+}
+
+/**
+ * Rescata la portada de un video de TikTok YA GUARDADO al que le falta la copia
+ * en R2. Devuelve el media_assets actualizado, o null si no hay nada que hacer.
+ * Borra `image_extraction_error`: con copia permanente el fallo viejo deja de
+ * aplicar y el describer puede reintentar.
+ */
+async function _rescueTiktokAssets(previo, v, brandContainerId) {
+  const cover = v?.cover_image_url || null;
+  if (!cover) return null;
+  const cur = (previo.media_assets && typeof previo.media_assets === "object" && !Array.isArray(previo.media_assets))
+    ? previo.media_assets : {};
+  if (cur.archived_url) return null;                  // ya rescatado
+  const archived = await archiveThumb({
+    mediaAssets:      { cover_image: cover },
+    brandContainerId,
+    network:          "tiktok",
+    postId:           String(v.id),
+  });
+  if (!archived) return null;
+  const next = { ...cur, cover_image: cover, archived_url: archived };
+  delete next.image_extraction_error;
+  return next;
 }
 
 /**

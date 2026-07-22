@@ -56,18 +56,7 @@ import { runTikTokVideoInsights, runMercadoLibreMetrics, runMetaAccountInsights,
 
 // Media analysis event-driven: al ingerir un post nuevo, pedimos al python-analyzer
 // que describa su imagen/video si aun no tiene media analysis. Fire-and-forget.
-async function triggerMediaAnalysis(postId) {
-  if (!postId) return;
-  try {
-    await fetch("http://127.0.0.1:8001/analyze/media-post", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ post_id: postId }),
-    });
-  } catch (e) {
-    console.warn(`scraper: media-analysis ${postId} — ${e.message}`);
-  }
-}
+import { triggerMediaAnalysis } from "./media-analysis.service.js";
 
 // Service-role: el scraper escribe directo a Supabase sin RLS
 const supabase = createClient(

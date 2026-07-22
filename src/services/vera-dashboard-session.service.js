@@ -252,9 +252,12 @@ segundos. Orden OBLIGATORIO de narrative:
 7) SOLO EN COMPETENCIA: bloques audiencia_competidor — el carrusel "Audiencias".
    A QUIEN esta pescando cada competidor, leido de sus posts y sobre todo de
    sus COMENTARIOS (quien responde, que pide, con que se identifica).
+   - NOMBRALA COMO A UN GRUPO DE GENTE, en 2-4 palabras: "Reposteros caseros",
+     "Mamas que hornean con sus hijos", "Cazadores de ofertas". NO la nombres
+     por su conducta ("Los que se quedan por la historia") — ese nombre no
+     sirve cuando alguien la elige de la biblioteca o le apunta una campaña.
    - NO es demografia ("mujeres 25-34"). Es un grupo con un hambre concreta:
-     "mamas que hornean el domingo con los hijos", "gente en deficit que
-     extraña el postre".
+     el nombre dice QUIENES son y la descripcion POR QUE muerden el anzuelo.
    - Cada ficha se puede AGREGAR a la biblioteca de audiencias de la marca con
      un boton: escribela para que sirva ahi. dolores/deseos son los campos que
      se copian tal cual a la persona, y el gancho es el gatillo de compra.

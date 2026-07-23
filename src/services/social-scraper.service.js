@@ -2049,21 +2049,53 @@ async function persistAudienceSegments(brandContainerId, organizationId, result)
   return upserted;
 }
 
+/**
+ * Posts PROPIOS ya guardados de este container, indexados por network|post_id.
+ *
+ * BLINDAJE: antes esto se resolvia con getKnownPostIds(entityId) y todos los
+ * updates empataban por `.eq("entity_id", ...)`. Una fila con entity_id en NULL
+ * -las que dejaron otros writers- no podia empatar NUNCA: el sensor pasaba por
+ * encima de ella cada ciclo sin verla, y ni sus metricas ni su miniatura se
+ * refrescaban jamas. El ancla correcta es la MARCA, no la entidad.
+ *
+ * Ademas consulta EXACTAMENTE los post_id del lote en vez del "ultimos 500":
+ * en un container que acumula posts de competencia, los propios se salian de
+ * esa ventana y volvian a intentarse como nuevos.
+ */
+async function getOwnPostsGuardados(brandContainerId, postIds) {
+  const mapa = new Map();
+  const ids = [...new Set(postIds.filter(Boolean).map(String))];
+  if (!ids.length || !brandContainerId) return mapa;
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await supabase
+      .from("brand_posts")
+      .select("id, post_id, network, media_assets, entity_id")
+      .eq("brand_container_id", brandContainerId)
+      .in("post_id", ids.slice(i, i + 200));
+    if (error) { console.warn("scraper [own-posts pre-check]: " + error.message); continue; }
+    for (const r of data || []) mapa.set(r.network + "|" + r.post_id, r);
+  }
+  return mapa;
+}
+
 // ── Persistencia de posts propios (Meta page) en brand_posts ────────────────
-// Reusa el patrón de getKnownPostIds + upsert con onConflict (entity_id, post_id).
+// Se ancla a la MARCA (brand_container_id + network + post_id), no a la
+// entidad: ver getOwnPostsGuardados.
 async function persistOwnPosts(posts, brandContainerId, entityId) {
   if (!posts.length) return 0;
 
-  const knownIds = await getKnownPostIds(entityId);
+  const guardados = await getOwnPostsGuardados(brandContainerId, posts.map((p) => p.id));
+  const clave = (p) => p.platform + "|" + p.id;
 
   // Update silencioso de métricas en posts ya conocidos
   for (const post of posts) {
-    if (knownIds.has(post.id)) {
+    const previo = guardados.get(clave(post));
+    if (previo) {
       // Rescate de imagen: los posts propios de IG se guardaron sin foto porque
       // al Graph nunca se le pedía media_url. Ahora que llega, se archiva la que
       // siga viva en el CDN y se manda a describir — es la única ventana para
       // recuperarlas (las URLs firmadas expiran en días).
-      const rescatado = await _rescueOwnThumb(entityId, post, brandContainerId);
+      const rescatado = await _rescueOwnThumb(previo, post, brandContainerId);
       await supabase.from("brand_posts")
         .update({
           metrics:    post.metrics || {},
@@ -2074,14 +2106,16 @@ async function persistOwnPosts(posts, brandContainerId, entityId) {
           ...(post.followers != null ? { followers_snapshot: post.followers } : {}),
           ...(rescatado ? { media_assets: rescatado.media_assets } : {}),
           updated_at: new Date().toISOString(),
+          // Reanclaje: si la fila venia huerfana, queda visible tambien para
+          // lo que siga consultando por entidad.
+          ...(previo.entity_id ? {} : { entity_id: entityId }),
         })
-        .eq("entity_id", entityId)
-        .eq("post_id", post.id);
+        .eq("id", previo.id);
       if (rescatado) await triggerMediaAnalysis(rescatado.id);
     }
   }
 
-  const newPosts = posts.filter((p) => !knownIds.has(p.id));
+  const newPosts = posts.filter((p) => !guardados.has(clave(p)));
   if (!newPosts.length) return 0;
 
   let inserted = 0;
@@ -2560,19 +2594,18 @@ async function _ownPostAssets(post, brandContainerId) {
 
 /**
  * Rescata la imagen de un post PROPIO ya guardado que no tiene copia en R2.
+ * Recibe la fila ya leida (`previo`), no la busca: ver getOwnPostsGuardados.
  * Devuelve { id, media_assets } listo para el update, o null si no hay nada que
  * hacer (sin imagen fresca, post inexistente, ya archivado o R2 no respondió).
  * Se borra `image_extraction_error`: con copia permanente el fallo viejo deja de
  * aplicar y el describer puede reintentar.
  */
-async function _rescueOwnThumb(entityId, post, brandContainerId) {
-  if (!post.image) return null;
-  const { data } = await supabase.from("brand_posts")
-    .select("id, media_assets")
-    .eq("entity_id", entityId)
-    .eq("post_id", post.id)
-    .maybeSingle();
-  if (!data) return null;
+async function _rescueOwnThumb(previo, post, brandContainerId) {
+  if (!post.image || !previo) return null;
+  // La fila llega YA leida del pre-check: se ahorra una consulta por post y,
+  // sobre todo, se deja de empatar por entity_id — que era lo que volvia
+  // invisibles a las filas huerfanas.
+  const data = previo;
   const cur = (data.media_assets && typeof data.media_assets === "object" && !Array.isArray(data.media_assets))
     ? data.media_assets : {};
   if (cur.archived_url) return null;                  // ya rescatado

@@ -288,6 +288,10 @@ def _intl_name(ev: dict, start: dt.date) -> str:
     years = {int(y) for y in re.findall(r"\b(?:19|20)\d{2}\b", name)}
     if years and start.year not in years:
         return ""
+    # Colapsa un anio repetido ("... 2026 Barranquilla 2026" -> deja solo el ultimo).
+    if len(re.findall(r"\b(?:19|20)\d{2}\b", name)) > 1:
+        primero = re.search(r"\b(?:19|20)\d{2}\b", name)
+        name = (name[:primero.start()] + name[primero.end():]).replace("  ", " ").strip(" .,-–—")
     return name[:120]
 
 
@@ -302,8 +306,39 @@ def _parse_iso(v) -> dt.date:
         return None
 
 
-def _intl_events(profile: str, today: dt.date, horizon: dt.date) -> list:
-    """Eventos internacionales (LLM) con fecha, en la ventana, taggeados para la marca."""
+# Palabras vacias que no distinguen un evento de otro.
+_SIG_STOP = {"de", "del", "la", "el", "los", "las", "y", "e", "en", "internacional",
+             "mundial", "dia", "semana", "fifa", "conmebol"}
+
+
+def _sig(name: str) -> set:
+    """Firma de un evento: sus palabras significativas (>=4 letras, sin anio ni
+    stopwords). Sirve para detectar que dos nombres son el MISMO evento aunque
+    difieran en sede o formato (Juegos Centroamericanos Santo Domingo vs Barranquilla)."""
+    toks = re.findall(r"[a-zñáéíóú]{4,}", name.lower())
+    return {t for t in toks if t not in _SIG_STOP}
+
+
+def _es_duplicado(name: str, firmas_existentes: list) -> bool:
+    """True si el evento ya esta cubierto por una fecha existente (p.ej. curada a
+    mano): comparten >=3 palabras clave, o la firma de uno contiene a la del otro."""
+    f = _sig(name)
+    if not f:
+        return False
+    for g in firmas_existentes:
+        if not g:
+            continue
+        comun = f & g
+        if len(comun) >= 3 or (len(comun) >= 2 and (f <= g or g <= f)):
+            return True
+    return False
+
+
+def _intl_events(profile: str, today: dt.date, horizon: dt.date, firmas_existentes=None) -> list:
+    """Eventos internacionales (LLM) con fecha, en la ventana, taggeados para la marca.
+       firmas_existentes: firmas de fechas ya presentes (curadas a mano) contra las
+       que deduplicar — el LLM tiende a re-proponer, con datos peores, lo ya curado."""
+    firmas_existentes = firmas_existentes or []
     if not ANTHROPIC_API_KEY:
         return []
     user = (f"PERFIL DE LA MARCA:\n{profile}\n\nHoy es {today.isoformat()}. "
@@ -336,6 +371,9 @@ def _intl_events(profile: str, today: dt.date, horizon: dt.date) -> list:
             name = _intl_name(e, ini)
             if not name:
                 print(f"    [intl] descartado (nombre no publicable): {str(e.get('nombre'))[:70]}")
+                continue
+            if _es_duplicado(name, firmas_existentes):
+                print(f"    [intl] descartado (ya existe una fecha curada): {name[:70]}")
                 continue
             out.append({"event": name, "date": max(ini, today), "start": ini, "end": fin,
                         "why": str(e.get("motivo") or e.get("why") or "").strip()[:160]})
@@ -442,7 +480,14 @@ def main():
             _apply_verdicts(rows, _classify_holidays(_brand_profile(bc), pending))
         rows = _applicable(rows)   # las fechas ajenas a la marca no llegan a la BD
         # Eventos internacionales (mundiales, Miss Universo, Black Friday...) via LLM.
-        intl = _intl_events(_brand_profile(bc), today, horizon)
+        # Se deduplica contra lo que SOBREVIVE la corrida (festivos ya filtrados +
+        # fechas curadas a mano): el LLM tiende a re-proponer, con peor dato, lo curado.
+        curados = _get("real_world_signals", {
+            "organization_id": f"eq.{org_id}", "source_name": "eq.manual",
+            "event_date": f"gte.{today.isoformat()}", "select": "event_name"})
+        firmas = [_sig(str(m.get("event_name", ""))) for m in curados] + \
+                 [_sig(r["event_name"]) for r in rows]
+        intl = _intl_events(_brand_profile(bc), today, horizon, firmas)
         rows += _intl_rows(org_id, bc.get("id"), (sorted(geos) or [""])[0], intl, today)
         _replace_future_holidays(org_id, today, rows)
         total_orgs += 1

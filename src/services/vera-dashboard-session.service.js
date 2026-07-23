@@ -510,6 +510,13 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
   const brand = await _loadBrand(brandContainerId);
   resolveDashboardTools(); // log de tools fantasma; la ejecución MCP valida contra registry
 
+  // Mi Marca tiene productor DEDICADO cards.v2 (runMiMarcaCards). Esta sesión
+  // narrative NO debe escribir scope 'mi_marca': pisaría las cards que el
+  // frontend renderiza (BrandGrid exige reading.schema === 'cards.v2', y una
+  // lectura narrative schema_version 1 lo dejaría en blanco). Se filtra aquí —
+  // Competencia/Tendencias/Estrategia siguen igual.
+  const activeScopes = (scopes || []).filter((s) => s !== "mi_marca");
+
   await supabase.from("vera_session_audit").insert({
     session_id: sessionId,
     organization_id: brand.organization_id,
@@ -562,7 +569,7 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
     const cycleSummary = _compactCycleSummary(feed);
     const model = process.env.VERA_DASH_MODEL_LABEL || "openclaw-org-server";
 
-    for (const scope of scopes) {
+    for (const scope of activeScopes) {
       let scopeDone = false;
 
       for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_SCOPE && !scopeDone; attempt++) {
@@ -646,10 +653,10 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
     const costUsd = _estimateCostUsd(inputChars, outputChars);
     if (okCount > 0) await _chargeOrg(brand.organization_id, costUsd, sessionId);
 
-    const status = okCount === scopes.length ? "completed" : okCount > 0 ? "completed" : "failed";
+    const status = okCount === activeScopes.length ? "completed" : okCount > 0 ? "completed" : "failed";
     await _finishAudit(
       status,
-      okCount === scopes.length ? null : `secciones fallidas: ${JSON.stringify(failures)}`
+      okCount === activeScopes.length ? null : `secciones fallidas: ${JSON.stringify(failures)}`
     );
 
     return {

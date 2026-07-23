@@ -25,7 +25,7 @@ import {
 import { userAuthMiddleware } from "../middleware/auth.middleware.js";
 import { runAutoLinkCycle } from "../services/recommendation-auto-link.service.js";
 import { deliverCycleFeed, isCycleComplete } from "../services/vera-brain-feed.service.js";
-import { runDashboardSession, runDashboardSessionsForOrg, runBrandDiagnosis } from "../services/vera-dashboard-session.service.js";
+import { runDashboardSession, runDashboardSessionsForOrg, runBrandDiagnosis, runMiMarcaCards } from "../services/vera-dashboard-session.service.js";
 import { supabase } from "../lib/supabase.js";
 import crypto from "crypto";
 
@@ -138,6 +138,18 @@ router.post("/vera-dashboard/run", requireInternalKey, async (req, res) => {
   run
     .then((r) => console.log("vera-dashboard/run:", JSON.stringify(r).slice(0, 500)))
     .catch((e) => console.error("vera-dashboard/run error:", e.message));
+});
+
+// ── MI MARCA: Vera llena los moldes cards.v2 del tab Mi Marca ────────────────
+// Escribe vera_dashboard_readings scope 'mi_marca' schema 'cards.v2' — lo que
+// BrandGrid.mixin.js renderiza. 202 inmediato; corre en background (2-6 min).
+router.post("/vera-dashboard/mimarca-cards", requireInternalKey, async (req, res) => {
+  const { brandContainerId, trigger } = req.body || {};
+  if (!brandContainerId) return res.status(400).json({ ok: false, error: "brandContainerId requerido" });
+  res.status(202).json({ ok: true, accepted: true, brandContainerId });
+  runMiMarcaCards(brandContainerId, { trigger: trigger || "manual" })
+    .then((r) => console.log("vera-dashboard/mimarca-cards:", JSON.stringify(r).slice(0, 400)))
+    .catch((e) => console.error("vera-dashboard/mimarca-cards error:", e.message));
 });
 
 // ── PROTOCOLO LIBERTAD: diagnóstico de marca 100% de Vera (formato libre) ────

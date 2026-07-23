@@ -152,21 +152,29 @@ def _brand_profile(bc: dict) -> str:
     ])
 
 
+# ── Contrato JSON con el LLM ─────────────────────────────────────────────────
+# El LLM NUNCA escribe texto libre que llegue al dashboard: responde campos
+# tipados y el sistema decide. Una fecha que no le sirve a la marca se responde
+# con aplica=false y NO se guarda (no existe la fecha "descartada" en la card).
 _TAG_SYSTEM = (
     "Eres un estratega de contenido de marca. Recibes el perfil de una marca de consumo y "
     "una lista de FECHAS/FESTIVOS proximos. Para CADA fecha decide si a ESTA marca le conviene "
-    "activar contenido/campana en esa fecha: "
-    "verdict='utilizar' si es una ocasion claramente provechosa y coherente con la categoria, "
-    "audiencia y tono de la marca (una ocasion de consumo o cultural que la marca puede capitalizar "
-    "con naturalidad); verdict='descartar' si NO le aporta (fecha solemne, luctuosa, religiosa sensible, "
-    "ajena a la categoria, o donde activar se veria forzado u oportunista). Da una razon MUY breve "
-    "(4-8 palabras). Responde EXCLUSIVAMENTE JSON valido: "
-    "{\"results\":[{\"event\":\"nombre exacto\",\"verdict\":\"utilizar|descartar\",\"reason\":\"...\"}]}."
+    "activar contenido/campana en esa fecha. "
+    "aplica=true si es una ocasion claramente provechosa y coherente con la categoria, audiencia "
+    "y tono de la marca (una ocasion de consumo o cultural que la marca puede capitalizar con "
+    "naturalidad). aplica=false si NO le aporta (fecha solemne, luctuosa, religiosa sensible, "
+    "ajena a la categoria, o donde activar se veria forzado u oportunista); esa fecha se descarta "
+    "del sistema, asi que no te guardes ningun 'por si acaso'. "
+    "REGLAS DE FORMATO (duras): responde EXCLUSIVAMENTE un JSON valido, sin texto antes ni despues. "
+    "'evento' debe ser el nombre EXACTO que recibiste, copiado literal, sin agregar aclaraciones, "
+    "correcciones ni alternativas. Tu razonamiento va en 'motivo', NUNCA dentro de 'evento'. "
+    "Esquema: {\"resultados\":[{\"evento\":\"nombre exacto recibido\",\"aplica\":true,"
+    "\"motivo\":\"4-8 palabras\"}]}."
 )
 
 
 def _classify_holidays(profile: str, names: list) -> dict:
-    """Devuelve {nombre_lower: (verdict, reason)}. Fail-soft: {} si el LLM no responde."""
+    """Devuelve {nombre_lower: (aplica_bool, motivo)}. Fail-soft: {} si el LLM no responde."""
     if not ANTHROPIC_API_KEY or not names:
         return {}
     user = f"PERFIL DE LA MARCA:\n{profile}\n\nFECHAS PROXIMAS:\n" + "\n".join(f"- {n}" for n in names)
@@ -180,76 +188,118 @@ def _classify_holidays(profile: str, names: list) -> dict:
             return {}
         txt = "".join(b.get("text", "") for b in r.json().get("content", []) if b.get("type") == "text")
         m = re.search(r"\{.*\}", txt, re.DOTALL)
+        obj = json.loads(m.group(0)) if m else {}
         out = {}
-        for it in (json.loads(m.group(0)).get("results", []) if m else []):
-            ev = str(it.get("event", "")).strip().lower()
-            vd = str(it.get("verdict", "")).strip().lower()
-            if ev and vd in ("utilizar", "descartar"):
-                out[ev] = (vd, str(it.get("reason", "")).strip()[:120])
+        # 'resultados' es el contrato nuevo; 'results' queda por compatibilidad.
+        for it in (obj.get("resultados") or obj.get("results") or []):
+            ev = str(it.get("evento") or it.get("event") or "").strip().lower()
+            aplica = _as_bool(it.get("aplica"), it.get("verdict"))
+            if ev and aplica is not None:
+                out[ev] = (aplica, str(it.get("motivo") or it.get("reason") or "").strip()[:120])
         return out
     except Exception as e:  # noqa: BLE001 — tagging es enhancement, fail-soft
         print(f"    [tag] error: {str(e)[:100]}")
         return {}
 
 
+def _as_bool(aplica, legacy_verdict=None):
+    """true/false del campo tipado; cae al 'verdict' textual viejo. None = sin juicio."""
+    if isinstance(aplica, bool):
+        return aplica
+    if isinstance(aplica, str) and aplica.strip().lower() in ("true", "false"):
+        return aplica.strip().lower() == "true"
+    vd = str(legacy_verdict or "").strip().lower()
+    if vd in ("utilizar", "descartar"):
+        return vd == "utilizar"
+    return None
+
+
 def _apply_verdicts(rows: list, verdicts: dict):
+    """Marca cada fila con el juicio de la marca. raw_data['aplica'] False = no se guarda."""
     for row in rows:
         vd = verdicts.get(row["event_name"].strip().lower())
         if not vd:
             continue
-        verdict, reason = vd
-        row["event_description"] = reason or None
-        row["relevance_score"] = 0.85 if verdict == "utilizar" else 0.3
-        row["raw_data"]["verdict"] = verdict
-        row["raw_data"]["reason"] = reason
+        aplica, motivo = vd
+        row["raw_data"]["aplica"] = aplica
+        if not aplica:
+            continue                       # se filtra antes de insertar
+        row["event_description"] = motivo or None
+        row["relevance_score"] = 0.85
+        row["raw_data"]["verdict"] = "utilizar"   # lo lee el dashboard
+        row["raw_data"]["reason"] = motivo
+
+
+def _applicable(rows: list) -> list:
+    """Fuera las fechas que el LLM juzgo ajenas a la marca (La Asuncion, Dia de la Raza...).
+       Las que aun no tienen juicio (LLM caido) se conservan: mejor sin tag que sin fecha."""
+    keep = [r for r in rows if r["raw_data"].get("aplica") is not False]
+    dropped = len(rows) - len(keep)
+    if dropped:
+        print(f"    [filtro] {dropped} fechas descartadas por no aplicar a la marca")
+    return keep
 
 
 _INTL_SYSTEM = (
     "Eres un radar de EVENTOS INTERNACIONALES para marcas de consumo. Lista los eventos que "
     "mueven la OPINION PUBLICA (global o de la region de la marca) y ocurren en la ventana dada: "
-    "deportivos (mundiales, copas del mundo, olimpiadas, finales de torneos grandes), culturales "
+    "deportivos (mundiales, copas, juegos regionales, finales de torneos grandes), culturales "
     "globales (Miss Universo, premios, festivales masivos), y fechas comerciales globales "
-    "(Black Friday, Cyber Monday, San Valentin, etc.). SOLO eventos de los que estes seguro de la "
-    "fecha (aproximada esta bien). Para la marca dada juzga cada uno: verdict 'utilizar' (la marca "
-    "PUEDE capitalizarlo con contenido/campana) o 'descartar' (no le aporta o es forzado). "
-    "REGLAS DURAS DEL CAMPO 'event': es el NOMBRE OFICIAL del evento y NADA MAS. "
-    "Prohibido escribir en el ese campo cualquier razonamiento, aclaracion, correccion, duda o "
-    "alternativa ('no aplica', 'no se celebra', 'quizas', 'o bien', 'en su lugar', '/', '?'). "
-    "Prohibido nombrar ediciones que NO ocurren en la ventana: si un evento que recuerdas es de "
-    "otro anio, NO lo incluyas ni lo menciones. El anio que aparezca en el nombre debe ser el "
-    "mismo anio de 'date'. Ante la minima duda sobre si el evento existe o cuando ocurre, OMITELO: "
-    "vale mas una lista corta y cierta que una larga con inventos. "
-    "Responde EXCLUSIVAMENTE JSON: {\"events\":[{\"event\":\"\",\"date\":\"YYYY-MM-DD\","
-    "\"why\":\"6-12 palabras: como lo aprovecha\",\"verdict\":\"utilizar|descartar\"}]}. "
-    "Maximo 8, ordenados por fecha. Si ninguno es confiable, {\"events\":[]}."
+    "(Black Friday, Cyber Monday, San Valentin, etc.). "
+    "Responde EXCLUSIVAMENTE un JSON valido, sin texto antes ni despues, con este esquema: "
+    "{\"eventos\":[{"
+    "\"nombre\":\"nombre oficial del evento, limpio\","
+    "\"edicion\":\"sede y/o anio de ESTA edicion, o null\","
+    "\"inicio\":\"YYYY-MM-DD\","
+    "\"fin\":\"YYYY-MM-DD o null si dura un dia\","
+    "\"confianza\":\"alta|media|baja\","
+    "\"aplica\":true,"
+    "\"motivo\":\"6-12 palabras: como lo aprovecha la marca\"}]}. "
+    "REGLAS DURAS: "
+    "(1) 'nombre' es SOLO el nombre del evento. Prohibido meter ahi comentarios, correcciones, "
+    "dudas, alternativas, barras '/' o signos de interrogacion. Todo tu razonamiento va en 'motivo'. "
+    "(2) Solo la edicion que ocurre DENTRO de la ventana. Si recuerdas otra edicion (de otro anio) "
+    "no la incluyas NI la menciones: simplemente no existe para esta respuesta. "
+    "(3) 'confianza' es tu certeza real sobre que el evento existe y ocurre en esas fechas: 'baja' "
+    "si estas adivinando. El sistema descarta las de confianza baja, asi que no infles. "
+    "(4) 'aplica'=false si la marca no puede capitalizarlo con naturalidad; esa fecha no se guarda. "
+    "(5) Ante duda entre inventar o callar, callas. "
+    "Maximo 8, ordenados por fecha. Si ninguno es confiable, {\"eventos\":[]}."
 )
 
-# El LLM lista eventos internacionales DE MEMORIA: cuando su recuerdo esta desfasado
-# tiende a "pensar en voz alta" dentro del nombre ("Juegos Olimpicos Paris 2024 - No
-# aplica / Juegos Centroamericanos 2026"). Ese texto llegaba tal cual al dashboard.
-# Aqui se descarta el evento entero: un nombre dudoso es un evento dudoso.
+# Ultima red bajo el contrato JSON: un nombre no puede traer razonamiento del modelo.
 _INTL_BAD_NAME = re.compile(
     r"\bno\s+aplica\b|\bno\s+se\s+celebra\b|\bno\s+hay\b|\bn/a\b|\bsin\s+confirmar\b|"
     r"\bno\s+confirmad|\bpor\s+confirmar\b|\btentativ|\bposiblemente\b|\bprobablemente\b|"
-    r"\bquiz[aá]s?\b|\btal\s+vez\b|\baproximad|\bestimad|\ben\s+su\s+lugar\b|\bo\s+bien\b|"
-    r"\?|\bTBD\b|\bTBC\b",
+    r"\bquiz[aá]s?\b|\btal\s+vez\b|\ben\s+su\s+lugar\b|\?|\bTBD\b|\bTBC\b|[/|;]",
     re.IGNORECASE,
 )
 
 
-def _valid_intl_name(name: str, d: dt.date) -> bool:
-    """True si el nombre es un nombre de evento limpio y coherente con su fecha."""
-    if len(name) < 3 or len(name) > 90:
-        return False
-    if _INTL_BAD_NAME.search(name):
-        return False
-    if "/" in name or "|" in name or ";" in name:   # alternativas encadenadas
-        return False
-    # Un anio dentro del nombre debe ser el de la fecha del evento (Paris 2024 en 2026 = falso).
+def _intl_name(ev: dict, start: dt.date) -> str:
+    """Nombre final = nombre oficial (+ edicion si aporta). '' si no es publicable."""
+    name = str(ev.get("nombre") or ev.get("event") or "").strip(" .,-–—")
+    edicion = str(ev.get("edicion") or "").strip(" .,-–—")
+    if edicion and edicion.lower() not in ("null", "none") and edicion.lower() not in name.lower():
+        name = f"{name} {edicion}".strip()
+    if not (3 <= len(name) <= 90) or _INTL_BAD_NAME.search(name):
+        return ""
+    # Un anio dentro del nombre debe ser el de la edicion (Paris 2024 fechado en 2026 = falso).
     years = {int(y) for y in re.findall(r"\b(?:19|20)\d{2}\b", name)}
-    if years and d.year not in years:
-        return False
-    return True
+    if years and start.year not in years:
+        return ""
+    return name[:120]
+
+
+def _parse_iso(v) -> dt.date:
+    """'YYYY-MM-DD' -> date, o None (acepta null/vacio/basura sin reventar)."""
+    m = re.match(r"(\d{4})-(\d{2})-(\d{2})", str(v or ""))
+    if not m:
+        return None
+    try:
+        return dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
 
 
 def _intl_events(profile: str, today: dt.date, horizon: dt.date) -> list:
@@ -269,24 +319,26 @@ def _intl_events(profile: str, today: dt.date, horizon: dt.date) -> list:
         start = txt.find("{")
         obj = json.JSONDecoder().raw_decode(txt[start:])[0] if start >= 0 else {}
         out = []
-        for e in obj.get("events", []):
-            dm = re.match(r"(\d{4})-(\d{2})-(\d{2})", str(e.get("date", "")))
-            if not dm:
+        for e in (obj.get("eventos") or obj.get("events") or []):
+            ini = _parse_iso(e.get("inicio") or e.get("date"))
+            fin = _parse_iso(e.get("fin"))
+            if not ini:
                 continue
-            try:
-                d = dt.date(int(dm.group(1)), int(dm.group(2)), int(dm.group(3)))
-            except ValueError:
+            # El evento cuenta si SU VENTANA toca la nuestra (los multi-dia ya arrancados
+            # siguen siendo noticia: los Juegos que empiezan el 24 y terminan en agosto).
+            if ini > horizon or (fin or ini) < today:
                 continue
-            if not (today <= d <= horizon):
+            if str(e.get("confianza", "alta")).strip().lower() == "baja":
+                print(f"    [intl] descartado (confianza baja): {str(e.get('nombre'))[:60]}")
                 continue
-            name = str(e.get("event", "")).strip()[:120]
-            if not _valid_intl_name(name, d):
-                print(f"    [intl] descartado (nombre dudoso): {name[:80]}")
+            if _as_bool(e.get("aplica"), e.get("verdict")) is False:
+                continue                     # no le sirve a la marca -> no se guarda
+            name = _intl_name(e, ini)
+            if not name:
+                print(f"    [intl] descartado (nombre no publicable): {str(e.get('nombre'))[:70]}")
                 continue
-            vd = str(e.get("verdict", "")).lower()
-            out.append({"event": name, "date": d,
-                        "why": str(e.get("why", "")).strip()[:160],
-                        "verdict": vd if vd in ("utilizar", "descartar") else "utilizar"})
+            out.append({"event": name, "date": max(ini, today), "start": ini, "end": fin,
+                        "why": str(e.get("motivo") or e.get("why") or "").strip()[:160]})
         return out
     except Exception as ex:  # noqa: BLE001
         print(f"    [intl] error: {str(ex)[:100]}"); return []
@@ -302,19 +354,25 @@ def _intl_rows(org_id: str, bc_id: str, geo: str, events: list, today: dt.date) 
             "geo": geo, "event_date": d.isoformat(), "event_name": e["event"],
             "event_description": e["why"] or None, "days_until": (d - today).days,
             "source_name": "llm-intl", "source_url": None,
-            "relevance_score": 0.85 if e["verdict"] == "utilizar" else 0.3,
-            "raw_data": {"verdict": e["verdict"], "reason": e["why"], "scope": "international"},
+            "relevance_score": 0.85,
+            "raw_data": {"verdict": "utilizar", "aplica": True, "reason": e["why"],
+                         "scope": "international",
+                         "inicio": e["start"].isoformat(),
+                         "fin": e["end"].isoformat() if e.get("end") else None},
             "measured_at": dt.datetime.now(dt.timezone.utc).isoformat(),
             "fetch_date": today.isoformat(),
-            "expires_at": (dt.datetime.combine(d, dt.time()) + dt.timedelta(days=1))
+            # Un evento multi-dia sigue vivo hasta su cierre (los Juegos duran semanas).
+            "expires_at": (dt.datetime.combine(e.get("end") or d, dt.time()) + dt.timedelta(days=1))
                           .replace(tzinfo=dt.timezone.utc).isoformat(),
         })
     return rows
 
 
 def _existing_verdicts(org_id: str) -> dict:
-    """Verdicts ya guardados (por nombre de fecha) para NO re-llamar al LLM en cada
-    corrida. El LLM solo clasifica fechas nuevas. Ahorro de costo en regimen estable."""
+    """Juicios ya guardados (por nombre de fecha) para NO re-llamar al LLM en cada
+    corrida. El LLM solo clasifica fechas nuevas. Ahorro de costo en regimen estable.
+    Nota: las fechas que NO aplican no se guardan, asi que se re-preguntan (van todas
+    en la misma llamada batch, el costo no cambia)."""
     rows = _get("real_world_signals", {
         "organization_id": f"eq.{org_id}", "signal_type": "eq.holiday",
         "select": "event_name,raw_data,event_description"})
@@ -326,20 +384,29 @@ def _existing_verdicts(org_id: str) -> dict:
                 rd = json.loads(rd)
             except Exception:
                 rd = {}
-        v = rd.get("verdict")
-        if v in ("utilizar", "descartar"):
-            out[str(r.get("event_name", "")).strip().lower()] = (v, r.get("event_description") or "")
+        aplica = _as_bool(rd.get("aplica"), rd.get("verdict"))
+        if aplica is not None:
+            out[str(r.get("event_name", "")).strip().lower()] = (aplica, r.get("event_description") or "")
     return out
 
 
 def _replace_future_holidays(org_id: str, today: dt.date, rows: list):
+    # Las fechas curadas a mano (source_name='manual') son verificadas contra la fuente
+    # oficial: sobreviven a la corrida y ganan sobre lo que genere el LLM con el mismo nombre.
+    manual = _get("real_world_signals", {
+        "organization_id": f"eq.{org_id}", "source_name": "eq.manual",
+        "event_date": f"gte.{today.isoformat()}", "select": "event_name"})
+    curados = {str(m.get("event_name", "")).strip().lower() for m in manual}
+    if curados:
+        rows = [r for r in rows if r["event_name"].strip().lower() not in curados]
     with httpx.Client(timeout=30) as cli:
-        # Borra holidays futuros previos de la org (idempotencia).
+        # Borra holidays futuros previos de la org (idempotencia). Respeta los curados.
         cli.delete(
             f"{SUPABASE_URL}/rest/v1/real_world_signals",
             headers=H,
             params={"organization_id": f"eq.{org_id}",
                     "signal_type": "in.(holiday,sport_event,cultural_moment)",
+                    "source_name": "neq.manual",
                     "event_date": f"gte.{today.isoformat()}"},
         )
         if rows:
@@ -370,18 +437,19 @@ def main():
         # Etiqueta cada fecha: Utilizar (provechosa) / Descartar (no le conviene). INCREMENTAL:
         # reusa verdicts ya guardados; el LLM SOLO clasifica fechas nuevas (0 llamadas si nada cambio).
         _apply_verdicts(rows, _existing_verdicts(org_id))
-        pending = sorted({r["event_name"] for r in rows if not r["raw_data"].get("verdict")})
+        pending = sorted({r["event_name"] for r in rows if r["raw_data"].get("aplica") is None})
         if pending:
             _apply_verdicts(rows, _classify_holidays(_brand_profile(bc), pending))
+        rows = _applicable(rows)   # las fechas ajenas a la marca no llegan a la BD
         # Eventos internacionales (mundiales, Miss Universo, Black Friday...) via LLM.
         intl = _intl_events(_brand_profile(bc), today, horizon)
         rows += _intl_rows(org_id, bc.get("id"), (sorted(geos) or [""])[0], intl, today)
         _replace_future_holidays(org_id, today, rows)
         total_orgs += 1
         total_rows += len(rows)
-        util = sum(1 for r in rows if r["raw_data"].get("verdict") == "utilizar")
-        desc = sum(1 for r in rows if r["raw_data"].get("verdict") == "descartar")
-        print(f"  {org_id[:8]} geos={sorted(geos)} -> {len(rows)} fechas ({len(intl)} intl, {util} utilizar, {desc} descartar)")
+        sin_juicio = sum(1 for r in rows if r["raw_data"].get("aplica") is None)
+        print(f"  {org_id[:8]} geos={sorted(geos)} -> {len(rows)} fechas "
+              f"({len(intl)} intl, {sin_juicio} sin juicio del LLM)")
 
     print(f"world_calendar: {total_orgs} marcas, {total_rows} festivos (ventana {LOOKAHEAD_DAYS}d)")
 

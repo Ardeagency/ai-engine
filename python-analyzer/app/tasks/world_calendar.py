@@ -212,10 +212,44 @@ _INTL_SYSTEM = (
     "(Black Friday, Cyber Monday, San Valentin, etc.). SOLO eventos de los que estes seguro de la "
     "fecha (aproximada esta bien). Para la marca dada juzga cada uno: verdict 'utilizar' (la marca "
     "PUEDE capitalizarlo con contenido/campana) o 'descartar' (no le aporta o es forzado). "
+    "REGLAS DURAS DEL CAMPO 'event': es el NOMBRE OFICIAL del evento y NADA MAS. "
+    "Prohibido escribir en el ese campo cualquier razonamiento, aclaracion, correccion, duda o "
+    "alternativa ('no aplica', 'no se celebra', 'quizas', 'o bien', 'en su lugar', '/', '?'). "
+    "Prohibido nombrar ediciones que NO ocurren en la ventana: si un evento que recuerdas es de "
+    "otro anio, NO lo incluyas ni lo menciones. El anio que aparezca en el nombre debe ser el "
+    "mismo anio de 'date'. Ante la minima duda sobre si el evento existe o cuando ocurre, OMITELO: "
+    "vale mas una lista corta y cierta que una larga con inventos. "
     "Responde EXCLUSIVAMENTE JSON: {\"events\":[{\"event\":\"\",\"date\":\"YYYY-MM-DD\","
     "\"why\":\"6-12 palabras: como lo aprovecha\",\"verdict\":\"utilizar|descartar\"}]}. "
     "Maximo 8, ordenados por fecha. Si ninguno es confiable, {\"events\":[]}."
 )
+
+# El LLM lista eventos internacionales DE MEMORIA: cuando su recuerdo esta desfasado
+# tiende a "pensar en voz alta" dentro del nombre ("Juegos Olimpicos Paris 2024 - No
+# aplica / Juegos Centroamericanos 2026"). Ese texto llegaba tal cual al dashboard.
+# Aqui se descarta el evento entero: un nombre dudoso es un evento dudoso.
+_INTL_BAD_NAME = re.compile(
+    r"\bno\s+aplica\b|\bno\s+se\s+celebra\b|\bno\s+hay\b|\bn/a\b|\bsin\s+confirmar\b|"
+    r"\bno\s+confirmad|\bpor\s+confirmar\b|\btentativ|\bposiblemente\b|\bprobablemente\b|"
+    r"\bquiz[aá]s?\b|\btal\s+vez\b|\baproximad|\bestimad|\ben\s+su\s+lugar\b|\bo\s+bien\b|"
+    r"\?|\bTBD\b|\bTBC\b",
+    re.IGNORECASE,
+)
+
+
+def _valid_intl_name(name: str, d: dt.date) -> bool:
+    """True si el nombre es un nombre de evento limpio y coherente con su fecha."""
+    if len(name) < 3 or len(name) > 90:
+        return False
+    if _INTL_BAD_NAME.search(name):
+        return False
+    if "/" in name or "|" in name or ";" in name:   # alternativas encadenadas
+        return False
+    # Un anio dentro del nombre debe ser el de la fecha del evento (Paris 2024 en 2026 = falso).
+    years = {int(y) for y in re.findall(r"\b(?:19|20)\d{2}\b", name)}
+    if years and d.year not in years:
+        return False
+    return True
 
 
 def _intl_events(profile: str, today: dt.date, horizon: dt.date) -> list:
@@ -245,8 +279,12 @@ def _intl_events(profile: str, today: dt.date, horizon: dt.date) -> list:
                 continue
             if not (today <= d <= horizon):
                 continue
+            name = str(e.get("event", "")).strip()[:120]
+            if not _valid_intl_name(name, d):
+                print(f"    [intl] descartado (nombre dudoso): {name[:80]}")
+                continue
             vd = str(e.get("verdict", "")).lower()
-            out.append({"event": str(e.get("event", "")).strip()[:120], "date": d,
+            out.append({"event": name, "date": d,
                         "why": str(e.get("why", "")).strip()[:160],
                         "verdict": vd if vd in ("utilizar", "descartar") else "utilizar"})
         return out

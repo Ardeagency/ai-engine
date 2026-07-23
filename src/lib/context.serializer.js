@@ -182,19 +182,6 @@ function serializeFlowRuns(runs) {
   return lines.join("\n");
 }
 
-function serializeBrandDna(brandDna) {
-  if (!brandDna || !brandDna.dna_text) return null;
-  let text = String(brandDna.dna_text).trim();
-  if (text.length > MAX_DNA_CHARS) {
-    text = text.slice(0, MAX_DNA_CHARS) + "\n\n> [DNA truncado por tamaño]";
-  }
-  return [
-    `## IDENTIDAD DE MARCA (DNA)`,
-    `> Manifiesto de la marca en su propia voz. Esta es la perspectiva desde la que Vera responde — no es un dato a citar literalmente, es la voz que asume al hablar.`,
-    ``,
-    text,
-  ].join("\n");
-}
 
 function serializeSchedules(schedules) {
   if (!schedules?.length) return null;
@@ -217,7 +204,7 @@ function serializeSchedules(schedules) {
 export function serializeOrgContext(fullContext) {
   if (!fullContext) return null;
 
-  const { brandName, brandDna, products, services, audiences, campaigns,
+  const { brandName, products, services, audiences, campaigns,
           entities, intelligenceEntities, trendTopics,
           recentRuns, activeSchedules } = fullContext;
 
@@ -229,7 +216,6 @@ export function serializeOrgContext(fullContext) {
   }
 
   const parts = [
-    serializeBrandDna(brandDna),
     serializeProducts(products),
     serializeServices(services),
     serializeAudiences(audiences),

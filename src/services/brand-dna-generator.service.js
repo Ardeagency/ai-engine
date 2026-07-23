@@ -10,6 +10,7 @@
  * 'auto' y 'recurring' (futuro).
  */
 import { supabase } from "../lib/supabase.js";
+import { syncOrgUserMd } from "../lib/org-workspace-sync.js";
 import { chatCompletion } from "../lib/openai.js";
 
 const MODEL                = "gpt-4o";
@@ -142,6 +143,16 @@ export async function generateBrandDna({ organizationId, brandContainerId, trigg
     .single();
 
   if (insertErr) throw new Error(`Supabase insert brand_dna_generations: ${insertErr.message}`);
+
+  // El manifiesto ES el USER.md de la org: se incrusta en el workspace del
+  // org-server para que OpenClaw lo inyecte en cada sesion. Fail-open: si el
+  // servidor esta apagado, se horneara en el proximo provision/wake.
+  try {
+    const synced = await syncOrgUserMd(organizationId, dnaText);
+    if (!synced.ok) console.log(`brand-dna: USER.md no sincronizado (${synced.skipped || synced.error}) — se horneara en provision`);
+  } catch (e) {
+    console.warn(`brand-dna: syncOrgUserMd fallo: ${e.message}`);
+  }
 
   return {
     id:           row.id,

@@ -22,6 +22,7 @@
  *  - wakeOrgServer(): recrea servidor desde snapshot (~90s)
  */
 import crypto from "crypto";
+import { supabase } from "../lib/supabase.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
@@ -116,6 +117,7 @@ function _generateCloudInitScript({
   anthropicApiKey, openaiApiKey, openclawGatewayToken,
   callbackUrl, webhookSecret, model,
   supabaseUrl, supabaseServiceKey, anthropicProxyPort = 8788,
+  userMdContent = null,
 }) {
   const safeName = String(orgName || orgId)
     .replace(/[<>"'`\\]/g, "")
@@ -127,6 +129,7 @@ function _generateCloudInitScript({
   const bridgeCode = `import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import http from 'node:http';
+import { writeFile } from 'node:fs/promises';
 
 const execFileAsync = promisify(execFile);
 const PORT      = ${ORG_BRIDGE_PORT};
@@ -167,6 +170,28 @@ const server = http.createServer(async (req, res) => {
         });
         const output = (result.stdout || '') + (result.stderr || '');
         return send(200, { ok: true, output });
+      } catch (e) {
+        return send(500, { error: e.message });
+      }
+    });
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/workspace/file') {
+    const token = req.headers['x-org-token'];
+    if (!token || token !== ORG_TOKEN) return send(401, { error: 'Unauthorized' });
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', async () => {
+      try {
+        const body = JSON.parse(raw);
+        const ALLOWED = ['USER.md', 'AGENTS.md', 'IDENTITY.md', 'SOUL.md', 'MEMORY.md'];
+        const file = String(body.path || '').replace(/[^A-Za-z0-9._-]/g, '');
+        if (!ALLOWED.includes(file)) return send(400, { error: 'file not allowed' });
+        const aid = String(body.agentId || '').replace(/[^a-z0-9_]/g, '');
+        if (!aid) return send(400, { error: 'agentId required' });
+        await writeFile('/root/workspaces/' + aid + '/' + file, String(body.content == null ? '' : body.content), 'utf8');
+        return send(200, { ok: true, written: file });
       } catch (e) {
         return send(500, { error: e.message });
       }
@@ -262,7 +287,7 @@ ORG_ID=${orgId}
   }, null, 2);
   const hooksB64 = Buffer.from(hooksJson).toString("base64");
 
-  const userMd = `# USER\n\nOrganizacion: **${safeName}**\n\nEres Vera, la IA de contenido y analisis de marca de ${safeName}.\nTrabaja exclusivamente dentro del contexto de esta organizacion.\n`;
+  const userMd = userMdContent || `# USER\n\nOrganizacion: **${safeName}**\n\nEres Vera, la IA de contenido y analisis de marca de ${safeName}.\nTrabaja exclusivamente dentro del contexto de esta organizacion.\n`;
   const userMdB64 = Buffer.from(userMd).toString("base64");
 
   // Systemd service file
@@ -587,8 +612,26 @@ export async function createOrgServer(org) {
     throw new Error("ANTHROPIC_API_KEY no configurado en .env — no se puede provisionar");
   }
 
+  // USER.md = el manifiesto de identidad de la marca (brand-dna-generator),
+  // horneado en provision. En runtime lo actualiza syncOrgUserMd tras regenerar
+  // el DNA. Si aun no hay manifiesto, cae al stub minimo dentro del generador.
+  let userMdContent = null;
+  try {
+    const { data: dna } = await supabase
+      .from("brand_dna_generations")
+      .select("dna_text")
+      .eq("organization_id", orgId)
+      .order("generated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (dna && dna.dna_text) {
+      userMdContent = "# A QUIEN SIRVO\n\n> La marca que cuido, en su propia voz. Es la identidad que asumo cuando hablo por ella; no un dato para citar.\n\n" + String(dna.dna_text).trim() + "\n";
+    }
+  } catch (_) {}
+
   const userData = _generateCloudInitScript({
     orgId, orgName, orgToken, agentId, serverName,
+    userMdContent,
     anthropicApiKey: anthropicKey,
     openaiApiKey: openaiKey,
     openclawGatewayToken: openclawToken,

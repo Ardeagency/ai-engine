@@ -185,29 +185,12 @@ export async function buildFullBrandContext(brandContainerId, organizationId) {
     } catch (_) { return []; }
   }
 
-  // Ultimo brand DNA narrativo (manifiesto generado por gpt-4o, ver
-  // brand-dna-generator.service.js). Se inyecta como bloque destacado
-  // al inicio del contexto serializado de la marca — es la voz/identidad
-  // que Vera debe asumir.
-  async function getLatestBrandDna() {
-    try {
-      const { data } = await supabase
-        .from("brand_dna_generations")
-        .select("dna_text, generated_at, model_used")
-        .eq("brand_container_id", brandContainerId)
-        .eq("organization_id", organizationId)
-        .order("generated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      return data || null;
-    } catch (_) { return null; }
-  }
 
   // Ejecutar todas las consultas en paralelo
   const [
     products, services, audiences, campaigns,
     entities, intelligenceEntities, trendTopics,
-    recentRuns, activeSchedules, brandDna,
+    recentRuns, activeSchedules,
   ] = await Promise.allSettled([
     getProducts(brandContainerId, organizationId).catch(() => []),
     getServices(),
@@ -220,12 +203,10 @@ export async function buildFullBrandContext(brandContainerId, organizationId) {
     getFlowSchedules(brandContainerId, organizationId)
       .then((s) => s.filter((x) => x.status === "active"))
       .catch(() => []),
-    getLatestBrandDna(),
   ]).then((results) => results.map((r) => r.status === "fulfilled" ? r.value : []));
 
   return {
     brandName,
-    brandDna,
     products,
     services,
     audiences,

@@ -1521,13 +1521,33 @@ el ángulo y la forma son tuyos.
    palabras ("Reposteros caseros", "Mamás que hornean con sus hijos"). Mínimo 2.
    NO VA: la audiencia que YA tiene (esa es la card 7), ni demografía disfrazada
    de audiencia ("mujeres 25-34" no es un grupo, es un filtro de segmentación).
+   OJO con la card 7, que es su pareja: allí dices cómo la audiencia actual te
+   trae gente nueva; aquí dices A QUIÉN quieres que traiga. No las repitas.
    {"type":"audiencias_recomendadas","items":[{"id":"aud_reposteros","name":"Reposteros caseros","priority":"alta|media|baja","rationale":"por qué le conviene, <=160","interests":["<=6 temas"]}]}
 
-7) audiencia — quién te sigue HOY.
-   VA: geografía + edad/género con TU lectura de quiénes son esas personas: qué
-   dice de la marca que sea justo esa gente la que llegó.
-   NO VA: la tabla de porcentajes sola. El mapa y la pirámide los pinta el
-   dashboard; lo que tú aportas es el párrafo que los explica.
+7) audiencia — QUIÉN TE SIGUE HOY, Y CÓMO ELLOS TE TRAEN A LOS QUE FALTAN.
+   El mapa y la pirámide los pinta el dashboard. Lo tuyo no es describir a esa
+   gente: es entenderla lo bastante bien como para decir qué contenido la haría
+   COMPARTIR, COMENTAR y RECOMENDAR. El camino hacia más audiencia pasa POR la
+   que ya tienes, no por encima de ella.
+   VA:
+   · Quiénes son de verdad y qué les mueve el día — la gente, no el filtro de
+     segmentación. "Mujeres colombianas, muchas madres, enamoradas de su salud"
+     es donde EMPIEZA la lectura, no donde termina.
+   · QUÉ LAS HARÍA PASARLO. Hoy, lo que más pesa para llegar a quien NO te sigue
+     es que alguien le mande tu pieza a un amigo: vale varias veces un me-gusta.
+     Y uno comparte lo que le sirve a sí mismo — lo que lo hace quedar bien ante
+     los suyos, lo que es útil de verdad, lo que emociona, lo que se puede
+     contar. Escribe qué de eso aplica a ESTA gente y por qué.
+   · LA MARCA COMO INGREDIENTE, NO COMO PROTAGONISTA. El héroe es la persona y
+     su momento; el producto es lo que lo hace posible. "Juegos para hacer en
+     familia" donde las galletas con crema de maní son parte de la escena
+     —cotidiana, sin producción, casi detrás de cámara— se comparte; un anuncio
+     del producto no. Si la marca se pone en el centro, la pieza deja de servirle
+     a quien iba a pasarla.
+   · Cierra con la pieza concreta que producirías para ESTA gente.
+   NO VA: la tabla de porcentajes sola, ni "hay que aprovechar mejor la base".
+   No es exprimir a quien ya te sigue: es darle algo que quiera pasar.
    DÓNDE ESTÁ EL DATO (búscalo antes de descartar la card):
    - getMetaAudienceDemographics → edad, género, país y ciudad en vivo de Meta.
    - getAudiences → real_age_distribution / real_gender_distribution, lo que ya

@@ -671,6 +671,7 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
   });
 
   const auditToolCalls = [];
+  let esperasAgente = 0;
   // Las tools que Vera llama por MCP desde el org-server NO pasan por
   // auditToolCalls (ese solo ve los marcadores [[TOOL:]], que casi no usa).
   // El tally del audit-logger sí las ve: sin esto tool_calls salía vacío y
@@ -753,7 +754,11 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
           });
           inputChars += resp.enriched_input_length || 0;
           outputChars += (resp.text || "").length;
-          if (resp.agent_failed) { failures[scope] = "org-server no respondió"; break; }
+          if (resp.agent_failed) {
+            if (await _esperarYReintentar(resp, esperasAgente, `vera-dash [${sessionId}] ${scope}`)) { esperasAgente++; continue; }
+            failures[scope] = resp.fail_reason || "org-server no respondió";
+            break;
+          }
 
           const markerCalls = resp.tool_calls || [];
           if (markerCalls.length && round < MAX_SCOPE_ROUNDS) {
@@ -1078,6 +1083,7 @@ export async function runBrandDiagnosis(brandContainerId, { trigger = "manual" }
   // no había cómo saber si la lectura se investigó o se escribió de memoria.
   const tallyAntes = toolTallySnapshot(brand.organization_id);
   let inputChars = 0, outputChars = 0, rounds = 0, agentFailed = false;
+  let agentFailReason = null, agentFailDetail = "", esperasAgente = 0;
   let cards = null, cardErrors = null;
 
   const secCtx = {
@@ -1138,7 +1144,13 @@ export async function runBrandDiagnosis(brandContainerId, { trigger = "manual" }
         // El org-server no respondió: reintentar es inútil (y antes giraba las
         // 40 rondas × 2 intentos contra un texto de cortesía). Se aborta la
         // sesión entera, no sólo la ronda.
-        if (resp.agent_failed) { agentFailed = true; break; }
+        if (resp.agent_failed) {
+        if (await _esperarYReintentar(resp, esperasAgente, `vera [${sessionId}]`)) { esperasAgente++; continue; }
+        agentFailed = true;
+        agentFailReason = resp.fail_reason || "fallo_del_org_server";
+        agentFailDetail = resp.fail_detail || "";
+        break;
+      }
 
         // Marcadores de tools (fallback — MCP hace el grueso dentro de la llamada)
         const markerCalls = resp.tool_calls || [];
@@ -1194,7 +1206,7 @@ export async function runBrandDiagnosis(brandContainerId, { trigger = "manual" }
       }
     }
 
-    if (agentFailed) throw new Error("org-server sin agente disponible — sesión abortada sin llamar al modelo");
+    if (agentFailed) throw new Error(`sesión abortada — ${agentFailReason || "fallo_del_org_server"}${agentFailDetail ? `: ${agentFailDetail}` : ""}`);
     if (cardErrors?.length) throw new Error(`lectura rechazada por el contrato cards.v3: ${cardErrors.join(" | ")}`);
     if (!cards) throw new Error("VERA no entregó el diagnóstico en el sobre tras los reintentos");
 
@@ -1293,6 +1305,20 @@ async function _ventanaPeriodo(brandContainerId, periodo) {
   };
 }
 
+/**
+ * Ante un fallo transitorio del agente, espera y pide reintentar el MISMO turno.
+ * Devuelve true si hay que reintentar; false si toca rendirse.
+ */
+async function _esperarYReintentar(resp, intentos, etiqueta) {
+  if (!resp.retryable || intentos >= AGENTE_MAX_ESPERAS) return false;
+  const ms = AGENTE_ESPERA_BASE_MS * Math.pow(2, intentos);
+  console.warn(
+    `${etiqueta}: ${resp.fail_reason || "fallo transitorio"} — esperando ${Math.round(ms / 1000)}s y reintentando (${intentos + 1}/${AGENTE_MAX_ESPERAS})`
+  );
+  await new Promise((r) => setTimeout(r, ms));
+  return true;
+}
+
 /** Lo que se le pide a Vera al abrir cada periodo de la entrega. */
 function _mensajePedirPeriodo(periodo, idx, total) {
   return `Entrega ahora las tarjetas del periodo ${idx + 1} de ${total}: ${periodo.label}.
@@ -1340,6 +1366,16 @@ async function _persistMiMarcaPeriodo({ brand, periodo, cards, sessionId, trigge
   });
   if (error) throw new Error(`persist mi_marca ${periodo.k}: ${error.message}`);
 }
+
+// Espera ante fallos TRANSITORIOS del modelo. El org-server no tiene modelo de
+// respaldo configurado (el log dice next=none), asi que una saturacion de unos
+// minutos en Anthropic tumbaba la sesion entera y se perdia toda la
+// investigacion ya hecha. Esperar sale gratis comparado con volver a investigar.
+// Los org-servers nuevos ya se aprovisionan con cadena de respaldo (ver
+// hetzner.provisioner.js); esto cubre a los que se provisionaron sin ella.
+const AGENTE_MAX_ESPERAS = Number(process.env.VERA_AGENT_MAX_WAITS || 4);
+// 40s, 80s, 160s y 320s = 10 minutos exactos de tolerancia antes de rendirse.
+const AGENTE_ESPERA_BASE_MS = Number(process.env.VERA_AGENT_WAIT_MS || 40_000);
 
 const MIMARCA_MAX_ATTEMPTS = Number(process.env.VERA_MIMARCA_ATTEMPTS || 2);
 const MIMARCA_MAX_ROUNDS = Number(process.env.VERA_MIMARCA_MAX_ROUNDS || 40);
@@ -1389,6 +1425,13 @@ ai-engine__* (posts, métricas, campañas, audiencias, productos, competencia,
 tendencias, señales, outcomes, web...). Si una tool no responde por MCP, pídela
 con [[TOOL:nombreExacto|param:valor]] en su propia línea. Sin límite de tokens.
 
+JUZGA LA PIEZA COMPLETA, NO SOLO EL COPY. getBrandPosts te devuelve "que_se_ve":
+la descripción de lo que hay en la imagen o el video (PRODUCTOS, TEMA, ESCENA,
+PERSONAS, ACCIÓN). Un post es copy MÁS pieza visual, y muchas veces el problema
+—o el acierto— está en lo que se ve, no en lo que se escribió. Juzgar por el copy
+es juzgar la mitad. Si "sin_analisis_visual" viene en true, dilo en vez de
+suponer qué mostraba.
+
 EMPIEZA POR AQUÍ (no te quedes en el dato crudo):
 - getContentIntelligence → el porqué del contenido orgánico: métricas reales,
   ratios y la causa detrás del resultado.
@@ -1415,6 +1458,28 @@ LA REGLA QUE MANDA: cada tarjeta responde "¿y esto qué significa / qué hago?"
 nunca "¿cuánto es X?". Un número suelto NO es una tarjeta: es la evidencia que
 sostiene un juicio, y va DENTRO de la frase que lo interpreta. Si tu texto lo
 firmaría cualquier marca del nicho, reescríbelo.
+
+CUANDO LA MARCA SE SUBE A UN MOMENTO (un mundial, una fecha, una tendencia):
+NO lo penalices por no hablar del producto. Subirse es lo CORRECTO: mientras dura,
+la plataforma reparte ese tema a todo el mundo y el alcance sale gratis — es de
+las pocas veces que una marca pequeña compite en la misma mesa que una grande.
+Premia la temática. Lo que se juzga es si se hizo ALGO para quedarse con esa
+atención prestada:
+· ¿Hubo una razón para que el hincha compartiera a ESTA marca — un premio, un
+  descuento de temporada, una mecánica (predicción, sorteo, trivia), algo que él
+  ganara al pasarlo?
+· ¿Hubo seguimiento? Un evento no empieza en el pitazo inicial ni termina en el
+  final: tiene antes, durante y después. Un post suelto es alcance que se evapora;
+  una serie construye audiencia.
+· ¿Quedó algo — seguidores, datos, comunidad, una lista— o solo pasó el momento?
+· ¿Se le habló a la gente que el evento trajo (los hinchas), o se publicó al aire?
+El pecado NUNCA es "el producto no salía". El pecado es que llegó una ola de
+atención gratis y la marca no montó nada encima. Escríbelo así.
+
+Y AL RECOMENDAR, SACA A LA MARCA DEL BUCLE. Repetir lo que ya le funcionó la
+mantiene donde está. Si tu recomendación es "hagan más de lo que ya hacen bien",
+no es una recomendación: es una descripción. Busca la palanca que todavía no ha
+usado.
 
 LAS TARJETAS QUE DEBES LLENAR (las 6 primeras son OBLIGATORIAS).
 
@@ -1454,6 +1519,14 @@ el ángulo y la forma son tuyos.
    veces. Un profesional con oficio procesa decenas de señales sutiles que nunca
    llegan a una métrica; tú puedes hacer eso a escala. Crítica de verdad: si la
    pieza estuvo mal, se dice. Elogiar lo que no funcionó no le sirve a nadie.
+
+   MIRA PRIMERO LO QUE BORRARON. Si una publicación viene marcada como ya no
+   publicada (unpublished_at), la marca la publicó y después la quitó: es una
+   confesión — el equipo vio que algo
+   no funcionó. No hay señal más fuerte ni más honesta en todo el periodo, y el
+   cliente no la tiene en ningún gráfico. Empieza por ahí y responde por qué la
+   quitaron y qué se hace distinto la próxima vez. (La pieza sigue en los datos a
+   propósito; no la trates como si nunca hubiera existido.)
 
    VA: agarra UNA pieza real de la marca —una publicación concreta, con su copy,
    su formato, sus comentarios— y explícala hasta el fondo:
@@ -1698,6 +1771,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
   // no había cómo saber si la lectura se investigó o se escribió de memoria.
   const tallyAntes = toolTallySnapshot(brand.organization_id);
   let inputChars = 0, outputChars = 0, rounds = 0, agentFailed = false;
+  let agentFailReason = null, agentFailDetail = "", esperasAgente = 0;
   let cards = null, cardErrors = null;
 
   const secCtx = {
@@ -1759,7 +1833,13 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
       });
       inputChars += resp.enriched_input_length || 0;
       outputChars += (resp.text || "").length;
-      if (resp.agent_failed) { agentFailed = true; break; }
+      if (resp.agent_failed) {
+        if (await _esperarYReintentar(resp, esperasAgente, `vera [${sessionId}]`)) { esperasAgente++; continue; }
+        agentFailed = true;
+        agentFailReason = resp.fail_reason || "fallo_del_org_server";
+        agentFailDetail = resp.fail_detail || "";
+        break;
+      }
 
       const periodo = periodos[idx];
 
@@ -1849,7 +1929,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
         : "No encontré el sobre [[DIAGNOSIS]]...[[/DIAGNOSIS]]. Si ya investigaste las cuatro ventanas, di \"LISTO PARA CREAR\" y te pido el primer periodo.";
     }
 
-    if (agentFailed) throw new Error("org-server sin agente disponible — sesión abortada sin llamar al modelo");
+    if (agentFailed) throw new Error(`sesión abortada — ${agentFailReason || "fallo_del_org_server"}${agentFailDetail ? `: ${agentFailDetail}` : ""}`);
     if (!publicados.length) {
       throw new Error(
         fallidos.length

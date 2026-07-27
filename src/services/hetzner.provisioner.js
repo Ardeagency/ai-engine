@@ -420,6 +420,17 @@ echo "$ANTHROPIC_API_KEY" | openclaw models auth paste-api-key --provider anthro
 echo "$OPENAI_API_KEY" | openclaw models auth paste-api-key --provider openai >/dev/null 2>&1 || true
 openclaw models set ${model} >/dev/null 2>&1 || true
 
+# Cadena de respaldo del modelo. Sin esto el log dice "next=none" y una
+# saturacion pasajera de Anthropic tumba la sesion entera: el 2026-07-27 dos
+# sesiones de dashboard murieron con "The AI service is temporarily overloaded"
+# despues de que Vera ya habia hecho toda su investigacion.
+# Primero otro modelo del mismo proveedor (sirve si solo un pool esta saturado)
+# y despues uno de OTRO proveedor, que es el unico respaldo real ante una caida
+# general de Anthropic. La llave de OpenAI ya quedo cargada arriba.
+openclaw models fallbacks clear >/dev/null 2>&1 || true
+openclaw models fallbacks add anthropic/claude-opus-4-8 >/dev/null 2>&1 || true
+openclaw models fallbacks add openai/gpt-4.1 >/dev/null 2>&1 || true
+
 echo "[setup] Registrar agente..."
 openclaw agents add ${agentId} \\
   --workspace /root/workspaces/${agentId} \\

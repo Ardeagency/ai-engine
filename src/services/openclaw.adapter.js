@@ -12,7 +12,7 @@
  */
 import { getOrgEntry } from "./openclaw.registry.js";
 import { processAttachments } from "./media-processor.service.js";
-import { renderEnabledToolsBlock } from "../lib/tool-catalog.js";
+import { renderEnabledToolsBlock, renderToolCatalogIndex } from "../lib/tool-catalog.js";
 import { supabase } from "../lib/supabase.js";
 
 // ── MEDICIÓN DE GASTO REAL DE VERA (JC 2026-07-16) ──────────────────────────
@@ -163,7 +163,16 @@ function _buildEnrichedMessage({ message, attachmentsContext, viewModel, toolRes
     // necesita params se muestra con su forma exacta; el resto por nombre.
     // Antes aqui se volcaba solo `capabilities.join(", ")` (nombres pelados),
     // y Vera adivinaba el shape de params → errores.
-    parts.push(renderEnabledToolsBlock(viewModel.capabilities, level));
+    // Progressive tool disclosure (flag por-org, default OFF): si la org esta
+    // en VERA_TOOL_DISCLOSURE_ORGS (csv de organization_id, o "all"), Vera ve un
+    // INDICE ligero por categoria y pide firmas on-demand con listToolsFor; si no,
+    // el volcado completo de siempre.
+    const _orgId = viewModel?.identity?.organization_id;
+    const _discloseOrgs = (process.env.VERA_TOOL_DISCLOSURE_ORGS || "").split(",").map((x) => x.trim()).filter(Boolean);
+    const _useDisclosure = _discloseOrgs.includes("all") || (_orgId && _discloseOrgs.includes(_orgId));
+    parts.push(_useDisclosure
+      ? renderToolCatalogIndex(viewModel.capabilities, level)
+      : renderEnabledToolsBlock(viewModel.capabilities, level));
   }
 
   // Historial reciente — se inyecta desde la DB para que OpenClaw no repita
@@ -965,12 +974,44 @@ export async function callOpenClaw({
       `openclaw.adapter: agente "${agentId}" (org "${organizationId}" [${orgEntry.type}]) falló:`,
       e.message
     );
+    // Por que se distingue: TODO fallo se reportaba como "sin agente disponible",
+    // asi que un modelo sobrecargado, un timeout o un servidor caido se veian
+    // identicos. El 2026-07-27 se perdieron horas creyendo que no habia
+    // org-server cuando el problema era que Anthropic estaba saturado.
+    const causa = _clasificarFalloAgente(e);
     return {
       text:             "El agente no pudo procesar la solicitud en este momento. Por favor intenta nuevamente.",
       agent_failed:     true,
+      fail_reason:      causa.reason,
+      fail_detail:      String(e.message || "").slice(0, 400),
+      retryable:        causa.retryable,
       tool_calls:       [],
       requires_consent: false,
       enriched_input_length: enrichedMessage.length,
     };
   }
+}
+
+/**
+ * Traduce el error crudo del org-server a una causa accionable.
+ * `retryable` distingue lo que se arregla esperando de lo que exige intervencion.
+ */
+function _clasificarFalloAgente(e) {
+  const t = String(e?.message || "").toLowerCase();
+  if (/overload|temporarily overloaded|failovererror|529/.test(t)) {
+    return { reason: "modelo_sobrecargado", retryable: true };
+  }
+  if (/rate.?limit|429|quota|credit/.test(t)) {
+    return { reason: "limite_de_uso_del_modelo", retryable: true };
+  }
+  if (/abort|timeout|timed out|etimedout/.test(t)) {
+    return { reason: "timeout_de_la_sesion", retryable: true };
+  }
+  if (/fetch failed|econnrefused|enotfound|ehostunreach|socket hang up/.test(t)) {
+    return { reason: "org_server_inalcanzable", retryable: true };
+  }
+  if (/401|403|unauthorized|forbidden|api key|apikey/.test(t)) {
+    return { reason: "credencial_del_org_server", retryable: false };
+  }
+  return { reason: "fallo_del_org_server", retryable: true };
 }

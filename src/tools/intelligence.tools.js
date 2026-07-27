@@ -57,7 +57,10 @@ export async function getBrandPosts(brandContainerId, organizationId, isCompetit
   // los perfiles monitoreados (competidores Y referentes).
   const q = supabase
     .from("brand_posts")
-    .select("id, network, profile_handle, content, metrics, post_source, is_competitor, captured_at")
+    .select(
+      "id, network, profile_handle, content, metrics, post_source, is_competitor, " +
+      "captured_at, unpublished_at, media_assets, permalink"
+    )
     .eq("brand_container_id", bc.id);
   const { data, error } = await (isCompetitor
     ? q.in("post_source", ["competitor", "reference"])
@@ -66,7 +69,19 @@ export async function getBrandPosts(brandContainerId, organizationId, isCompetit
     .limit(20);
 
   if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  // Se entrega la DESCRIPCION VISUAL (lo que se ve en la imagen o el video), no el
+  // blob de URLs. Vera venia juzgando el contenido leyendo solo el copy: sin esto
+  // no puede saber si un post mostraba el producto, a una persona o un estadio.
+  return (Array.isArray(data) ? data : []).map((p) => {
+    const desc = p.media_assets?.description || null;
+    const { media_assets, ...resto } = p;
+    return {
+      ...resto,
+      media_type: media_assets?.media_type || null,
+      que_se_ve: desc,           // PRODUCTOS / TEMA / ESCENA / PERSONAS / ACCION
+      sin_analisis_visual: !desc,
+    };
+  });
 }
 
 export async function getTrendTopics(brandContainerId, organizationId) {

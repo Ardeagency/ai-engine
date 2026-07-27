@@ -52,6 +52,7 @@ import { runCampaignPerformanceForBrand } from "./campaign-performance.service.j
 import { syncMetaAdInsightsForBrand } from "./sync-meta-ad-insights.service.js";
 import { runBrandIndexer } from "./brand-indexer.service.js";
 import { archiveThumb } from "./media-archive.service.js";
+import { marcarDespublicados, sellarVistos } from "../lib/post-reconciliation.js";
 import { runTikTokVideoInsights, runMercadoLibreMetrics, runMetaAccountInsights, runGoogleAdsInsights, runShopifyMetrics } from "./platform-insights-sensors.service.js";
 
 // Media analysis event-driven: al ingerir un post nuevo, pedimos al python-analyzer

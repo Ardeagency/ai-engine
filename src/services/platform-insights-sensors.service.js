@@ -19,6 +19,7 @@ import { supabase } from "../lib/supabase.js";
 import { decryptIntegrationRow } from "../lib/integration-token-vault.js";
 import { normalizeMetrics } from "../lib/platform-metrics.js";
 import { getMe, getRecentVideos } from "../lib/tiktok-rest.js";
+import { marcarDespublicados, sellarVistos } from "../lib/post-reconciliation.js";
 import { meliGet } from "../lib/mercadolibre-rest.js";
 import { getMetaPageInsights, getInstagramInsights } from "../tools/social.tools.js";
 import { searchStream } from "../lib/googleads-rest.js";
@@ -256,7 +257,20 @@ export async function runTikTokVideoInsights({ brandContainerId, organizationId 
     })
     .eq("id", integ.id);
 
-  return { ...stats, followers: user.follower_count ?? null, engagement };
+  // Despublicados: los videos que la API ya no devuelve dentro de la ventana que
+  // acaba de cubrir. La fila se conserva — un post borrado es senal, no basura.
+  let despublicados = 0;
+  try {
+    const idsVivos = videos.map((v) => v && v.id).filter(Boolean).map(String);
+    await sellarVistos({ brandContainerId, network: "tiktok", idsVivos });
+    const r = await marcarDespublicados({ brandContainerId, network: "tiktok", idsVivos });
+    despublicados = r.marcados;
+    if (despublicados) console.log(`[despublicado] tiktok: ${despublicados} video(s) ya no estan publicados`);
+  } catch (e) {
+    console.warn(`[despublicado] tiktok: ${e.message}`);
+  }
+
+  return { ...stats, followers: user.follower_count ?? null, engagement, despublicados };
 }
 
 // ────────────────────────────────────────────────────────────────────────────

@@ -81,6 +81,7 @@ const DASHBOARD_READING_TOOLS_RAW = [
   "getBrandHealthMetrics", "getBrandPosts",
   // INTELIGENCIA (el análisis, no el dato crudo)
   "getPaidIntelligence",    // campañas: ROAS/CTR/anuncio eficiente/funnel Meta/demografía
+  "getAdsBreakdown",        // desglose por anuncio/adset/día + frecuencia
   "getContentIntelligence", // contenido orgánico: métricas reales + ratios + el POR QUÉ
   // CAMPAÑAS PAGAS + ANALYTICS DE PLATAFORMA
   "getCampaigns", "getCampaignDetail", "getLiveAdsMetrics",

@@ -140,6 +140,7 @@ const SHORT_DESCRIPTIONS = {
   getMetaPosts: "Posts recientes de Facebook con engagement.",
   getInstagramInsights: "Métricas de cuenta IG Business.",
   getInstagramPosts: "Posts de Instagram con engagement.",
+  getAdsBreakdown: "Desglose de la pauta por ANUNCIO, ad set o dia: gasto, impresiones, alcance, CTR, CPC, CPA, ROAS y FRECUENCIA aproximada con diagnostico de desgaste creativo. Params: groupBy (ad|adset|day|campaign), days, limit.",
   verPublicacion: "Mira una publicacion: describe lo que se ve en su imagen o carrusel (escena, personas, accion, productos) y devuelve la descripcion. Usala cuando necesites juzgar una pieza y no solo su copy. Parametro: postId.",
   getMetaAudienceDemographics: "Demografia real del publico en Meta (FB+IG): edad, genero, pais y ciudad. Es la fuente de la card de audiencia del dashboard.",
   getGoogleAnalytics: "Sesiones, usuarios, fuentes desde GA4.",

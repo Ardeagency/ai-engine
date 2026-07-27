@@ -149,6 +149,11 @@ const TOOL_REGISTRY = {
     fn: ({ organizationId, lookaheadDays, limit }) => dashboardTools.getUpcomingDates({ organizationId, lookaheadDays, limit }),
     requiresConsent: false,
   },
+  getAdsBreakdown: {
+    fn: ({ brandContainerId, organizationId, groupBy, days, limit }) =>
+      campaignTools.getAdsBreakdown({ brandContainerId, organizationId, groupBy, days, limit }),
+    requiresConsent: false,
+  },
   getCampaignDetail: {
     fn: ({ campaignId, organizationId }) =>
       campaignTools.getCampaignDetail(campaignId, null, organizationId),

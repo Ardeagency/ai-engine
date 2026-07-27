@@ -801,6 +801,7 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
             continue;
           }
 
+          _latido(sessionId, `${scope}: ronda ${round + 1}`);
           const parsed = _extractScopeJson(resp.text || "");
           if (!parsed) {
             // Fase de investigación cerrada: pasa a redactar con todo en contexto.
@@ -1123,6 +1124,8 @@ export async function runBrandDiagnosis(brandContainerId, { trigger = "manual" }
   const _finish = async (status, err = null) => {
     await supabase.from("vera_session_audit").update({
       status,
+      current_step: null,
+      heartbeat_at: new Date().toISOString(),
       tool_calls: _toolCallsAudit(brand.organization_id, auditToolCalls, tallyAntes),
       iterations: rounds,
       input_chars: inputChars,
@@ -1335,6 +1338,19 @@ async function _esperarYReintentar(resp, intentos, etiqueta) {
   );
   await new Promise((r) => setTimeout(r, ms));
   return true;
+}
+
+/**
+ * Señal de vida de una sesión en curso. Se escribe MIENTRAS corre, no al final:
+ * sin esto no habia forma de distinguir una sesion que esta pensando de una
+ * colgada, y con corridas de 40 minutos eso importa. Fire-and-forget a
+ * proposito — la telemetria nunca debe frenar ni tumbar el trabajo real.
+ */
+function _latido(sessionId, paso) {
+  supabase.from("vera_session_audit")
+    .update({ heartbeat_at: new Date().toISOString(), current_step: String(paso).slice(0, 200) })
+    .eq("session_id", sessionId)
+    .then(() => {}, () => {});
 }
 
 /** Lo que se le pide a Vera al abrir cada periodo de la entrega. */
@@ -1811,6 +1827,8 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
   let agentFailReason = null, agentFailDetail = "", esperasAgente = 0;
   let cards = null, cardErrors = null;
 
+  _latido(sessionId, "abriendo sesion");
+
   const secCtx = {
     organizationId: brand.organization_id,
     userId: null,
@@ -1830,6 +1848,8 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
   const _finish = async (status, err = null) => {
     await supabase.from("vera_session_audit").update({
       status,
+      current_step: null,
+      heartbeat_at: new Date().toISOString(),
       tool_calls: _toolCallsAudit(brand.organization_id, auditToolCalls, tallyAntes),
       iterations: rounds,
       input_chars: inputChars,
@@ -1879,6 +1899,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
       }
 
       const periodo = periodos[idx];
+      _latido(sessionId, faseEntrega ? `escribiendo ${periodo.k} (ronda ${rounds})` : `investigando (ronda ${rounds})`);
 
       const markerCalls = resp.tool_calls || [];
       if (markerCalls.length) {
@@ -1928,6 +1949,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
             toolCallsCount: _toolCallsAudit(brand.organization_id, auditToolCalls, tallyAntes).length,
           });
           publicados.push({ periodo: periodo.k, cards: check.value.cards.length });
+          _latido(sessionId, `publicado ${periodo.k} (${publicados.length}/${periodos.length})`);
           console.log(`vera-mimarca [${sessionId}] ${periodo.k} OK — ${check.value.cards.length} cards`);
           cards = check.value; // la última válida, para el retorno
           idx++; intentosPeriodo = 0; parts = []; cardErrors = null; toolResults = [];
@@ -2121,6 +2143,39 @@ export function startReadingRequestWorker() {
   setTimeout(tick, 45_000);
   setInterval(tick, REQ_POLL_MS);
   console.log(`vera-peticiones: worker de rangos a mano iniciado (cada ${Math.round(REQ_POLL_MS / 1000)}s)`);
+}
+
+/**
+ * Que sesiones de Vera estan vivas AHORA y que estan haciendo.
+ *
+ * Existe porque una sesion de tablero puede tardar 40 minutos y hasta hoy no
+ * habia forma de saber, sin entrar al servidor, si estaba pensando o colgada.
+ * `mudo_hace_seg` es la clave: una sesion sana late en cada ronda, asi que un
+ * silencio largo es sintoma, no paciencia.
+ */
+export async function getSesionesVivas() {
+  const { data } = await supabase
+    .from("vera_session_audit")
+    .select("session_id, organization_id, brand_container_id, kind, started_at, heartbeat_at, current_step")
+    .eq("status", "running")
+    .order("started_at", { ascending: false })
+    .limit(20);
+
+  const ahora = Date.now();
+  return (data || []).map((r) => {
+    const ultimo = r.heartbeat_at ? new Date(r.heartbeat_at).getTime() : new Date(r.started_at).getTime();
+    const mudoSeg = Math.round((ahora - ultimo) / 1000);
+    return {
+      session_id: r.session_id,
+      tablero: r.kind,
+      corriendo_desde: r.started_at,
+      minutos_corriendo: Math.round((ahora - new Date(r.started_at).getTime()) / 60000),
+      haciendo: r.current_step || "(sin señal todavia)",
+      mudo_hace_seg: mudoSeg,
+      // Umbral generoso: escribir siete tarjetas puede tardar varios minutos.
+      veredicto: mudoSeg > 900 ? "SOSPECHOSA — sin señal hace mas de 15 min" : mudoSeg > 420 ? "escribiendo (silencio normal)" : "activa",
+    };
+  });
 }
 
 // ── AUTO-ACTIVACIÓN POR PLAN (JC: "vera se activará sola") ──────────────────

@@ -339,14 +339,28 @@ export const sleepOrg = async (req, res) => {
     try {
       const { snapshotId } = await sleepOrgServer(instance.hetzner_server_id, orgId);
 
-      await supabase.from("openclaw_instances").update({
-        status:            "sleeping",
+      // "sleeping" NO es un estado valido: el CHECK de la tabla solo admite
+      // provisioning/starting/healthy/degraded/stopped/failed. Con "sleeping" el
+      // update fallaba EN SILENCIO (no se miraba el error) y la fila quedaba
+      // diciendo healthy con la IP de un servidor ya borrado — la org se caia sin
+      // que nada lo reportara. Paso el 2026-07-27 durmiendo a WAKEUP.
+      const { error: errSleep } = await supabase.from("openclaw_instances").update({
+        status:            "stopped",
         sleeping:          true,
         hetzner_server_id: null,
         server_ip:         null,
         snapshot_id:       String(snapshotId),
         updated_at:        new Date().toISOString(),
       }).eq("organization_id", orgId);
+      if (errSleep) {
+        // Si esto falla, el servidor YA no existe y la fila miente: hay que
+        // gritarlo, no seguir como si nada.
+        console.error(
+          `internal: CRITICO — org "${orgId}" dormida (snapshot ${snapshotId}) pero la fila NO se actualizo: ${errSleep.message}. ` +
+          `La org figura activa sin servidor. Reparar a mano con status=stopped, sleeping=true, snapshot_id=${snapshotId}.`
+        );
+        throw new Error(`sleep: fila no actualizada — ${errSleep.message}`);
+      }
 
       markOrgSleeping(orgId);
 

@@ -19,6 +19,7 @@
  * dormir/despertar, que conserva su memoria y los deja con el puente nuevo.
  */
 import { execSync } from "child_process";
+import { watch as fsWatch } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { supabase } from "../lib/supabase.js";
@@ -105,4 +106,51 @@ export async function syncSkillsToAllOrgs() {
       : "")
   );
   return { total: resultados.length, ok, resultados };
+}
+
+// ── Automatico: cualquier cambio en las skills se propaga solo ───────────────
+// El usuario no deberia tener que acordarse de sincronizar. Se vigila el
+// directorio de skills y ante cualquier alta, edicion o borrado se empuja a
+// todas las Veras. Con antirrebote, porque guardar un fichero dispara varios
+// eventos y editar tres skills seguidas no debe ser tres sincronizaciones.
+let _temporizador = null;
+let _sincronizando = false;
+let _pendiente = false;
+
+const REBOTE_MS = Number(process.env.SKILLS_WATCH_DEBOUNCE_MS || 15_000);
+
+async function _sincronizarDeboundeado(motivo) {
+  if (_sincronizando) { _pendiente = true; return; }   // se reintenta al terminar
+  _sincronizando = true;
+  try {
+    console.log(`skills-sync: cambio detectado (${motivo}) — propagando a las Veras`);
+    await syncSkillsToAllOrgs();
+  } catch (e) {
+    console.warn(`skills-sync: fallo propagando — ${e.message}`);
+  } finally {
+    _sincronizando = false;
+    if (_pendiente) { _pendiente = false; _sincronizarDeboundeado("cambios acumulados"); }
+  }
+}
+
+/**
+ * Vigila defaults/skills y propaga cualquier cambio. Deshabilitar con
+ * SKILLS_WATCH_ENABLED=false.
+ */
+export function startSkillsWatcher() {
+  const dir = path.join(DEFAULTS_DIR, "skills");
+  let watcher;
+  try {
+    // recursive:true para enterarse tambien de un SKILL.md editado dentro de su carpeta.
+    watcher = fsWatch(dir, { recursive: true }, (_evento, archivo) => {
+      if (archivo && !/SKILL\.md$/i.test(String(archivo)) && String(archivo).includes(".")) return;
+      clearTimeout(_temporizador);
+      _temporizador = setTimeout(() => _sincronizarDeboundeado(String(archivo || "skills/")), REBOTE_MS);
+    });
+  } catch (e) {
+    console.warn(`skills-sync: no se pudo vigilar ${dir} — ${e.message}`);
+    return null;
+  }
+  console.log(`skills-sync: vigilando ${dir} — todo cambio se propaga solo (antirrebote ${Math.round(REBOTE_MS / 1000)}s)`);
+  return watcher;
 }

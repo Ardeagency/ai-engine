@@ -91,6 +91,10 @@ const TOOL_REGISTRY = {
     fn: ({ organizationId }) => brandTools.getAudiences(null, organizationId),
     requiresConsent: false,
   },
+  getSesionesVivas: {
+    fn: () => import("./vera-dashboard-session.service.js").then((m) => m.getSesionesVivas()),
+    requiresConsent: false,
+  },
   getDataHorizon: {
     fn: ({ organizationId }) => brandTools.getDataHorizon(null, organizationId),
     requiresConsent: false,

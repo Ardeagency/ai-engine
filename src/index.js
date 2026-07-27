@@ -1,5 +1,6 @@
 import dotenv from "dotenv";
 import { startDiagnosisScheduler, startReadingRequestWorker } from "./services/vera-dashboard-session.service.js";
+import { startSkillsWatcher } from "./services/skills-sync.service.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -182,6 +183,14 @@ app.listen(PORT, () => {
   // lleva su propio interruptor. Deshabilitar con VERA_REQUEST_WORKER_ENABLED=false
   if (process.env.VERA_REQUEST_WORKER_ENABLED !== "false") {
     startReadingRequestWorker();
+  }
+
+  // Doctrina al dia sin intervencion: cualquier skill creada, editada o borrada
+  // se propaga sola a todas las Veras. Antes habia que acordarse de hacerlo — y
+  // no acordarse costo que WAKEUP corriera dos meses con 21 skills de 45.
+  // Deshabilitar con SKILLS_WATCH_ENABLED=false
+  if (process.env.SKILLS_WATCH_ENABLED !== "false") {
+    startSkillsWatcher();
   }
 
   // Radiografia de Visibilidad — sensor GEO: mide si la marca aparece en respuestas

@@ -128,7 +128,7 @@ const execFileAsync = promisify(execFile);
 const PORT      = ${ORG_BRIDGE_PORT};
 const ORG_TOKEN = process.env.ORG_TOKEN;
 const ORG_ID    = process.env.ORG_ID;
-const TIMEOUT   = Number(process.env.OPENCLAW_TIMEOUT_MS) || 300000;
+const TIMEOUT   = Number(process.env.OPENCLAW_TIMEOUT_MS) || 900000;
 
 const server = http.createServer(async (req, res) => {
   const send = (status, data) => {
@@ -220,7 +220,7 @@ const server = http.createServer(async (req, res) => {
         // cp -r del contenido: agrega las nuevas y sobreescribe las cambiadas.
         await execFileAsync('bash', ['-lc', 'cp -r ' + tmp + '/skills/* ' + destino + '/']);
         const { stdout } = await execFileAsync('bash', ['-lc', 'ls -1 ' + destino]);
-        const instaladas = stdout.split('\n').map((x) => x.trim()).filter(Boolean);
+        const instaladas = stdout.split(String.fromCharCode(10)).map((x) => x.trim()).filter(Boolean);
         await execFileAsync('rm', ['-rf', tmp]);
         return send(200, { ok: true, skills: instaladas, total: instaladas.length });
       } catch (e) {
@@ -262,7 +262,7 @@ ORG_TOKEN=${orgToken}
 ANTHROPIC_API_KEY=${anthropicApiKey}
 ANTHROPIC_BASE_URL=http://127.0.0.1:${anthropicProxyPort}
 OPENCLAW_GATEWAY_TOKEN=${openclawGatewayToken}
-OPENCLAW_TIMEOUT_MS=300000
+OPENCLAW_TIMEOUT_MS=900000
 `;
   const envB64 = Buffer.from(envFile).toString("base64");
 
@@ -524,33 +524,6 @@ systemctl start openclaw-bridge
 sleep 5
 
 echo "[setup] Callback a AI Engine..."
-# ── Refresco del puente y de las skills al despertar ───────────────────────
-# El servidor se recrea desde un snapshot, asi que trae el puente y las skills
-# del dia que se durmio. Ambos se re-descargan del control plane para que una
-# Vera que despierta lo haga con la doctrina y el codigo al dia — sin esto habia
-# que recrearla entera cada vez que cambiaba una skill.
-if curl -sf --max-time 30 -H "x-webhook-secret: ${webhookSecret}" \\
-     "${callbackUrl}/internal/openclaw-bridge.js" -o /tmp/bridge.js; then
-  if node --check /tmp/bridge.js 2>/dev/null; then
-    cp /tmp/bridge.js /opt/openclaw-bridge/server.js
-    systemctl restart openclaw-bridge
-    echo "[wake] puente actualizado"
-  else
-    echo "[wake] WARN: el puente descargado no compila — se conserva el anterior"
-  fi
-fi
-
-mkdir -p /tmp/vera-defaults
-if curl -sf --max-time 120 -H "x-webhook-secret: ${webhookSecret}" \\
-     "${callbackUrl}/internal/defaults.tar.gz" -o /tmp/vera-defaults.tar.gz; then
-  tar -xzf /tmp/vera-defaults.tar.gz -C /tmp/vera-defaults 2>/dev/null || true
-  if [ -d /tmp/vera-defaults/skills ]; then
-    mkdir -p /root/workspaces/${agentId}/skills
-    cp -r /tmp/vera-defaults/skills/* /root/workspaces/${agentId}/skills/ 2>/dev/null || true
-    echo "[wake] skills actualizadas: $(ls -1 /root/workspaces/${agentId}/skills | wc -l)"
-  fi
-fi
-
 PUBLIC_IP=$(curl -s --max-time 10 https://api.ipify.org || curl -s --max-time 10 http://checkip.amazonaws.com || hostname -I | awk '{print $1}')
 curl -sf --max-time 15 -X POST "${callbackUrl}/internal/server-ready" \\
   -H "Content-Type: application/json" \\
@@ -630,7 +603,7 @@ ORG_ID=${orgId}
 ORG_TOKEN=${orgToken}
 ANTHROPIC_API_KEY=${anthropicApiKey}
 OPENCLAW_GATEWAY_TOKEN=${openclawGatewayToken}
-OPENCLAW_TIMEOUT_MS=300000
+OPENCLAW_TIMEOUT_MS=900000
 ENV_EOF
 chmod 600 /opt/openclaw-bridge/.env
 systemctl restart openclaw-bridge
@@ -661,6 +634,23 @@ MCPPKG_EOF
   openclaw mcp set ai-engine "$MCP_CFG" 2>&1 && echo "[wake] MCP registrado OK" || echo "[wake] WARN: MCP register fallo — markers como fallback"
 else
   echo "[wake] WARN: no se pudo descargar mcp-server.js de ${callbackUrl}"
+fi
+
+# ── Refresco de skills al despertar ────────────────────────────────────────
+# Se re-descargan del control plane para que una Vera que despierta lo haga con
+# la doctrina al dia. El reemplazo del PUENTE en caliente se retiro el
+# 2026-07-27: dejaba el bridge sin arrancar en el org-server y no hay forma de
+# depurarlo sin acceso a esa maquina. Las skills son ficheros, no codigo que
+# corra: refrescarlas no puede tumbar el servicio.
+mkdir -p /tmp/vera-defaults
+if curl -sf --max-time 120 -H "x-webhook-secret: ${webhookSecret}" \\
+     "${callbackUrl}/internal/defaults.tar.gz" -o /tmp/vera-defaults.tar.gz; then
+  tar -xzf /tmp/vera-defaults.tar.gz -C /tmp/vera-defaults 2>/dev/null || true
+  if [ -d /tmp/vera-defaults/skills ]; then
+    mkdir -p /root/workspaces/${agentId}/skills
+    cp -r /tmp/vera-defaults/skills/* /root/workspaces/${agentId}/skills/ 2>/dev/null || true
+    echo "[wake] skills actualizadas: $(ls -1 /root/workspaces/${agentId}/skills | wc -l)"
+  fi
 fi
 
 PUBLIC_IP=$(curl -s --max-time 10 https://api.ipify.org || curl -s --max-time 10 http://checkip.amazonaws.com || hostname -I | awk '{print $1}')

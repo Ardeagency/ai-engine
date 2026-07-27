@@ -96,14 +96,43 @@ const productoEstrellaBlock = z.object({
   title: z.string().max(90).optional().nullable(),
 }).strict();
 
+/* Bloques expresivos que el frontend pinta desde siempre (_veraBlockHtml) pero
+   que el schema no admitia, asi que Vera no podia usarlos: el callout para el
+   golpe de vista, la cita textual como prueba de lo que leyo, y la comparacion
+   a dos columnas ("lo que hiciste" / "lo que debia decir"). Son la forma natural
+   de la Intuicion, que no es una tabla de metricas. */
+const calloutBlock = z.object({
+  type: z.literal("callout"),
+  title: z.string().max(120).optional().nullable(),
+  markdown: z.string().max(1200).optional().nullable(),
+  tone: TONE.optional().nullable(),
+  icon: z.string().max(30).optional().nullable(),
+}).strict();
+
+const quoteBlock = z.object({
+  type: z.literal("quote"),
+  text: z.string().min(3).max(600),
+  source: z.string().max(120).optional().nullable(),
+}).strict();
+
+const splitBlock = z.object({
+  type: z.literal("split"),
+  title: z.string().max(120).optional().nullable(),
+  columns: z.array(z.object({
+    label: z.string().max(80).optional().nullable(),
+    markdown: z.string().max(900).optional().nullable(),
+    side: z.enum(["pos", "neg"]).optional().nullable(),
+  }).strict()).min(2).max(3),
+}).strict();
+
 const presentationBlock = z.discriminatedUnion("type", [
   markdownBlock, chartBlock, tableBlock, statBlock, pyramidBlock, choroplethBlock,
-  productoEstrellaBlock,
+  productoEstrellaBlock, calloutBlock, quoteBlock, splitBlock,
 ]);
 const BLOCKS = z.array(presentationBlock).max(8).optional().nullable();
 
 /* ── CARDS DE TEXTO (juicio) ────────────────────────────────────────────────
-   observacion · virtudes · desventajas · algoritmo. Exigen `markdown` con
+   virtudes · desventajas · algoritmo. Exigen `markdown` con
    sustancia; `blocks` es opcional para sustentar. */
 const textCard = (t) => z.object({
   type: z.literal(t),
@@ -113,7 +142,23 @@ const textCard = (t) => z.object({
   blocks: BLOCKS,
 }).strict();
 
-const observacionCard = textCard("observacion");
+/* ── OBSERVACIONES ──────────────────────────────────────────────────────────
+   MISMA plantilla que Competencia: fichas cortas y clasificadas, no un ensayo
+   con tablas. Cada item es un JUICIO sobre lo que la marca esta haciendo, con
+   su urgencia. NO admite `blocks`: aqui el numero va DENTRO de la frase que lo
+   interpreta, nunca como tabla suelta — esa fue exactamente la card que hubo
+   que rehacer. Los limites son mas anchos que los que pide el prompt: unos
+   caracteres de mas no pueden costar la lectura entera. */
+const observacionCard = z.object({
+  type: z.literal("observacion"),
+  items: z.array(z.object({
+    donde: z.string().max(40).optional().nullable(),
+    titulo: z.string().min(3).max(110),
+    observacion: z.string().min(30).max(360),
+    severidad: z.enum(["opportunity", "threat", "warning", "neutral"]).optional().nullable(),
+    prioridad: z.enum(["alta", "media", "baja"]).optional().nullable(),
+  }).strict()).min(2).max(6),
+}).strict();
 const virtudesCard = textCard("virtudes");
 const desventajasCard = textCard("desventajas");
 const algoritmoCard = textCard("algoritmo");
@@ -144,14 +189,23 @@ const audienciasRecomendadasCard = z.object({
   }).strict()).min(2).max(8),
 }).strict();
 
+/* ── INTUICION ──────────────────────────────────────────────────────────────
+   Lo que un tablero no muestra y un humano no ve: el alma emocional de la
+   audiencia y el formato que la enamora. La pinta BrandGrid en NIVEL 2 y se
+   reusa al pie de los otros tres tabs (_renderIntuicionUniversal), pero hasta
+   el 2026-07-27 NO estaba en este schema ni en el prompt: Vera no podia
+   entregarla, y si lo hubiera intentado el .strict() habria tumbado la lectura
+   entera. Misma forma que las cards de juicio. */
+const intuicionCard = textCard("intuicion");
+
 const cardSchema = z.discriminatedUnion("type", [
   observacionCard, virtudesCard, desventajasCard, algoritmoCard,
-  audienciaCard, audienciasRecomendadasCard,
+  audienciaCard, audienciasRecomendadasCard, intuicionCard,
 ]);
 
 // Los moldes que el tab exige llenar. `audiencia` (viz) queda fuera: depende de
 // datos demográficos que no toda marca tiene, y un mapa inventado envenena.
-const REQUIRED_TYPES = ["observacion", "virtudes", "desventajas", "algoritmo", "audiencias_recomendadas"];
+const REQUIRED_TYPES = ["observacion", "intuicion", "virtudes", "desventajas", "algoritmo", "audiencias_recomendadas"];
 
 /* ── LA LECTURA COMPLETA ────────────────────────────────────────────────────
    Libertad controlada como regla de código: la lectura DEBE traer las 5 cards
@@ -159,7 +213,7 @@ const REQUIRED_TYPES = ["observacion", "virtudes", "desventajas", "algoritmo", "
    se rechaza y se le devuelve a Vera exactamente cuál faltó. */
 export const mimarcaCardsSchema = z.object({
   schema: z.literal(MIMARCA_SCHEMA),
-  cards: z.array(cardSchema).min(5).max(10).superRefine((cs, ctx) => {
+  cards: z.array(cardSchema).min(6).max(12).superRefine((cs, ctx) => {
     const present = new Set(cs.map((c) => c.type));
     for (const t of REQUIRED_TYPES) {
       if (!present.has(t)) {

@@ -1416,7 +1416,7 @@ nunca "¿cuánto es X?". Un número suelto NO es una tarjeta: es la evidencia qu
 sostiene un juicio, y va DENTRO de la frase que lo interpreta. Si tu texto lo
 firmaría cualquier marca del nicho, reescríbelo.
 
-LAS TARJETAS QUE DEBES LLENAR (las 5 primeras son OBLIGATORIAS).
+LAS TARJETAS QUE DEBES LLENAR (las 6 primeras son OBLIGATORIAS).
 
 Lo que sigue NO es un guion: es el ENCARGO de cada tarjeta — qué tiene que
 llevar, para que no se te crucen los contenidos ni se repita lo que ya está en
@@ -1440,7 +1440,24 @@ el ángulo y la forma son tuyos.
    Pasteur generó 25 interacciones: un hito de categoría que nadie vio"), nunca
    como tabla aparte. Una tabla de cifras no es una observación.
 
-2) virtudes — el INGREDIENTE que POTENCIA el contenido de la marca.
+2) intuicion — LO QUE UN TABLERO NO MUESTRA Y UN HUMANO NO VE. Es la tarjeta
+   que lidera la lectura, y la única que también se muestra en los otros tres
+   tabs: escríbela para sostener ese peso.
+   VA: el alma emocional de la audiencia y el FORMATO que la enamora. Mira una
+   pieza REAL (su copy, su imagen, su formato, sus comentarios), cruza lo que
+   viste con lo que esa gente SIENTE, juzga si el formato la enamora o solo la
+   informa, y propón la ejecución humana concreta que sí la enamoraría.
+   NO VA: mecánica de conversión ("faltó CTA", "se publicó en mal horario"),
+   análisis de métricas, ni el buyer persona de manual. Nada de eso es intuición.
+   La prueba: si un tablero pudiera decirlo con una cifra, no es esta tarjeta.
+   Mal:  "El carrusel no convirtió porque no tenía llamado a la acción."
+   Bien: "Un carrusel infográfico es el formato equivocado para esta gente: se
+         aplaude por cortesía y se olvida. A ella la enamora un momento humano
+         real — el mismo mensaje en un Reel donde se vea el nervio y la alegría
+         del equipo se ve por gusto y se comparte solo."
+   {"type":"intuicion","title":"...","tone":"...","markdown":"...","blocks":[<opcional>]}
+
+3) virtudes — el INGREDIENTE que POTENCIA el contenido de la marca.
    VA: el gesto, el formato o la decisión creativa CONCRETA que causa el efecto,
    y el mecanismo por el que funciona. Algo que el equipo pueda volver a hacer
    mañana a propósito.
@@ -1452,14 +1469,14 @@ el ángulo y la forma son tuyos.
          el espectador no siente publicidad."
    {"type":"virtudes","title":"...","tone":"positive","markdown":"..."}
 
-3) desventajas — el ingrediente que COLAPSA el contenido.
+4) desventajas — el ingrediente que COLAPSA el contenido.
    VA: qué lo está frenando y POR QUÉ, con el mismo rigor causal que virtudes.
    Lo que hay que dejar de hacer, dicho de forma que se pueda dejar de hacer.
    NO VA: la lista de lo que salió mal, ni las métricas en rojo. "Bajó el
    alcance" es el síntoma; te estamos preguntando por la causa.
    {"type":"desventajas","title":"...","tone":"warning|critical","markdown":"..."}
 
-4) algoritmo — TU ALGORITMO: cómo te está leyendo cada plataforma A TI.
+5) algoritmo — TU ALGORITMO: cómo te está leyendo cada plataforma A TI.
    VA: qué tipo de cuenta cree cada plataforma que eres, a quién te está
    mostrando por eso, y qué señal concreta necesita para mostrarte más.
    Escríbelo en ACTOS: abre con la lectura, marca el riesgo ("El riesgo: ...") y
@@ -1468,15 +1485,15 @@ el ángulo y la forma son tuyos.
    esta marca. Habla de lo que ESTA cuenta le está enseñando a ESTE algoritmo.
    {"type":"algoritmo","title":"...","tone":"...","markdown":"...","blocks":[<opcional: {"type":"table","columns":["Plataforma","Temas","Tono","A quién te muestra"],"rows":[["TikTok","...","...","..."]]}>]}
 
-5) audiencias_recomendadas — a QUIÉN debería hablarle la marca y todavía no.
+6) audiencias_recomendadas — a QUIÉN debería hablarle la marca y todavía no.
    VA: grupos de gente con un hambre concreta que encaja con el producto, y por
    qué le conviene ir por ellos. Nómbralos como se nombra a la gente, en 2-4
    palabras ("Reposteros caseros", "Mamás que hornean con sus hijos"). Mínimo 2.
-   NO VA: la audiencia que YA tiene (esa es la card 6), ni demografía disfrazada
+   NO VA: la audiencia que YA tiene (esa es la card 7), ni demografía disfrazada
    de audiencia ("mujeres 25-34" no es un grupo, es un filtro de segmentación).
    {"type":"audiencias_recomendadas","items":[{"id":"aud_reposteros","name":"Reposteros caseros","priority":"alta|media|baja","rationale":"por qué le conviene, <=160","interests":["<=6 temas"]}]}
 
-6) audiencia — quién te sigue HOY.
+7) audiencia — quién te sigue HOY.
    VA: geografía + edad/género con TU lectura de quiénes son esas personas: qué
    dice de la marca que sea justo esa gente la que llegó.
    NO VA: la tabla de porcentajes sola. El mapa y la pirámide los pinta el
@@ -1496,6 +1513,9 @@ el ángulo y la forma son tuyos.
 
 BLOQUES OPCIONALES en cualquier tarjeta (sustentan el juicio, no lo reemplazan):
   {"type":"markdown","markdown":"..."}
+  {"type":"callout","title":"...","markdown":"...","tone":"positive|neutral|warning|critical"}
+  {"type":"quote","text":"la cita textual que leíste","source":"@handle o de dónde salió"}
+  {"type":"split","title":"...","columns":[{"label":"Lo que hiciste","markdown":"...","side":"neg"},{"label":"Lo que pedía el momento","markdown":"...","side":"pos"}]}
   {"type":"chart","kind":"bar|line|donut|area","labels":[...],"series":[{"name":"...","values":[...]}],"format":"number|percent"}
   {"type":"table","columns":[...],"rows":[[...]]}
   {"type":"stat","value":"...","label":"..."}

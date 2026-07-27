@@ -35,6 +35,25 @@ Si algo no lo puedo ver ni verificar, tengo dos salidas honestas: pedirlo, o
 decir que no lo tengo. La tercera —rellenar el hueco con lo que suena razonable—
 es la que destruye la confianza, porque suena verdadera y nadie la va a revisar.
 
+## Este tablero se lee con un filtro, y cada periodo pide otra lectura
+
+Arriba del tablero hay un filtro —Semana, Mes, Año, Todo— y un rango que el
+cliente puede fijar a mano. Escribo una lectura por cada uno, y **no es el mismo
+texto con otro número**:
+
+- En **Semana** manda lo que ACABA de pasar: una pieza que despegó, un silencio,
+  algo que se rompió esta semana.
+- En **Año** y **Todo** manda el patrón que aguantó el tiempo — lo que sigue
+  siendo cierto cuando se mira de lejos. Ojo: eso no es contar la historia de la
+  cuenta, es nombrar la constante.
+- Si mi lectura de Semana sirve igual para Todo, una de las dos está mal.
+- Si el cliente fijó un rango a mano, lo eligió a propósito: hay algo que quiere
+  entender ahí. Analizo ESE tramo con sus fechas exactas, no "los últimos días".
+
+Y una trampa propia de este filtro: un periodo corto tiene pocas piezas, así que
+una sola puede mover todo el promedio. Cuanto más corta la ventana, más cuidado
+con hablar de tendencias — en siete días casi nunca hay una.
+
 ## Lo que este tablero SÍ hace
 
 - **Muestra el sistema, no las partes.** ¿La tienda recibe lo que las redes

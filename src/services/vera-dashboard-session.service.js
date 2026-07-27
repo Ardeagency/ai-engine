@@ -1313,6 +1313,11 @@ const MIMARCA_PERIODOS = [
 ];
 // El filtro que trae el tab abierto (BrandGrid: this._gridWindow ?? 'month').
 const MIMARCA_PERIODO_DEFAULT = "month";
+// Cuántos periodos se le piden por ronda de entrega. Cada ronda cuesta ~4.5 min
+// fijos, así que agrupar ahorra reloj — pero si el lote no le cabe, la respuesta
+// se corta sin cerrar el sobre y no publica NADA. Se arranca en 2 (~7K tokens,
+// mitad de rondas) y el bucle lo baja solo a 1 si hace falta.
+const MIMARCA_LOTE_INICIAL = Number(process.env.VERA_MIMARCA_LOTE || 2);
 
 /**
  * Ventana de un periodo, anclada al último post propio igual que el frontend
@@ -1919,6 +1924,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
     const fallidos = [];
     let idx = 0;
     let intentosPeriodo = 0;
+    let loteMax = Math.max(1, Math.min(MIMARCA_LOTE_INICIAL, periodos.length));
     let parts = [];
     let toolResults = [];
     let message = _buildMiMarcaCardsPrompt(brand, periodos);
@@ -1969,7 +1975,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
         }
         toolResults = [...toolResults, ...round];
         message = faseEntrega
-          ? _mensajePedirPeriodos(periodos.slice(idx))
+          ? _mensajePedirPeriodos(periodos.slice(idx, idx + loteMax))
           : "Resultados arriba. Sigue investigando las ventanas que te falten. Cuando ya tengas el juicio de las cuatro, entrega directamente los sobres etiquetados — no hace falta anunciarlo.";
         continue;
       }
@@ -2034,7 +2040,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
 
         if (algunoOk) {
           intentosPeriodo = 0; cardErrors = null;
-          message = _mensajePedirPeriodos(periodos.slice(idx));
+          message = _mensajePedirPeriodos(periodos.slice(idx, idx + loteMax));
           continue;
         }
 
@@ -2049,7 +2055,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
           fallidos.push({ periodo: enCurso.k, errors: cardErrors });
           idx++; intentosPeriodo = 0; cardErrors = null;
           if (idx >= periodos.length) break;
-          message = _mensajePedirPeriodos(periodos.slice(idx));
+          message = _mensajePedirPeriodos(periodos.slice(idx, idx + loteMax));
           continue;
         }
         message = `Tu entrega de ${enCurso.label} fue RECHAZADA por el validador. Corrige EXACTAMENTE esto y vuelve a entregar ESE periodo completo en su sobre [[DIAGNOSIS:${enCurso.k}]]:\n${cardErrors.map((e) => `  · ${e}`).join("\n")}`;
@@ -2061,14 +2067,30 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
       if (!faseEntrega && /LISTO PARA CREAR/i.test(resp.text || "")) {
         faseEntrega = true;
         toolResults = [];
-        message = _mensajePedirPeriodos(periodos.slice(idx));
+        message = _mensajePedirPeriodos(periodos.slice(idx, idx + loteMax));
         continue;
       }
 
       toolResults = [];
+      // Sin tools y sin sobre estando ya en entrega significa que la respuesta
+      // se cortó antes de cerrar el primer sobre: el lote no le cupo. Volver a
+      // pedir el MISMO lote repite el corte — eso fue un bucle de 20 min en
+      // WAKEUP el 2026-07-27. Se parte a la mitad hasta llegar a uno, que es
+      // el comportamiento de siempre.
+      const largoResp = (resp.text || "").length;
+      // La COLA de la respuesta es lo que delata un corte: si termina a media
+      // llave, se quedó sin espacio. Sin esto la depuración es a ciegas.
+      const colaResp = String(resp.text || "").slice(-160).replace(/\s+/g, " ");
+      if (faseEntrega && loteMax > 1) {
+        loteMax = Math.max(1, Math.floor(loteMax / 2));
+        console.warn(`vera-mimarca [${sessionId}] entrega sin sobre cerrado (${largoResp} chars, cola: …${colaResp}) — el lote baja a ${loteMax} periodo(s)`);
+      } else if (faseEntrega) {
+        console.warn(`vera-mimarca [${sessionId}] entrega sin sobre cerrado (${largoResp} chars, cola: …${colaResp}) con lote de 1 — se insiste`);
+      }
       faseEntrega = true;   // sin tools y sin sobre: ya no está investigando
-      message = `No encontré ningún sobre [[DIAGNOSIS:<clave>]]...[[/DIAGNOSIS]]. ` +
-        _mensajePedirPeriodos(periodos.slice(idx));
+      message = `No encontré ningún sobre [[DIAGNOSIS:<clave>]]...[[/DIAGNOSIS]] CERRADO. ` +
+        `Si te quedaste sin espacio, entrega MENOS periodos pero con el sobre completo. ` +
+        _mensajePedirPeriodos(periodos.slice(idx, idx + loteMax));
     }
 
     if (agentFailed) throw new Error(`sesión abortada — ${agentFailReason || "fallo_del_org_server"}${agentFailDetail ? `: ${agentFailDetail}` : ""}`);

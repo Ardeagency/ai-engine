@@ -26,6 +26,7 @@ const TOOL_EXAMPLES = {
   getLiveProducts:     { group: "Lectura e inteligencia", ex: `[[TOOL:getLiveProducts]]  -> productos EN VIVO del marketplace (Mercado Libre)` },
   getLivePosts:        { group: "Lectura e inteligencia", ex: `[[TOOL:getLivePosts]]  -> posts recientes EN VIVO de X` },
   getLiveAdsMetrics:   { group: "Lectura e inteligencia", ex: `[[TOOL:getLiveAdsMetrics]]  -> campanas de Google Ads EN VIVO (ultimos 7d)` },
+  getUpcomingDates:    { group: "Lectura e inteligencia", ex: `[[TOOL:getUpcomingDates|params:{"lookaheadDays":90}]]  -> PROXIMAS FECHAS reales del mercado de la marca: festivos del pais + eventos internacionales (mundiales, dias mundiales, Black Friday) con dias restantes y veredicto Utilizar/Descartar. Usala ANTES de proponer contenido o campana con fecha: ancla al calendario real, NUNCA inventes efemerides ni fechas de memoria.` },
   // ── Lectura e inteligencia ──────────────────────────────────────────────
   getBrandHealthMetrics: { group: "Lectura e inteligencia", ex: `[[TOOL:getBrandHealthMetrics|windowHours:168]]  → engagement/sentiment/fatiga/ritmo` },
   getPenetrationDiagnosis: { group: "Lectura e inteligencia", ex: `[[TOOL:getPenetrationDiagnosis|windowDays:30]]  → ¿creces por PENETRACION (compradores nuevos, alcance fuera de tu base) o exprimes a los fieles? indice + veredicto (doctrina Ehrenberg-Bass)` },
@@ -49,13 +50,12 @@ const TOOL_EXAMPLES = {
   getBodyMissions:       { group: "Lectura e inteligencia", ex: `[[TOOL:getBodyMissions|limit:10]]  → tus decisiones previas (no repitas lo que no funciono)` },
   getPendingBriefs:      { group: "Lectura e inteligencia", ex: `[[TOOL:getPendingBriefs|status:proposed]]` },
   getPendingActionDetail:{ group: "Lectura e inteligencia", ex: `[[TOOL:getPendingActionDetail|action_id:<uuid>]]` },
+  verPublicacion:        { group: "Lectura e inteligencia", ex: `[[TOOL:verPublicacion|postId:<uuid del post>]]  -> MIRA la publicacion: devuelve que se ve en su imagen o carrusel (escena, personas, accion, productos). Un post es copy MAS pieza visual: usala antes de juzgar el formato de algo, en vez de opinar solo desde el texto. El id sale de getBrandPosts. Si ya estaba descrita la reusa sin gastar; force:true la vuelve a mirar. El video todavia no se describe y te lo dice.` },
   getBrainFeed:          { group: "Lectura e inteligencia", ex: `[[TOOL:getBrainFeed|feed_id:<feed_id>|bucket:all]]  (buckets: brand_context, competitor_intelligence, trend_signals, threats_and_opportunities, operational_context, counts, all)` },
 
   // ── Que contenido funciona (rendimiento por tono/tema/formato) ─────────
   // La data viene de post_patterns (615+ posts clasificados). postSource:
   // "brand" = tus posts | "competitor" = competidores | null = ambos.
-  getEstrategiaTones:    { group: "Que funciona (rendimiento)", ex: `[[TOOL:getEstrategiaTones|params:{"postSource":"brand","windowDays":90}]]  → tonos que mas performan` },
-  getEstrategiaTopics:   { group: "Que funciona (rendimiento)", ex: `[[TOOL:getEstrategiaTopics|params:{"postSource":"brand","windowDays":90}]]  → temas que mas performan` },
   getEstrategiaPlatforms:{ group: "Que funciona (rendimiento)", ex: `[[TOOL:getEstrategiaPlatforms|params:{"postSource":"brand","windowDays":90}]]` },
 
   // ── Flows ───────────────────────────────────────────────────────────────
@@ -92,6 +92,11 @@ const TOOL_EXAMPLES = {
   proposeStrategicRecommendation:{ group: "Notificaciones", ex: `[[TOOL:proposeStrategicRecommendation|params:{"title":"...","topic":"...","description":"...","confidence":"media"}]]  (confidence: baja | media | alta)` },
   proposePendingAction:          { group: "Notificaciones", ex: `[[TOOL:proposePendingAction|params:{"action_type":"create_brief","reasoning":"por que, cruzando 2 señales","confidence":0.8,"horizon":"hoy","source_signals":["competidor agotado","trend creciente"]}]]  -> ACCION graduada al plan de Estrategia. REGLA 2 FUENTES (>=2 source_signals). action_type: create_brief=CONTENIDO, update_campaign=PAUTA, launch_campaign, update_brand_container=TONO/ADN. CRITICO (crisis/legal) -> usa createNotification, no esto.` },
   initiateConversation:          { group: "Notificaciones", ex: `[[TOOL:initiateConversation|params:{"topic":"tema corto","opening_message":"lo que le quieres decir al humano, en primera persona","reason":"por que abres el hilo","audience_role":"owner"}]]  -> ABRE un hilo de chat con un humano de la org sin esperar a que te escriban. audience_role opcional (owner|admin|member; por defecto owner). Para dialogo/rendir cuentas, no para cada micro-accion.` },
+
+  // ── Misiones: los PASOS de una estrategia (retomables entre sesiones) ──────
+  logMission:      { group: "Escritura conceptual", ex: `[[TOOL:logMission|params:{"strategyId":"<uuid estrategia>","seq":1,"missionType":"buscar","description":"buscar/crear audiencia madres trabajadoras","reason":"paso 1 de la estrategia dia de las madres"}]]  -> registra un PASO (mision) de una estrategia. missionType: investigar|ver|buscar|crear|analizar|decidir. Nace 'pending'. strategyId = la estrategia padre (canvas_strategies).` },
+  completeMission: { group: "Escritura conceptual", ex: `[[TOOL:completeMission|params:{"missionId":"<uuid mision>","status":"completed","summary":"que encontre/hice","pendingActionId":"<uuid Tarea si cree algo>","reason":"..."}]]  -> avanza una mision: running|completed|failed, con su resultado (para retomar). Si la mision CREO algo (campana/audiencia), pasa el pendingActionId de la Tarea generada para enlazarla.` },
+  getOpenMissions: { group: "Lectura e inteligencia", ex: `[[TOOL:getOpenMissions]]  -> misiones pendientes/en curso de tus estrategias. LEELAS al inicio para RETOMAR pasos incompletos de sesiones anteriores. Opcional strategyId para filtrar una estrategia.` },
 };
 
 // Aliases funcionales: SIGUEN siendo invocables (estan en el registry), pero NO
@@ -197,4 +202,123 @@ export function renderEnabledToolsBlock(enabledNames, level = "actual") {
  */
 export function renderAutonomousToolList(enabledNames, { feedId = null } = {}) {
   return _buildGroupedBody(enabledNames, { feedId });
+}
+
+// ── Progressive tool disclosure (2026-07-24) ────────────────────────────────
+// En vez de volcar TODAS las tools de la fase en el prompt (~32KB/turno), se
+// muestra un INDICE ligero (grupos + core siempre-on) y Vera pide las firmas de
+// un grupo on-demand con [[TOOL:listToolsFor|group:...]]. Gateado por flag en el
+// adapter; el gate real de fase sigue en el dispatcher (no afecta seguridad).
+
+// Core siempre-on: tools de uso diario, con firma completa, para que lo comun no
+// pague un round-trip de descubrimiento.
+const CORE_TOOLS = [
+  "getBrandDNA", "getProducts", "getAudiences", "getCampaigns",
+  "getBrandKpisStrip", "getPlatformHealth", "getUpcomingDates",
+  "getFlows", "generateImageDirect", "generateVideoDirect",
+  "createArtifact", "webSearch",
+];
+
+// Una linea de "cuando usarlo" por grupo, para el indice.
+const GROUP_HINTS = {
+  "Lectura e inteligencia": "leer datos de marca, redes, competencia, tendencias, misiones y outcomes",
+  "Visibilidad y contenido (CMO)": "diagnosticos de CMO: penetracion, ocasiones de compra (CEPs), citabilidad por IA, activos distintivos",
+  "Que funciona (rendimiento)": "que tono/tema/formato rinde en tus posts (y en los del competidor)",
+  "Generacion de archivos": "generar imagen/video (KIE), prompts pro, y archivos de marca (PDF/deck/infografia)",
+  "Flows": "biblioteca de flujos: ver sus inputs, ejecutarlos, ver producciones, aprobar etapas, programarlos",
+  "Escritura conceptual": "editar la marca por dentro: ADN, productos, audiencias, campanas, misiones (requiere APPROVE_ACTION)",
+  "Inteligencia activa": "mover el monitoreo: anadir competidor/keyword, scrape bajo demanda, watch defensivo",
+  "Notificaciones": "notificar al humano, proponer una accion/recomendacion, o abrir un hilo",
+};
+
+/**
+ * Firmas de las tools HABILITADAS de UN grupo — es la respuesta de listToolsFor.
+ * @param {string}   groupName    — nombre del grupo (case-insensitive, admite parcial).
+ * @param {string[]} enabledNames — tools de la fase activa.
+ * @param {object}   [opts] — { feedId } para sustituir <feed_id>.
+ * @returns {string}
+ */
+export function renderToolGroup(groupName, enabledNames, { feedId = null } = {}) {
+  const want = String(groupName || "").trim().toLowerCase();
+  const groups = [...new Set(Object.values(TOOL_EXAMPLES).map((e) => e.group))];
+  const match =
+    groups.find((g) => g.toLowerCase() === want) ||
+    (want.length >= 3 ? groups.find((g) => g.toLowerCase().includes(want)) : null);
+  if (!match) {
+    return `No existe la categoria "${groupName}". Categorias validas: ${groups.join(", ")}.`;
+  }
+  const enabled = new Set(
+    (Array.isArray(enabledNames) ? enabledNames : []).filter((n) => !HIDDEN_ALIASES.has(n))
+  );
+  const lines = [];
+  for (const [name, entry] of Object.entries(TOOL_EXAMPLES)) {
+    if (entry.group !== match || !enabled.has(name)) continue;
+    let ex = entry.ex;
+    if (feedId) ex = ex.replace(/<feed_id>/g, feedId);
+    lines.push(`  • ${name}\n    ${ex}`);
+  }
+  if (!lines.length) {
+    return `La categoria "${match}" no tiene tools habilitadas en tu nivel de autonomia actual.`;
+  }
+  return `TOOLS DE "${match.toUpperCase()}" (forma exacta de sus params):\n` + lines.join("\n");
+}
+
+/**
+ * Indice ligero del catalogo para el prompt del CHAT (progressive disclosure).
+ * Muestra: como descubrir, el core siempre-on (con firmas), y los grupos con una
+ * linea + cuantas tools habilitadas tiene cada uno. Vera pide un grupo con
+ * [[TOOL:listToolsFor|group:...]].
+ * @param {string[]} enabledNames — tools de la fase actual.
+ * @param {string}   level        — nivel de autonomia (para el mensaje de "no habilitada").
+ * @returns {string}
+ */
+export function renderToolCatalogIndex(enabledNames, level = "actual") {
+  const enabled = (Array.isArray(enabledNames) ? enabledNames : []).filter((n) => !HIDDEN_ALIASES.has(n));
+  const enabledSet = new Set(enabled);
+
+  const coreLines = [];
+  for (const name of CORE_TOOLS) {
+    if (!enabledSet.has(name)) continue;
+    const entry = TOOL_EXAMPLES[name];
+    coreLines.push(entry ? `  • ${name}\n    ${entry.ex}` : `  • ${name}  (sin params)`);
+  }
+
+  const countByGroup = new Map();
+  const simpleNames = [];
+  for (const name of enabled) {
+    if (CORE_TOOLS.includes(name)) continue;
+    const entry = TOOL_EXAMPLES[name];
+    if (!entry) { simpleNames.push(name); continue; }
+    countByGroup.set(entry.group, (countByGroup.get(entry.group) || 0) + 1);
+  }
+
+  const orderedGroups = [...countByGroup.keys()].sort((a, b) => {
+    const ia = GROUP_ORDER.indexOf(a), ib = GROUP_ORDER.indexOf(b);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+
+  const header = [
+    `[HERRAMIENTAS — CATALOGO POR CATEGORIA]`,
+    `Tienes muchas mas tools de las que ves aqui. Abajo esta el CORE (uso diario, listo para invocar) y el INDICE de categorias.`,
+    `Para usar una tool de una categoria, primero PIDE sus firmas: [[TOOL:listToolsFor|group:NOMBRE_DE_LA_CATEGORIA]] — te devuelve los nombres y params exactos de esa categoria. Luego invocas la que necesites.`,
+    `El sistema resuelve organizationId y brandContainerId — NUNCA los pases. Las tools de escritura requieren un campo "reason".`,
+    `Si una capacidad no aparece ni en el core ni en ninguna categoria, no esta habilitada en tu nivel de autonomia (**${level}**).`,
+  ].join("\n");
+
+  const coreBlock = coreLines.length
+    ? `\nCORE (siempre disponibles, invoca directo):\n${coreLines.join("\n")}`
+    : "";
+  const indexBlock =
+    `\nCATEGORIAS (pide sus tools con listToolsFor|group:...):\n` +
+    orderedGroups
+      .map((g) => {
+        const hint = GROUP_HINTS[g] ? ` — ${GROUP_HINTS[g]}` : "";
+        return `  • ${g}  (${countByGroup.get(g)} tools)${hint}`;
+      })
+      .join("\n");
+
+  const simpleBlock = simpleNames.length
+    ? `\nOTRAS LECTURAS (sin params, invoca directo por nombre):\n  ${simpleNames.sort().join(", ")}`
+    : "";
+  return header + "\n" + coreBlock + "\n" + indexBlock + simpleBlock;
 }

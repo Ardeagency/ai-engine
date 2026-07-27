@@ -46,11 +46,19 @@ export async function getAudiences(brandContainerId, organizationId) {
   // (mapa + pirámide) del dashboard. Sin ellas Vera pedía el dato, no lo veía y
   // omitía la card — obedeciendo bien el prompt sobre una plataforma que la
   // dejaba ciega. No se omiten aunque vengan vacías: que Vera sepa que no hay.
+  // is_featured / is_liked / is_active son el ENFOQUE DE AUDIENCIAS que la
+  // organizacion ya declaro: cuales eligio destacar y cuales sigue trabajando.
+  // Sin ellas Vera recomendaba audiencias sueltas, sin saber a cuales apunta el
+  // negocio — y una recomendacion que ignora el plan del cliente no sirve.
+  // gatillos_compra / objeciones / psicograficos son el porque de cada una.
   const { data, error } = await supabase
     .from("audience_personas")
     .select(
       "id, name, description, awareness_level, dolores, deseos, estilo_lenguaje, " +
-      "real_age_distribution, real_gender_distribution"
+      "objeciones, gatillos_compra, datos_psicograficos, " +
+      "target_age_min, target_age_max, target_genders, " +
+      "is_featured, is_liked, is_active, " +
+      "real_age_distribution, real_gender_distribution, real_location_distribution, real_interests"
     )
     .eq("brand_container_id", bc.id);
 

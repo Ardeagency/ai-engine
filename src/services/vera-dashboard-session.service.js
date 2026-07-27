@@ -1515,12 +1515,29 @@ el ángulo y la forma son tuyos.
    esta marca. Habla de lo que ESTA cuenta le está enseñando a ESTE algoritmo.
    {"type":"algoritmo","title":"...","tone":"...","markdown":"...","blocks":[<opcional: {"type":"table","columns":["Plataforma","Temas","Tono","A quién te muestra"],"rows":[["TikTok","...","...","..."]]}>]}
 
-6) audiencias_recomendadas — a QUIÉN debería hablarle la marca y todavía no.
-   VA: grupos de gente con un hambre concreta que encaja con el producto, y por
-   qué le conviene ir por ellos. Nómbralos como se nombra a la gente, en 2-4
-   palabras ("Reposteros caseros", "Mamás que hornean con sus hijos"). Mínimo 2.
+6) audiencias_recomendadas — A QUIÉN MÁS DEBERÍA HABLARLE, SEGÚN SU PLAN.
+   No es una lluvia de ideas: la organización YA declaró a qué apunta y tu trabajo
+   es servir ese plan, no reemplazarlo.
+   ARRANCA POR LEER EL ENFOQUE QUE YA EXISTE:
+   · getAudiences → su biblioteca de audiencias. Fíjate en is_featured (las que
+     el cliente DESTACÓ: ahí está su apuesta), is_active, y los gatillos_compra y
+     objeciones de cada una.
+   · getBrandDNA → objetivos_estrategicos y mercado_objetivo: a dónde va el
+     negocio este año.
+   Una recomendación que ignora eso no sirve, por buena que suene.
+   VA: audiencias NUEVAS que empujan ese plan — vecinas de las que ya tiene, con
+   un hambre concreta que el producto resuelve de verdad. Si la marca vive de
+   "actividades que te despiertan", el running, el senderismo y el ciclismo le
+   convienen tanto como las madres: mismo producto, otra puerta de entrada.
+   Nómbralas como se nombra a la gente, en 2-4 palabras. Mínimo 2.
+   CADA UNA CON SU PUERTA DE ENTRADA. No basta el nombre: di qué le duele o qué
+   busca ESA gente y por dónde entra la marca. Y si una publicación real ya abrió
+   esa puerta, léela así — la colaboración de buceo no era "una colaboración":
+   apuntaba a buzos que quieren disfrutar sin sumar calorías que les bajen el
+   rendimiento bajo el agua. Ese es el nivel de concreción.
    NO VA: la audiencia que YA tiene (esa es la card 7), ni demografía disfrazada
-   de audiencia ("mujeres 25-34" no es un grupo, es un filtro de segmentación).
+   de audiencia ("mujeres 25-34" no es un grupo, es un filtro de segmentación),
+   ni audiencias que suenan bien pero no llevan a ninguno de sus objetivos.
    OJO con la card 7, que es su pareja: allí dices cómo la audiencia actual te
    trae gente nueva; aquí dices A QUIÉN quieres que traiga. No las repitas.
    {"type":"audiencias_recomendadas","items":[{"id":"aud_reposteros","name":"Reposteros caseros","priority":"alta|media|baja","rationale":"por qué le conviene, <=160","interests":["<=6 temas"]}]}

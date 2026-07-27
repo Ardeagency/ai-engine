@@ -76,6 +76,39 @@ function log(event, ctx, detail = {}) {
   persistToDb(entry); // fire-and-forget
 }
 
+// ── Contador de tools por organización ───────────────────────────────────────
+// vera_session_audit.tool_calls salía VACÍO en todas las sesiones de dashboard,
+// aunque el log mostrara ~16 tools por sesión: Vera las llama por MCP desde el
+// org-server y esas ejecuciones no pasaban por el contador local de la sesión.
+// Sin esto no había forma de distinguir una lectura investigada de una escrita
+// de memoria. El contador vive en proceso (barato, sin I/O) y las sesiones de
+// dashboard toman una foto antes y después; corren en serie por organización,
+// así que el delta le corresponde a la sesión que lo mide.
+const _toolTally = new Map(); // organizationId → Map<toolName, veces>
+
+function _tally(organizationId, toolName) {
+  if (!organizationId || organizationId === "-" || !toolName) return;
+  let porOrg = _toolTally.get(organizationId);
+  if (!porOrg) { porOrg = new Map(); _toolTally.set(organizationId, porOrg); }
+  porOrg.set(toolName, (porOrg.get(toolName) || 0) + 1);
+}
+
+/** Foto del acumulado de una organización. Pásasela luego a toolTallyDelta. */
+export function toolTallySnapshot(organizationId) {
+  return new Map(_toolTally.get(organizationId) || []);
+}
+
+/** Qué tools se ejecutaron desde la foto: [{ name, count }] ordenado por uso. */
+export function toolTallyDelta(organizationId, snapshot) {
+  const ahora = _toolTally.get(organizationId) || new Map();
+  const out = [];
+  for (const [name, count] of ahora) {
+    const antes = snapshot?.get(name) || 0;
+    if (count > antes) out.push({ name, count: count - antes });
+  }
+  return out.sort((a, b) => b.count - a.count);
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export const audit = {
@@ -92,6 +125,7 @@ export const audit = {
   },
 
   toolExecuted(ctx, toolName, durationMs) {
+    _tally(ctx?.organizationId || ctx?.org, toolName);
     log("tool_executed", ctx, { tool: toolName, ms: durationMs });
   },
 

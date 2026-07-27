@@ -21,7 +21,6 @@
 import { supabase } from "../lib/supabase.js";
 import { randomUUID } from "node:crypto";
 import { renderAutonomousToolList } from "../lib/tool-catalog.js";
-import { listActiveStrategiesWithState } from "./strategy-orchestrator.service.js";
 
 const FEED_WINDOW_HOURS = parseInt(process.env.VERA_FEED_WINDOW_HOURS || "3", 10);
 const FEED_MAX_ITEMS_PER_BUCKET = parseInt(process.env.VERA_FEED_MAX_ITEMS || "20", 10);
@@ -72,17 +71,9 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
     }
   }
 
-  // ── PATTERNS detectados en el ciclo (post_patterns) ──
-  const competitorPostIds = (competitorPosts || []).map(p => p.id);
-  let patterns = [];
-  if (competitorPostIds.length > 0) {
-    const { data: pp } = await supabase
-      .from("post_patterns")
-      .select("brand_post_id, tone, topic, format, mood, engagement_rate, tone_confidence")
-      .in("brand_post_id", competitorPostIds)
-      .order("engagement_rate", { ascending: false, nullsFirst: false });
-    patterns = pp || [];
-  }
+  // ── PATTERNS: el clasificador (post_patterns) fue retirado (2026-07). ──
+  // Vera ya no consume tono/tema/mood; patterns_detected queda vacio.
+  const patterns = [];
 
   // ── INTELLIGENCE SIGNALS — señales tipificadas (threat, opportunity, etc.) ──
   const { data: signals } = await supabase
@@ -121,13 +112,13 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
     .order("measured_at", { ascending: false })
     .limit(15);
 
-  // ── BRAND CONTENT ANALYSIS — tono/pilar narrativo de posts del ciclo ──
-  const { data: contentAnalysis } = competitorPostIds.length > 0
-    ? await supabase
-        .from("brand_content_analysis")
-        .select("brand_post_id, tone_detected, dominant_emotion, narrative_pillar, fatigue_risk, clarity_score")
-        .in("brand_post_id", competitorPostIds)
-    : { data: [] };
+  // ── BRAND CONTENT ANALYSIS — retirado con el clasificador (2026-07). ──
+  // Al retirarlo se borró la línea que definía competitorPostIds pero quedó el
+  // uso: compileFeed lanzaba ReferenceError SIEMPRE, y con él moría entera la
+  // sesión que alimenta Competencia / Tendencias / Estrategia — antes incluso de
+  // hablarle a Vera. Era la causa raíz de que esos tres tabs llevaran días
+  // congelados. Se elimina el bloque, igual que se hizo con patterns_detected:
+  // tono/emoción/pilar salían del clasificador y ya se descartaron por erróneos.
 
   // ── THREATS / VULNERABILITIES ──
   const { data: vulnerabilities } = await supabase
@@ -160,8 +151,8 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
     .order("created_at", { ascending: false })
     .limit(40);
 
-  // ── ESTRATEGIAS EN CURSO (F2 orquestacion): Vera avanza cada una ──
-  const activeStrategies = await listActiveStrategiesWithState(brandContainerId).catch(() => []);
+  // ── ESTRATEGIAS EN CURSO: orquestador eliminado (analisis downstream retirado) ──
+  const activeStrategies = [];
 
   // ── PLATFORM HEALTH — salud por red de MI MARCA (de las INTEGRACIONES, no Apify) ──
   // Ventana 30d para una vista estable de cada red conectada. No bloqueante:
@@ -275,7 +266,6 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
         mood:            pp.mood,
         engagement_rate: pp.engagement_rate,
       })),
-      content_analysis: (contentAnalysis || []).slice(0, FEED_MAX_ITEMS_PER_BUCKET),
     },
 
     trend_signals: {
@@ -675,14 +665,14 @@ El **rango** modula el aprendizaje: internacional = playbook para publico genera
 - Humildad operativa: ¿que NO estoy viendo? Asume que hay algo y buscalo antes de que el mercado lo encuentre.
 - ¿Esto suena a ESTA marca, o lo firmaria cualquier competidor del nicho? Si es generico: reescribe o no lo emitas.
 - Salvaguarda factual: la intuicion audaz es bienvenida, pero marcala como HIPOTESIS — nunca la afirmes como dato. Un signal inventado es violacion directa.
-- ¿Repito algo que ya no funciono? Antes de proponer algo similar revisa "Lecciones medidas" arriba + getBodyMissions, y consulta que rinde DE VERDAD con getEstrategiaTones / getEstrategiaTopics / getEstrategiaPlatforms (params:{postSource:"brand", windowDays:90}).
+- ¿Repito algo que ya no funciono? Antes de proponer algo similar revisa "Lecciones medidas" arriba + getBodyMissions, y consulta que rinde DE VERDAD con getEstrategiaPlatforms (params:{postSource:"brand", windowDays:90}).
 Emite SOLO lo que pase esta autocritica. Si nada pasa, 0 acciones es la respuesta correcta.
 
 **ORQUESTACION DE ESTRATEGIAS (tu trabajo de project manager — avanza cada estrategia EN CURSO segun su estado y tu autonomia "${autonomyLevel}"):**
 - **planificada** (brief listo, 0 producciones) -> PRODUCE: elige un content_flow apropiado (getAvailableFlows) y disparalo con triggerFlow INCLUYENDO en inputs brief_id y campaign_id y persona_id de la estrategia (asi la produccion nace enlazada a su estrategia). En autonomia parcial/total hazlo tu; en restringido propon con proposePendingAction.
 - **produciendo** -> espera, NO re-dispares el mismo flow.
 - **lista_publicar** (producciones listas, sin publicar) -> NOTIFICA con createNotification que la estrategia ya genero contenido y esta LISTA PARA PUBLICAR. NO publiques tu: la publicacion la hace el humano manualmente desde el canvas (boton Publicar en cada produccion). Vera NUNCA postea en redes por si misma.
-- **en_vivo / midiendo** -> mide vs plan (getEstrategiaTones/Topics/Platforms) y notifica hallazgos con createNotification.
+- **en_vivo / midiendo** -> mide vs plan (getEstrategiaPlatforms) y notifica hallazgos con createNotification.
 Respeta SIEMPRE tu nivel de autonomia: no produzcas ni publiques fuera de lo permitido.
 
 **INICIA TU EL DIALOGO (no esperes a que te escriban):** tienes libertad para abrir una conversacion con cualquier miembro de la org cuando algo lo amerite — explicar una jugada grande que ejecutaste, plantear una decision que quieres conversar, pedir un dato que solo un humano tiene, o simplemente rendir cuentas de lo que hiciste y por que. Usa **initiateConversation(topic, opening_message, reason)** (opcional audience_role para dirigirla a un rol; por defecto va a la org). Es para lo que merece dialogo, no para cada micro-accion (esa se cuenta con createNotification). Habla como Vera: directa, con la evidencia, en primera persona.
@@ -777,6 +767,7 @@ const AUTONOMOUS_TOOLS = new Set([
   "getBrandHealthMetrics", "getIntelligenceSignals", "searchIntelligence",
   "getProducts", "getCampaigns", "getAudiences",
   "getBodyMissions", "getPendingBriefs", "getPendingActions",
+  "getOpenMissions",   // misiones pendientes de estrategias en curso → RETOMAR
   "getMonitoringTargets", "getMonitoringTriggers", "getScraperStatus", "getScraperHealth",
   "getFlows", "getAvailableFlows", "getFlowRuns",
   "getBrainFeed",
@@ -790,7 +781,10 @@ const AUTONOMOUS_TOOLS = new Set([
   // chat, para que el ciclo autonomo no queme tokens sin que un humano lo pida.
   // "Que funciona" — rendimiento por tono/tema/plataforma (post_patterns).
   // Alimenta la Capa 6 (Aprendizaje): Vera consulta que performa antes de decidir.
-  "getEstrategiaTones", "getEstrategiaTopics", "getEstrategiaPlatforms",
+  "getEstrategiaPlatforms",
+  // Sincronia con el mundo real: festivos + eventos internacionales del mercado.
+  // Vera ancla propuestas al calendario REAL en vez de inventar efemerides.
+  "getUpcomingDates",
   // Escritura conceptual (consent=true pero cycle-pulse va en consentMode=auto)
   "updateBrandDNA", "updateBrandContainer",
   "updateProduct", "upsertProduct",
@@ -807,6 +801,8 @@ const AUTONOMOUS_TOOLS = new Set([
   "createNotification", "createOrgNotification",
   "proposeStrategicRecommendation",
   "proposePendingAction",
+  // Misiones: registrar/avanzar los pasos de una estrategia (retomables entre sesiones)
+  "logMission", "completeMission",
   // Vera inicia el dialogo: abre hilos con humanos de la org sin esperar a que le escriban
   "initiateConversation",
   // Command Center / canvas de estrategia
@@ -822,6 +818,7 @@ const WRITE_TOOLS = new Set([
   "generateTrendBrief",
   "triggerDeepScrape", "createDefensiveWatch",
   "triggerFlow", "triggerFlowRun", "pauseFlow",
+  "logMission", "completeMission",   // registrar/avanzar pasos de estrategia (mutan → restringido no ejecuta)
 ]);
 
 // JUGADAS NOTABLES: cuando Vera EJECUTA una de estas (crear/actualizar audiencia,

@@ -41,9 +41,17 @@ export async function getAudiences(brandContainerId, organizationId) {
   const bc = await resolveBrandContainer(brandContainerId, organizationId);
 
   // audience_personas apunta directo a brand_container_id (sin tabla brands intermedia).
+  // real_age_distribution / real_gender_distribution los escribe el sensor
+  // meta_audience_demographics y son el ÚNICO origen de la card "audiencia"
+  // (mapa + pirámide) del dashboard. Sin ellas Vera pedía el dato, no lo veía y
+  // omitía la card — obedeciendo bien el prompt sobre una plataforma que la
+  // dejaba ciega. No se omiten aunque vengan vacías: que Vera sepa que no hay.
   const { data, error } = await supabase
     .from("audience_personas")
-    .select("id, name, description, awareness_level, dolores, deseos, estilo_lenguaje")
+    .select(
+      "id, name, description, awareness_level, dolores, deseos, estilo_lenguaje, " +
+      "real_age_distribution, real_gender_distribution"
+    )
     .eq("brand_container_id", bc.id);
 
   if (error) throw error;

@@ -33,6 +33,7 @@ import * as integrationDataTools from "../tools/integration-data.tools.js";
 import * as webTools from "../tools/web.tools.js";
 import * as missionTools from "../tools/missions.tools.js";
 import * as artifactTools from "../tools/artifact.tools.js";
+import { renderToolGroup } from "../lib/tool-catalog.js";
 import { validateToolCall } from "../lib/tool-call.validator.js";
 import { captureSynthError } from "../lib/synth-error-capture.js";
 import { checkPolicy, getActionCreditCost } from "../lib/policy.engine.js";
@@ -57,6 +58,15 @@ function withTimeout(promise, ms, toolName) {
 // ── Registro de herramientas ──────────────────────────────────────────────────
 
 const TOOL_REGISTRY = {
+  // Progressive tool disclosure: Vera descubre las tools de una categoria on-demand.
+  listToolsFor: {
+    fn: (sp) => {
+      const p = sp || {};
+      const group = (p.params && (p.params.group || p.params.category)) || p.group || p.category || "";
+      return { text: renderToolGroup(String(group), p.allowedTools || []) };
+    },
+    requiresConsent: false,
+  },
   getCatalogDiagnosis: { fn: ({ organizationId }) => integrationDataTools.getCatalogDiagnosis(null, organizationId), requiresConsent: false },
   getLiveProducts:    { fn: ({ organizationId, ...p }) => integrationDataTools.getLiveProducts(null, organizationId, p), requiresConsent: false },
   getLivePosts:       { fn: ({ organizationId, ...p }) => integrationDataTools.getLivePosts(null, organizationId, p), requiresConsent: false },
@@ -132,6 +142,10 @@ const TOOL_REGISTRY = {
   },
   getContentIntelligence: {
     fn: ({ brandContainerId, organizationId, source, limit }) => dashboardTools.getContentIntelligence({ brandContainerId, organizationId, source, limit }),
+    requiresConsent: false,
+  },
+  getUpcomingDates: {
+    fn: ({ organizationId, lookaheadDays, limit }) => dashboardTools.getUpcomingDates({ organizationId, lookaheadDays, limit }),
     requiresConsent: false,
   },
   getCampaignDetail: {
@@ -226,6 +240,14 @@ const TOOL_REGISTRY = {
   getInstagramPosts: {
     fn: ({ organizationId, limit }) =>
       socialTools.getInstagramPosts({ brandContainerId: null, organizationId, limit }),
+    requiresConsent: false,
+  },
+  // Existía en social.tools.js desde hacía meses pero no estaba registrada en
+  // ningún lado: 0 apariciones en dispatcher, catálogo, fases y MCP. Es la
+  // fuente en vivo de la card "audiencia" (mapa + pirámide).
+  getMetaAudienceDemographics: {
+    fn: ({ organizationId }) =>
+      socialTools.getMetaAudienceDemographics({ brandContainerId: null, organizationId }),
     requiresConsent: false,
   },
   getGoogleAnalytics: {
@@ -908,7 +930,7 @@ export async function dispatchTool(toolName, params, secCtx) {
   // NO se inyectaba en el chat → las tools caian a resolveBrandContainer = la
   // marca mas antigua, operando sobre la marca equivocada en orgs multi-marca.
   // El cycle-pulse ya lo inyectaba; ahora ambos caminos son consistentes.
-  const safeParams = { ...params, organizationId, userId };
+  const safeParams = { ...params, organizationId, userId, allowedTools };
   if (brandContainerId && !safeParams.brandContainerId && !safeParams.brand_container_id) {
     safeParams.brandContainerId = brandContainerId;
   }

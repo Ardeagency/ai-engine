@@ -32,6 +32,7 @@ import { supabase } from "../lib/supabase.js";
 import { callOpenClaw } from "./openclaw.adapter.js";
 import { dispatchTool, AVAILABLE_TOOL_NAMES } from "./tool.dispatcher.js";
 import { compileFeed } from "./vera-brain-feed.service.js";
+import { toolTallySnapshot, toolTallyDelta } from "../lib/audit-logger.js";
 import {
   scopeReadingSchema,
   READING_SCHEMA_VERSION,
@@ -42,13 +43,21 @@ import {
   CARDS_SCHEMA_VERSION,
 } from "../lib/vera-cards.schema.js";
 import {
-  validateMiMarcaCards,
+  mimarcaCardsSchema,
   MIMARCA_SCHEMA_VERSION,
 } from "../lib/vera-mimarca-cards.schema.js";
 
 // ── Límites ──────────────────────────────────────────────────────────────────
 const MAX_ATTEMPTS_PER_SCOPE = Number(process.env.VERA_DASH_SCOPE_ATTEMPTS || 2);
-const MAX_MARKER_ROUNDS = 2;            // rondas de [[TOOL:...]] por llamada (fallback)
+// Rondas de conversación por scope. Antes eran 2 (con un cap de "máximo 4-5
+// tools" en el prompt): Vera tenía que escribir la lectura de un tab entero casi
+// a ciegas. Ahora investiga con el mismo ritmo de Mi Marca — investigar hasta
+// decir "LISTO PARA ESCRIBIR", después escribir. Es un runaway-stop de infra,
+// no un límite creativo; la ventana real la fija OPENCLAW_TIMEOUT_MS (10 min).
+const MAX_SCOPE_ROUNDS = Number(process.env.VERA_DASH_MAX_ROUNDS || 30);
+// Los 3 scopes narrative que alimentan Competencia / Tendencias / Estrategia.
+// 'mi_marca' NO va aquí: tiene productor dedicado cards.v2 (runMiMarcaCards).
+const NARRATIVE_SCOPES = ["monitoreo", "tendencias", "estrategia"];
 const TOOL_RESULT_SLICE = 6000;
 const FEED_MAX_AGE_H = Number(process.env.VERA_DASH_FEED_MAX_AGE_H || 24);
 
@@ -76,6 +85,7 @@ const DASHBOARD_READING_TOOLS_RAW = [
   // CAMPAÑAS PAGAS + ANALYTICS DE PLATAFORMA
   "getCampaigns", "getCampaignDetail", "getLiveAdsMetrics",
   "getMetaPageInsights", "getMetaPosts", "getInstagramInsights", "getInstagramPosts",
+  "getMetaAudienceDemographics", // fuente de la card audiencia (mapa + pirámide)
   "getGoogleAnalytics", "getSocialSummary",
   // RETAIL / catálogo (MercadoLibre)
   "getCatalogDiagnosis", "getRetailPrices", "getLiveProducts", "getLivePosts",
@@ -116,6 +126,110 @@ export function resolveDashboardTools() {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function _sliceTxt(s, n) {
   return String(s || "").replace(/\s+/g, " ").slice(0, n);
+}
+
+// Une lo que ejecutó ai-engine por marcadores con lo que Vera ejecutó por MCP.
+function _toolCallsAudit(organizationId, marcadores, tallyAntes) {
+  const viaMcp = toolTallyDelta(organizationId, tallyAntes)
+    .map((t) => ({ name: t.name, via: "mcp", count: t.count }));
+  return [...(marcadores || []).map((m) => ({ ...m, via: m.via || "marcador" })), ...viaMcp];
+}
+
+// ── Normalizador anti-desperdicio ───────────────────────────────────────────
+// Una sesión de investigación entera se perdía por detalles de forma que se
+// arreglan solos: un rationale de 161 caracteres tumbó una entrega de $0.18 el
+// 24-jul. El juicio de Vera es lo caro; el recorte no vale una llamada más.
+// Se apoya en los issues de zod (v4) en vez de en una lista de límites a mano,
+// así que sigue funcionando cuando el schema cambie.
+function _setAtPath(root, path, value) {
+  if (!path.length) return false;
+  let node = root;
+  for (const key of path.slice(0, -1)) {
+    if (node == null || typeof node !== "object") return false;
+    node = node[key];
+  }
+  if (node == null || typeof node !== "object") return false;
+  node[path[path.length - 1]] = value;
+  return true;
+}
+
+function _getAtPath(root, path) {
+  let node = root;
+  for (const key of path) {
+    if (node == null || typeof node !== "object") return undefined;
+    node = node[key];
+  }
+  return node;
+}
+
+/**
+ * Repara lo reparable y devuelve el resultado de zod. Solo toca defectos de
+ * FORMA (largo, tipo escalar); jamás inventa ni completa contenido: si falta
+ * una card obligatoria o una evidencia, tiene que fallar y reintentar.
+ */
+function _healAgainstSchema(schema, raw, { maxPasses = 3 } = {}) {
+  // Copia propia: el saneo muta, y el objeto original se sigue usando para log.
+  const value = raw && typeof raw === "object" ? JSON.parse(JSON.stringify(raw)) : raw;
+  const healed = [];
+  for (let pass = 0; pass <= maxPasses; pass++) {
+    const res = schema.safeParse(value);
+    if (res.success) return { ok: true, value: res.data, healed };
+    if (pass === maxPasses) {
+      return {
+        ok: false,
+        healed,
+        errors: res.error.issues.slice(0, 6).map((i) => `${i.path.join(".")}: ${i.message}`),
+      };
+    }
+
+    let touched = false;
+    for (const issue of res.error.issues) {
+      const path = issue.path || [];
+      const current = _getAtPath(value, path);
+      // String demasiado largo → recortar en palabra, sin puntos suspensivos
+      // (el texto ya venía cerrado; un "..." lo haría parecer truncado a medias).
+      if (issue.code === "too_big" && (issue.origin === "string" || issue.type === "string") && typeof current === "string") {
+        const max = Number(issue.maximum);
+        if (Number.isFinite(max) && max > 0) {
+          let cut = current.slice(0, max).trimEnd();
+          const lastSpace = cut.lastIndexOf(" ");
+          if (lastSpace > max * 0.6) cut = cut.slice(0, lastSpace).trimEnd();
+          cut = cut.replace(/[,;:—-]$/, "").trimEnd();
+          touched = _setAtPath(value, path, cut) || touched;
+        }
+        continue;
+      }
+      // Array demasiado largo → quedarse con los primeros (el orden ya es el
+      // suyo: lo que puso primero es lo que más le importa).
+      if (issue.code === "too_big" && Array.isArray(current)) {
+        const max = Number(issue.maximum);
+        if (Number.isFinite(max) && max >= 0) {
+          touched = _setAtPath(value, path, current.slice(0, max)) || touched;
+        }
+        continue;
+      }
+      // Escalar con el tipo equivocado (número donde se espera string, y al revés).
+      if (issue.code === "invalid_type") {
+        if (issue.expected === "string" && (typeof current === "number" || typeof current === "boolean")) {
+          touched = _setAtPath(value, path, String(current)) || touched;
+          continue;
+        }
+        if (issue.expected === "number" && typeof current === "string" && current.trim() !== "" && Number.isFinite(Number(current))) {
+          touched = _setAtPath(value, path, Number(current)) || touched;
+          continue;
+        }
+      }
+    }
+    if (!touched) {
+      return {
+        ok: false,
+        healed,
+        errors: res.error.issues.slice(0, 6).map((i) => `${i.path.join(".")}: ${i.message}`),
+      };
+    }
+    healed.push(...res.error.issues.map((i) => i.path.join(".")));
+  }
+  return { ok: false, healed, errors: ["no se pudo normalizar"] };
 }
 
 function _compactCycleSummary(feed) {
@@ -188,9 +302,17 @@ const SCOPE_GUIDE = {
   },
 };
 
-// ── Prompt por sección (compacto: cabe en la ventana de ~300s del org-server) ─
+// ── Prompt por sección ──────────────────────────────────────────────────────
+// UN prompt POR TAB, no uno solo con los apartados de los demás. Hasta el
+// 2026-07-27 los tres scopes recibían íntegras las instrucciones de
+// perfil_analisis / observacion_perfil / audiencia_competidor —que solo aplican
+// a Competencia—, así que en Tendencias y Estrategia más de la mitad del prompt
+// era ruido que no aplicaba. Y el cap de "máximo 4-5 tools en ~4 min" le pedía
+// el trabajo de veinte tools con presupuesto de cuatro: por eso esos tabs salían
+// genéricos. Ahora investiga con el mismo ritmo de dos fases que Mi Marca.
 function _buildScopePrompt({ brand, scope, cycleSummary, feedId, previousReading, attemptNote }) {
   const g = SCOPE_GUIDE[scope];
+  const esCompetencia = scope === "monitoreo";
   const prev = previousReading
     ? `Tu lectura anterior de esta sección (NO la repitas; si algo cambió, usa un bloque delta): "${_sliceTxt(previousReading.headline, 110)}" (${(previousReading.created_at || "").slice(0, 10)})`
     : "Sin lectura previa de esta sección.";
@@ -200,7 +322,20 @@ function _buildScopePrompt({ brand, scope, cycleSummary, feedId, previousReading
 ⛔ CONTRATO (antes que nada — esto NO es un chat):
 - Tu ÚNICA salida válida: UN bloque [[READING_JSON]]{...}[[/READING_JSON]] con el JSON de ESTA sección.
 - PROHIBIDO: HTML, dashboards, artifacts, charts, [ACTIONS], prosa fuera del bloque. Eso descarta tu trabajo.
-- TIEMPO LIMITADO (~4 min): usa MÁXIMO 4-5 tools, decide rápido, y emite el JSON. Una respuesta larga o tardía se pierde VACÍA.
+
+RITMO (operativo, no creativo — para que investigues sin perder el trabajo):
+1) PRIMERO investiga con tus tools MCP ai-engine__* todo lo que necesites. SIN
+   límite de tools ni de tokens: cava hasta tener el juicio, no hasta llenar el
+   formato. Cuando termines, di SOLO "LISTO PARA ESCRIBIR" y para.
+2) En tu SIGUIENTE respuesta, con todo en contexto, emite el bloque
+   [[READING_JSON]] completo — sin tools, solo escritura.
+
+POR DÓNDE EMPEZAR (no te quedes en el dato crudo):
+- getContentIntelligence → el porqué del contenido orgánico: métricas reales, ratios y la causa detrás.
+- getPaidIntelligence → campañas: ROAS/CTR, anuncio eficiente, funnel, demografía.
+Esas dos traen ANÁLISIS, no filas de tabla — están hechas para esto y hoy no las
+usas. Arranca por ahí y profundiza después con lo que te falte (posts, competencia,
+tendencias, señales, outcomes, web...).
 
 MISIÓN: escribe la lectura de inteligencia de "${g.label}" para el dashboard de ${brand.nombre_marca}. No un resumen — lo que TÚ viste que nadie más está viendo. ${g.focus}
 
@@ -229,7 +364,7 @@ segundos. Orden OBLIGATORIO de narrative:
 3) 2-3 bloques de porqué (insight / triangulación / receipt / delta) — la
    profundidad para quien la quiera, no el plato principal.
 4) watchlist_item si aplica.
-5) SOLO EN COMPETENCIA — OBLIGATORIO: un bloque perfil_analisis POR CADA
+${!esCompetencia ? "" : `5) OBLIGATORIO: un bloque perfil_analisis POR CADA
    perfil monitoreado que hayas estudiado (competidores Y referentes). Es la
    tabla "Que hace cada perfil" del dashboard: si no lo emites, sale vacia.
    - perfil: el nombre EXACTO como esta registrado, sin inventar variantes.
@@ -239,7 +374,7 @@ segundos. Orden OBLIGATORIO de narrative:
      suficiente para juzgarlo, OMITELO — una fila inventada envenena la tabla.
    - aprendizaje: concreto y accionable para ESTA marca. De un competidor,
      por donde rebasarlo; de un referente, que codigo adaptar.
-6) SOLO EN COMPETENCIA: bloques observacion_perfil — la card "Observaciones".
+6) bloques observacion_perfil — la card "Observaciones".
    - VARIAS POR PERFIL si hay varias cosas que decir: de un perfil puedes
      escribir 1 o 5. No te limites a una por cortesia de reparto.
    - Es lo que PASO ahora (movio, se callo, cambio de formato, gano/perdio),
@@ -253,7 +388,7 @@ segundos. Orden OBLIGATORIO de narrative:
      prioridad alta, nada lo es.
    - Si de un perfil no paso nada digno de mencion, NO lo incluyas. Una
      observacion de relleno ("sigue publicando contenido") no vale nada.
-7) SOLO EN COMPETENCIA: bloques audiencia_competidor — el carrusel "Audiencias".
+7) bloques audiencia_competidor — el carrusel "Audiencias".
    A QUIEN esta pescando cada competidor, leido de sus posts y sobre todo de
    sus COMENTARIOS (quien responde, que pide, con que se identifica).
    - NOMBRALA COMO A UN GRUPO DE GENTE, en 2-4 palabras: "Reposteros caseros",
@@ -269,7 +404,7 @@ segundos. Orden OBLIGATORIO de narrative:
      Si la inventas, la marca va a producir contenido para gente que no existe.
    - Si necesitas leer el hilo completo de comentarios de un post para
      entenderla, usa harvestPostComments — cuesta dinero, uselo cuando la
-     audiencia lo valga.
+     audiencia lo valga.`}
 
 FORMATO EXACTO de salida (SOLO esto):
 [[READING_JSON]]
@@ -282,10 +417,10 @@ FORMATO EXACTO de salida (SOLO esto):
     {"type":"signal_triangulation","signals":[{"observation":"...","source_ref":"ev1"},{"observation":"...","source_ref":"ev2"}],"so_what":"..."},
     {"type":"hypothesis","statement":"...","confidence":"alta|media|exploratoria","how_to_verify":"...","evidence":["ev1"]},
     {"type":"receipt","quote":"cita textual real ≤280","author_handle":"@...","platform":"instagram","engagement":123,"source_ref":"ev1"},
-    {"type":"audiencia_competidor","nombre":"como se llama a esa gente, <=60 chars","perfil":"<competidor que la pesca>","descripcion":"quien es y por que muerde ese anzuelo, <=200 chars","dolores":["<=4"],"deseos":["<=4"],"gancho":"el hilo con el que la pesca, <=90 chars","evidence":["ev1"]},
+${!esCompetencia ? "" : `    {"type":"audiencia_competidor","nombre":"como se llama a esa gente, <=60 chars","perfil":"<competidor que la pesca>","descripcion":"quien es y por que muerde ese anzuelo, <=200 chars","dolores":["<=4"],"deseos":["<=4"],"gancho":"el hilo con el que la pesca, <=90 chars","evidence":["ev1"]},
     {"type":"observacion_perfil","perfil":"<nombre EXACTO>","rol":"competidor_directo|competidor_indirecto|referente|aliado","titulo":"el hallazgo en <=60 chars","observacion":"que viste y QUE IMPLICA para la marca, <=240 chars","severidad":"opportunity|warning|threat|neutral","prioridad":"alta|media|baja","evidence":["ev1"]},
     {"type":"perfil_analisis","perfil":"<nombre EXACTO del perfil>","rol":"competidor_directo|competidor_indirecto|referente|aliado","plataformas":["tiktok","instagram"],"temas":["≤4 temas de los que habla"],"tono":"su voz en ≤60 chars","formatos":["reel receta","carousel"],"aprendizaje":"que se lleva ESTA marca de ese perfil, ≤160 chars","evidence":["ev1"]},
-    {"type":"watchlist_item","what":"...","why_watching":"...","check_back":"YYYY-MM-DD"},
+`}    {"type":"watchlist_item","what":"...","why_watching":"...","check_back":"YYYY-MM-DD"},
     {"type":"delta","changed":"...","direction":"up|down|new|gone"}
   ],
   "evidence": {"ev1":{"kind":"post","post_id":"<uuid real>"}, "ev2":{"kind":"trend","trend_topic_id":"<uuid real>"}},
@@ -294,7 +429,7 @@ FORMATO EXACTO de salida (SOLO esto):
 [[/READING_JSON]]
 (kinds de evidencia: post{post_id} comment{post_id} trend{trend_topic_id} signal{signal_id} web{url,title} metric{tool,note})
 ${attemptNote || ""}
-Procede: tools (máx 4-5) → JSON. Nada más.`;
+Procede: investiga → "LISTO PARA ESCRIBIR" → el bloque JSON. Nada más.`;
 }
 
 // ── Extracción robusta del JSON ─────────────────────────────────────────────
@@ -526,6 +661,11 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
   });
 
   const auditToolCalls = [];
+  // Las tools que Vera llama por MCP desde el org-server NO pasan por
+  // auditToolCalls (ese solo ve los marcadores [[TOOL:]], que casi no usa).
+  // El tally del audit-logger sí las ve: sin esto tool_calls salía vacío y
+  // no había cómo saber si la lectura se investigó o se escribió de memoria.
+  const tallyAntes = toolTallySnapshot(brand.organization_id);
   let inputChars = 0, outputChars = 0, iterations = 0;
 
   const secCtx = {
@@ -552,7 +692,7 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
       .from("vera_session_audit")
       .update({
         status,
-        tool_calls: auditToolCalls,
+        tool_calls: _toolCallsAudit(brand.organization_id, auditToolCalls, tallyAntes),
         iterations,
         input_chars: inputChars,
         output_chars: outputChars,
@@ -584,13 +724,18 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
         });
         let toolResults = [];
 
-        // Rondas de marcadores [[TOOL:...]] (fallback — MCP hace el grueso)
-        for (let round = 0; round <= MAX_MARKER_ROUNDS; round++) {
+        // Rondas de conversación: Vera investiga con MCP (y con marcadores
+        // [[TOOL:...]] como fallback) hasta decir "LISTO PARA ESCRIBIR", y solo
+        // entonces redacta. El reintento NO cambia de sesión en el org-server
+        // (el sessionId ya no lleva el número de intento): así conserva todo lo
+        // que investigó y corrige de verdad, en vez de empezar de cero contra un
+        // "corrige exactamente esto" que no puede cumplir sin contexto.
+        for (let round = 0; round <= MAX_SCOPE_ROUNDS; round++) {
           const resp = await callOpenClaw({
             message,
             attachments: [],
             viewModel,
-            sessionId: `${brand.organization_id}:vera-dash:${sessionId}:${scope}:${attempt}`,
+            sessionId: `${brand.organization_id}:vera-dash:${sessionId}:${scope}`,
             toolResults: toolResults.length ? toolResults : null,
             serializedBrandData: null,
             recentHistory: [],
@@ -601,7 +746,7 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
           if (resp.agent_failed) { failures[scope] = "org-server no respondió"; break; }
 
           const markerCalls = resp.tool_calls || [];
-          if (markerCalls.length && round < MAX_MARKER_ROUNDS) {
+          if (markerCalls.length && round < MAX_SCOPE_ROUNDS) {
             const roundResults = [];
             for (const tc of markerCalls.slice(0, 6)) {
               const t0 = Date.now();
@@ -619,31 +764,47 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
               }
             }
             toolResults = [...toolResults, ...roundResults];
-            message = "Resultados de tus tools arriba. Emite YA el bloque [[READING_JSON]] de esta sección.";
+            message = "Resultados de tus tools arriba. Sigue investigando lo que te falte, o di \"LISTO PARA ESCRIBIR\" cuando tengas el juicio.";
             continue;
           }
 
           const parsed = _extractScopeJson(resp.text || "");
           if (!parsed) {
+            // Fase de investigación cerrada: pasa a redactar con todo en contexto.
+            if (/LISTO PARA ESCRIBIR/i.test(resp.text || "")) {
+              toolResults = [];
+              message = `Perfecto. Ahora, con todo lo que investigaste en contexto, emite la lectura completa de ${SCOPE_GUIDE[scope]?.label || scope} en el bloque [[READING_JSON]]...[[/READING_JSON]]. Solo escritura, sin tools.`;
+              continue;
+            }
             failures[scope] = resp.text ? "salida sin JSON (otro formato)" : "respuesta vacía (¿excedió la ventana de tiempo?)";
+            // Una respuesta sin sobre no tira la sesión: se le pide el bloque y
+            // se sigue. Antes cortaba en seco y perdía toda la investigación.
+            if (round < MAX_SCOPE_ROUNDS) {
+              toolResults = [];
+              message = "No encontré el bloque [[READING_JSON]]...[[/READING_JSON]]. Si ya investigaste, entrégalo ahora — solo ese bloque, nada más.";
+              continue;
+            }
             break;
           }
-          const val = scopeReadingSchema.safeParse(parsed);
-          if (!val.success) {
-            failures[scope] = "zod: " + val.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`).join(" | ");
+          const val = _healAgainstSchema(scopeReadingSchema, parsed);
+          if (!val.ok) {
+            failures[scope] = "zod: " + val.errors.join(" | ");
             break;
+          }
+          if (val.healed.length) {
+            console.log(`vera-dashboard-session [${sessionId}] ${scope}: normalizados ${val.healed.length} campos de forma (${[...new Set(val.healed)].slice(0, 5).join(", ")})`);
           }
 
           // Sección válida → persistir de una vez (progreso incremental)
           await _persistScopeReading({
-            brand, scope, reading: val.data, sessionId, feedId, model,
-            toolCallsCount: auditToolCalls.filter((t) => t.scope === scope).length,
+            brand, scope, reading: val.value, sessionId, feedId, model,
+            toolCallsCount: _toolCallsAudit(brand.organization_id, auditToolCalls.filter((t) => t.scope === scope), tallyAntes).length,
             costUsd: null, windowStart, windowEnd, trigger,
           });
-          results[scope] = val.data.headline;
+          results[scope] = val.value.headline;
           delete failures[scope];
           scopeDone = true;
-          console.log(`vera-dashboard-session [${sessionId}] ${scope} OK: ${val.data.headline}`);
+          console.log(`vera-dashboard-session [${sessionId}] ${scope} OK: ${val.value.headline}`);
           break;
         }
       }
@@ -692,6 +853,12 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
 const DIAG_SCOPE = process.env.VERA_DIAG_SCOPE || "diagnostico";
 const DIAG_MAX_ATTEMPTS = Number(process.env.VERA_DIAG_ATTEMPTS || 2);
 const DIAG_MAX_ROUNDS = Number(process.env.VERA_DIAG_MAX_ROUNDS || 40); // runaway-stop de infra, no límite creativo
+
+// La sesión cards.v3 se paga y NADIE la renderiza (ningún mixin del frontend
+// lee el scope 'diagnostico'). Apagada por defecto: encenderla sin un tab que
+// la pinte es gasto puro y le roba la ventana del org-server a las lecturas
+// que sí se ven. Cuando el frontend acepte v3, VERA_DIAG_V3_ENABLED=true.
+const DIAG_V3_ENABLED = String(process.env.VERA_DIAG_V3_ENABLED || "") === "true";
 
 // ── PROTOCOLO LIBERTAD v2: cards diseñadas, contenido libre ─────────────────
 // La estructura la diseñamos nosotros; el CONTENIDO lo llena VERA sin límites.
@@ -895,6 +1062,11 @@ export async function runBrandDiagnosis(brandContainerId, { trigger = "manual" }
   });
 
   const auditToolCalls = [];
+  // Las tools que Vera llama por MCP desde el org-server NO pasan por
+  // auditToolCalls (ese solo ve los marcadores [[TOOL:]], que casi no usa).
+  // El tally del audit-logger sí las ve: sin esto tool_calls salía vacío y
+  // no había cómo saber si la lectura se investigó o se escribió de memoria.
+  const tallyAntes = toolTallySnapshot(brand.organization_id);
   let inputChars = 0, outputChars = 0, rounds = 0, agentFailed = false;
   let cards = null, cardErrors = null;
 
@@ -917,7 +1089,7 @@ export async function runBrandDiagnosis(brandContainerId, { trigger = "manual" }
   const _finish = async (status, err = null) => {
     await supabase.from("vera_session_audit").update({
       status,
-      tool_calls: auditToolCalls,
+      tool_calls: _toolCallsAudit(brand.organization_id, auditToolCalls, tallyAntes),
       iterations: rounds,
       input_chars: inputChars,
       output_chars: outputChars,
@@ -1032,7 +1204,7 @@ export async function runBrandDiagnosis(brandContainerId, { trigger = "manual" }
       reading: cards, // {schema:"cards.v3", cards:[...]} — ya validado
 
       session_id: sessionId,
-      tool_calls_count: auditToolCalls.length,
+      tool_calls_count: _toolCallsAudit(brand.organization_id, auditToolCalls, tallyAntes).length,
       model: process.env.VERA_DASH_MODEL_LABEL || "openclaw-org-server",
       generation_cost_usd: _estimateCostUsd(inputChars, outputChars),
       trigger_kind: trigger,
@@ -1081,6 +1253,15 @@ ai-engine__* (posts, métricas, campañas, audiencias, productos, competencia,
 tendencias, señales, outcomes, web...). Si una tool no responde por MCP, pídela
 con [[TOOL:nombreExacto|param:valor]] en su propia línea. Sin límite de tokens.
 
+EMPIEZA POR AQUÍ (no te quedes en el dato crudo):
+- getContentIntelligence → el porqué del contenido orgánico: métricas reales,
+  ratios y la causa detrás del resultado.
+- getPaidIntelligence → campañas: ROAS/CTR, anuncio eficiente, funnel, demografía.
+- getPlatformHealth → cómo está cada plataforma de verdad, no cuántos posts hay.
+Esas traen ANÁLISIS, no filas de tabla — existen exactamente para esto. Después
+profundiza con lo que te falte. Y cuando cites un número, cita el que viste en
+la tool: un dato de memoria o "aproximado" es un dato inventado.
+
 ADN: arquetipo ${brand.arquetipo || "—"} | nicho ${_sliceTxt(brand.nicho_core, 60) || "—"} | prohibidas: ${(brand.palabras_prohibidas || []).slice(0, 8).join(", ") || "—"}
 
 LA REGLA QUE MANDA: cada tarjeta responde "¿y esto qué significa / qué hago?",
@@ -1090,9 +1271,15 @@ de KPIs en verde. Si tu texto lo firmaría cualquier marca del nicho, reescríbe
 
 LAS TARJETAS QUE DEBES LLENAR (las 5 primeras son OBLIGATORIAS):
 
-1) observacion — la lectura de cabecera: qué está pasando con la marca AHORA y
-   qué implica. Estratégica, no un resumen.
-   {"type":"observacion","title":"...","tone":"positive|neutral|warning|critical","markdown":"tu análisis, >=60 chars"}
+1) observacion — de 2 a 6 OBSERVACIONES sueltas: lo más destacado de la marca
+   en este periodo. Cada una es un hallazgo con su lectura, del mismo corte que
+   las que escribes en Competencia — pero sobre TU marca, no sobre un perfil.
+   Cada observación: qué viste y QUÉ IMPLICA. Nada de resumen de cabecera.
+   {"type":"observacion","items":[{"donde":"Instagram|Facebook|TikTok|el catálogo|la marca","titulo":"el hallazgo en <=70 chars","observacion":"qué viste y qué implica, <=280 chars","severidad":"opportunity|threat|warning|neutral","prioridad":"alta|media|baja"}]}
+   PROHIBIDO en esta card: 'blocks', tablas y gráficos. Si un número sostiene la
+   observación va DENTRO de la frase que lo interpreta ("el anuncio en Farmacias
+   Pasteur generó 25 interacciones: un hito de categoría que nadie vio"), nunca
+   como tabla aparte. Una tabla de cifras no es una observación.
 
 2) virtudes — el INGREDIENTE que POTENCIA el contenido de la marca. No una
    métrica en verde: el gesto/formato/decisión creativa CONCRETA que causa el
@@ -1119,9 +1306,13 @@ LAS TARJETAS QUE DEBES LLENAR (las 5 primeras son OBLIGATORIAS):
    hornean con sus hijos"), NO por demografía. Mínimo 2.
    {"type":"audiencias_recomendadas","items":[{"id":"aud_reposteros","name":"Reposteros caseros","priority":"alta|media|baja","rationale":"por qué le conviene, <=160","interests":["<=6 temas"]}]}
 
-6) audiencia — OPCIONAL, solo si tienes datos demográficos REALES. Quién te
-   sigue hoy: geografía + edad/género, con tu comentario. Si no tienes el dato,
-   OMÍTELA (un mapa inventado es peor que su ausencia).
+6) audiencia — quién te sigue hoy: geografía + edad/género, con tu comentario.
+   DÓNDE ESTÁ EL DATO (búscalo antes de descartar la card):
+   - getMetaAudienceDemographics → edad, género, país y ciudad en vivo de Meta.
+   - getAudiences → real_age_distribution / real_gender_distribution, lo que ya
+     dejó guardado el sensor de demografía.
+   Solo si ninguna de las dos trae nada, OMÍTELA (un mapa inventado es peor que
+   su ausencia). Con el dato en mano, la card es obligatoria.
    {"type":"audiencia","title":"...","tone":"...","blocks":[
      {"type":"choropleth","data":[{"code":"CO","name":"Colombia","value":42},{"code":"MX","name":"México","value":18}]},
      {"type":"pyramid","groups":["18-24","25-34","35-44","45-54"],"male":[8,14,10,5],"female":[12,22,14,6]},
@@ -1134,6 +1325,12 @@ BLOQUES OPCIONALES en cualquier tarjeta (sustentan el juicio, no lo reemplazan):
   {"type":"chart","kind":"bar|line|donut|area","labels":[...],"series":[{"name":"...","values":[...]}],"format":"number|percent"}
   {"type":"table","columns":[...],"rows":[[...]]}
   {"type":"stat","value":"...","label":"..."}
+
+ETIQUETAS LEGIBLES — el cliente lee el eje sin tu explicación al lado. Cada
+label dice QUÉ es en su idioma: "Semana 1", "Lun-Mié", "Reels", "Sep 2026".
+PROHIBIDO "Bloque 1 / Bloque 2 / Bloque 3", "Serie A", "Grupo 1" y cualquier
+rótulo que solo signifique algo dentro de tu cabeza. Si no puedes nombrar el eje
+con las palabras del negocio, ese gráfico no va.
 
 'tone' siempre es "positive"|"neutral"|"warning"|"critical".
 
@@ -1192,6 +1389,11 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual" } =
   });
 
   const auditToolCalls = [];
+  // Las tools que Vera llama por MCP desde el org-server NO pasan por
+  // auditToolCalls (ese solo ve los marcadores [[TOOL:]], que casi no usa).
+  // El tally del audit-logger sí las ve: sin esto tool_calls salía vacío y
+  // no había cómo saber si la lectura se investigó o se escribió de memoria.
+  const tallyAntes = toolTallySnapshot(brand.organization_id);
   let inputChars = 0, outputChars = 0, rounds = 0, agentFailed = false;
   let cards = null, cardErrors = null;
 
@@ -1214,7 +1416,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual" } =
   const _finish = async (status, err = null) => {
     await supabase.from("vera_session_audit").update({
       status,
-      tool_calls: auditToolCalls,
+      tool_calls: _toolCallsAudit(brand.organization_id, auditToolCalls, tallyAntes),
       iterations: rounds,
       input_chars: inputChars,
       output_chars: outputChars,
@@ -1237,7 +1439,10 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual" } =
           message,
           attachments: [],
           viewModel,
-          sessionId: `${brand.organization_id}:vera-mimarca:${sessionId}:${attempt}`,
+          // Sin el número de intento: el reintento tiene que conservar TODO lo
+          // que Vera investigó. Antes abría sesión nueva y le llegaba un
+          // "corrige exactamente esto" sobre un trabajo que ya no recordaba.
+          sessionId: `${brand.organization_id}:vera-mimarca:${sessionId}`,
           toolResults: toolResults.length ? toolResults : null,
           serializedBrandData: null,
           recentHistory: [],
@@ -1277,10 +1482,18 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual" } =
         if (d?.final) {
           const joined = [...parts, d.final].join("\n");
           const parsedCards = _parseCardsJson(joined);
+          // Se normaliza antes de validar: los rechazos eran casi siempre de
+          // forma (un rationale de 161 chars tumbó la sesión del 24-jul), y
+          // reintentar cuesta otra investigación completa.
           const check = parsedCards
-            ? validateMiMarcaCards(parsedCards)
+            ? _healAgainstSchema(mimarcaCardsSchema, parsedCards)
             : { ok: false, errors: ["la entrega no era JSON parseable dentro del sobre"] };
-          if (check.ok) { cards = check.value; content = joined; cardErrors = null; break; }
+          if (check.ok) {
+            if (check.healed?.length) {
+              console.log(`vera-mimarca [${sessionId}]: normalizados ${check.healed.length} campos de forma (${[...new Set(check.healed)].slice(0, 5).join(", ")})`);
+            }
+            cards = check.value; content = joined; cardErrors = null; break;
+          }
           cardErrors = check.errors;
           console.warn(`vera-mimarca [${sessionId}] intento ${attempt} rechazado:`, check.errors.join(" | "));
           break; // siguiente intento lleva los errores exactos
@@ -1313,7 +1526,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual" } =
       schema_version: MIMARCA_SCHEMA_VERSION,
       reading: cards, // {schema:"cards.v2", cards:[...]} — ya validado
       session_id: sessionId,
-      tool_calls_count: auditToolCalls.length,
+      tool_calls_count: _toolCallsAudit(brand.organization_id, auditToolCalls, tallyAntes).length,
       model: process.env.VERA_DASH_MODEL_LABEL || "openclaw-org-server",
       generation_cost_usd: _estimateCostUsd(inputChars, outputChars),
       trigger_kind: trigger,
@@ -1402,12 +1615,20 @@ export function startDiagnosisScheduler() {
         const { data: brands } = await supabase
           .from("brand_containers").select("id").eq("organization_id", s.organization_id);
 
-        // Una marca due dispara DOS sesiones agénticas, corridas SECUENCIALMENTE
+        // Una marca due dispara las sesiones agénticas de forma SECUENCIAL
         // (nunca en paralelo: dos sesiones sobre el mismo org-server colisionan a
-        // vacío). Cada una lleva su propio scope, kind de auditoría y backoff:
-        //   1) Mi Marca cards.v2 → scope 'mi_marca' — es lo que el tab en vivo
-        //      renderiza (BrandGrid.mixin.js). PRIORIDAD.
-        //   2) Diagnóstico cards.v3 → scope 'diagnostico' — se deja como estaba.
+        // vacío). Cada una lleva su propio scope, kind de auditoría y backoff.
+        // Se corren en el orden en que el cliente las ve:
+        //   1) Mi Marca cards.v2 → scope 'mi_marca' (BrandGrid.mixin.js).
+        //   2) Competencia / Tendencias / Estrategia → narrative v1. Hasta el
+        //      2026-07-27 NADIE las producía: el scheduler solo corría 1) y 3),
+        //      así que esos tres tabs llevaban 5-11 días mostrando lecturas de
+        //      pruebas manuales. Ese era el bug más visible del dashboard.
+        //   3) Diagnóstico cards.v3 → scope 'diagnostico'. NINGÚN tab lo
+        //      renderiza (se verificó en el frontend: 0 consumidores del scope),
+        //      así que por defecto está APAGADO — encenderlo cuesta ~$0.10 por
+        //      marca y día y ocupa la ventana del org-server que necesitan las
+        //      lecturas que sí se ven. VERA_DIAG_V3_ENABLED=true lo reactiva.
         const _maybeRun = async (brandId, scope, kind, runner) => {
           if (await _scopeReadingAgeH(brandId, scope) < cadenceH) return;
           const pendingH = await _backoffPendingH(brandId, kind);
@@ -1419,9 +1640,29 @@ export function startDiagnosisScheduler() {
           await runner(brandId, { trigger: `auto_${plan}` });
         };
 
+        // Los 3 scopes narrative comparten sesión y kind de auditoría: se corre
+        // una sola vez con los que estén vencidos, no uno por tab.
+        const _maybeRunNarrative = async (brandId) => {
+          const ages = await Promise.all(
+            NARRATIVE_SCOPES.map(async (sc) => [sc, await _scopeReadingAgeH(brandId, sc)])
+          );
+          const due = ages.filter(([, ageH]) => ageH >= cadenceH).map(([sc]) => sc);
+          if (!due.length) return;
+          const pendingH = await _backoffPendingH(brandId, "dashboard_reading");
+          if (pendingH > 0) {
+            console.log(`vera-scheduler: dashboard_reading ${brandId} en backoff — reintento en ${pendingH.toFixed(1)}h`);
+            return;
+          }
+          console.log(`vera-scheduler: dashboard_reading ${brandId} (plan ${plan}) due [${due.join(", ")}] — activando a Vera`);
+          await runDashboardSession(brandId, { trigger: `auto_${plan}`, scopes: due });
+        };
+
         for (const b of brands || []) {
           await _maybeRun(b.id, "mi_marca", "brand_mimarca_cards", runMiMarcaCards);
-          await _maybeRun(b.id, DIAG_SCOPE, "brand_diagnosis", runBrandDiagnosis);
+          await _maybeRunNarrative(b.id);
+          if (DIAG_V3_ENABLED) {
+            await _maybeRun(b.id, DIAG_SCOPE, "brand_diagnosis", runBrandDiagnosis);
+          }
         }
       }
     } catch (e) {

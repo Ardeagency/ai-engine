@@ -12,6 +12,7 @@
  */
 
 export const PHASE_A_TOOLS = [
+  "listToolsFor",
   // Resumen org — disponible en todos los niveles
   "getOrgOverview",
   // Brand read — perfil básico
@@ -32,11 +33,9 @@ export const PHASE_A_TOOLS = [
   "getPlatformHealth",
   "getBrandActivityHistory",
   "getBrandEngagementTrend",
-  "getBrandSentimentActivity",
   "getBrandPostingHours",
   "getFeaturedProfile",
   "getFeaturedProfileDetails",
-  "getFeaturedTopic",
   "getFeaturedHashtag",
   "getFeaturedHour",
   "getFeaturedPlatform",
@@ -51,11 +50,9 @@ export const PHASE_A_TOOLS = [
   "getCompetenciaRisk",
   "getBrandVsCompetencia",
   "searchCompetidor",
-  "getEstrategiaTopics",
   "getEstrategiaHashtags",
-  "getEstrategiaTones",
   "getEstrategiaPlatforms",
-  "getEstrategiaSentimentsByBrand",
+  "getUpcomingDates",
 ];
 
 export const PHASE_B_TOOLS = [
@@ -98,7 +95,6 @@ export const PHASE_B_TOOLS = [
   "getScraperDashboard",
   "getScraperHealth",
   "getCompetitorAnalysis",
-  "getContentAnalysisSummary",
   // Scraper tools — WRITE (Vera ajusta y repara su monitoreo — herramientas internas)
   "updateMonitoringTrigger",
   "addIntelligenceEntity",
@@ -120,6 +116,7 @@ export const PHASE_B_TOOLS = [
   "getMetaPosts",
   "getInstagramInsights",
   "getInstagramPosts",
+  "getMetaAudienceDemographics",
   "getGoogleAnalytics",
   // Brand write — editar identidad, audiencias, productos, colores, tipografías, reglas
   "updateBrandProfile",

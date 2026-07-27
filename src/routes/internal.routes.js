@@ -41,6 +41,34 @@ router.get("/brand-scrape/status/:jobId", brandScrapeStatus);
 // ── Defaults tarball (para cloud-init de org-servers) ─────────────────────────
 router.get("/defaults.tar.gz", serveDefaultsTarball);
 
+// Sirve el codigo del puente para que un org-server lo refresque al despertar,
+// igual que ya hace con el MCP server. Sin esto, un servidor recreado desde
+// snapshot se queda con el puente que tenia el dia que se durmio.
+router.get("/openclaw-bridge.js", async (req, res) => {
+  if (String(req.headers["x-webhook-secret"] || "") !== String(process.env.INTERNAL_WEBHOOK_SECRET || "")) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  try {
+    const { buildBridgeCode } = await import("../services/hetzner.provisioner.js");
+    res.setHeader("Content-Type", "application/javascript");
+    res.send(buildBridgeCode());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Empuja las skills actuales a las Veras sanas, en caliente. Sin esto la
+// doctrina nueva solo llegaba recreando el servidor.
+router.post("/skills/sync", requireInternalKey, async (req, res) => {
+  try {
+    const { syncSkillsToAllOrgs } = await import("../services/skills-sync.service.js");
+    const r = await syncSkillsToAllOrgs();
+    res.json({ ok: true, ...r });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 // ── MCP server JS (descargado en wake/cloud-init para instalar el cliente MCP)
 router.get("/mcp-server.js", serveMcpServer);
 

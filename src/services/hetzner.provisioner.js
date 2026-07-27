@@ -112,21 +112,14 @@ export function deriveAgentId(organizationId) {
 
 // ── Cloud-init template ───────────────────────────────────────────────────────
 
-function _generateCloudInitScript({
-  orgId, orgName, orgToken, agentId, serverName,
-  anthropicApiKey, openaiApiKey, openclawGatewayToken,
-  callbackUrl, webhookSecret, model,
-  supabaseUrl, supabaseServiceKey, anthropicProxyPort = 8788,
-  userMdContent = null,
-}) {
-  const safeName = String(orgName || orgId)
-    .replace(/[<>"'`\\]/g, "")
-    .replace(/[\x00-\x1f]/g, "")
-    .trim()
-    .slice(0, 120) || orgId;
-
-  // Bridge code — se inyecta via write_files (base64) para evitar romper el parser YAML
-  const bridgeCode = `import { execFile } from 'node:child_process';
+/**
+ * Codigo del puente HTTP que corre en cada org-server. Es IDENTICO para todas
+ * las organizaciones (lo que cambia va por env), asi que se sirve tambien por
+ * HTTP para poder refrescarlo sin recrear el servidor — el mismo patron que ya
+ * se usa con el MCP server.
+ */
+export function buildBridgeCode() {
+  return `import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import http from 'node:http';
 import { writeFile } from 'node:fs/promises';
@@ -199,12 +192,66 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── Refresco de skills en caliente ────────────────────────────────────────
+  // Sin esto, las skills solo llegan al aprovisionar: cualquier doctrina escrita
+  // despues se queda en el control plane y la Vera de esta org nunca la ve.
+  // Recrear el servidor por cada cambio de skill es carisimo con 10 Veras, asi
+  // que el control plane empuja el tarball aqui y esto lo instala en caliente.
+  // El tarball viaja en el cuerpo: no se guarda ningun secreto en este servidor.
+  if (req.method === 'POST' && req.url === '/skills/refresh') {
+    const token = req.headers['x-org-token'];
+    if (!token || token !== ORG_TOKEN) return send(401, { error: 'Unauthorized' });
+    // El agentId lo manda el control plane, saneado igual que en /workspace/file.
+    const AGENT_ID = String(req.headers['x-agent-id'] || '').replace(/[^a-z0-9_]/g, '');
+    if (!AGENT_ID) return send(400, { error: 'x-agent-id requerido' });
+    const chunks = [];
+    req.on('data', (c) => chunks.push(c));
+    req.on('end', async () => {
+      const tmp = '/tmp/skills-refresh';
+      try {
+        const buf = Buffer.concat(chunks);
+        if (!buf.length) return send(400, { error: 'tarball vacio' });
+        await execFileAsync('rm', ['-rf', tmp]);
+        await execFileAsync('mkdir', ['-p', tmp]);
+        await writeFile(tmp + '/d.tar.gz', buf);
+        await execFileAsync('tar', ['-xzf', tmp + '/d.tar.gz', '-C', tmp]);
+        const destino = '/root/workspaces/' + AGENT_ID + '/skills';
+        await execFileAsync('mkdir', ['-p', destino]);
+        // cp -r del contenido: agrega las nuevas y sobreescribe las cambiadas.
+        await execFileAsync('bash', ['-lc', 'cp -r ' + tmp + '/skills/* ' + destino + '/']);
+        const { stdout } = await execFileAsync('bash', ['-lc', 'ls -1 ' + destino]);
+        const instaladas = stdout.split('\n').map((x) => x.trim()).filter(Boolean);
+        await execFileAsync('rm', ['-rf', tmp]);
+        return send(200, { ok: true, skills: instaladas, total: instaladas.length });
+      } catch (e) {
+        return send(500, { error: String(e.message).slice(0, 300) });
+      }
+    });
+    return;
+  }
+
   send(404, { error: 'Not found' });
 });
 
 server.listen(PORT, () => console.log(\`[openclaw-bridge] org=\${ORG_ID} port=\${PORT}\`));
 `;
+}
 
+function _generateCloudInitScript({
+  orgId, orgName, orgToken, agentId, serverName,
+  anthropicApiKey, openaiApiKey, openclawGatewayToken,
+  callbackUrl, webhookSecret, model,
+  supabaseUrl, supabaseServiceKey, anthropicProxyPort = 8788,
+  userMdContent = null,
+}) {
+  const safeName = String(orgName || orgId)
+    .replace(/[<>"'`\\]/g, "")
+    .replace(/[\x00-\x1f]/g, "")
+    .trim()
+    .slice(0, 120) || orgId;
+
+  // Bridge code — se inyecta via write_files (base64) para evitar romper el parser YAML
+  const bridgeCode = buildBridgeCode();
   const bridgeB64 = Buffer.from(bridgeCode).toString("base64");
 
   // OpenClaw consume ANTHROPIC_API_KEY pero todas las llamadas a la API pasan
@@ -477,6 +524,33 @@ systemctl start openclaw-bridge
 sleep 5
 
 echo "[setup] Callback a AI Engine..."
+# ── Refresco del puente y de las skills al despertar ───────────────────────
+# El servidor se recrea desde un snapshot, asi que trae el puente y las skills
+# del dia que se durmio. Ambos se re-descargan del control plane para que una
+# Vera que despierta lo haga con la doctrina y el codigo al dia — sin esto habia
+# que recrearla entera cada vez que cambiaba una skill.
+if curl -sf --max-time 30 -H "x-webhook-secret: ${webhookSecret}" \\
+     "${callbackUrl}/internal/openclaw-bridge.js" -o /tmp/bridge.js; then
+  if node --check /tmp/bridge.js 2>/dev/null; then
+    cp /tmp/bridge.js /opt/openclaw-bridge/server.js
+    systemctl restart openclaw-bridge
+    echo "[wake] puente actualizado"
+  else
+    echo "[wake] WARN: el puente descargado no compila — se conserva el anterior"
+  fi
+fi
+
+mkdir -p /tmp/vera-defaults
+if curl -sf --max-time 120 -H "x-webhook-secret: ${webhookSecret}" \\
+     "${callbackUrl}/internal/defaults.tar.gz" -o /tmp/vera-defaults.tar.gz; then
+  tar -xzf /tmp/vera-defaults.tar.gz -C /tmp/vera-defaults 2>/dev/null || true
+  if [ -d /tmp/vera-defaults/skills ]; then
+    mkdir -p /root/workspaces/${agentId}/skills
+    cp -r /tmp/vera-defaults/skills/* /root/workspaces/${agentId}/skills/ 2>/dev/null || true
+    echo "[wake] skills actualizadas: $(ls -1 /root/workspaces/${agentId}/skills | wc -l)"
+  fi
+fi
+
 PUBLIC_IP=$(curl -s --max-time 10 https://api.ipify.org || curl -s --max-time 10 http://checkip.amazonaws.com || hostname -I | awk '{print $1}')
 curl -sf --max-time 15 -X POST "${callbackUrl}/internal/server-ready" \\
   -H "Content-Type: application/json" \\

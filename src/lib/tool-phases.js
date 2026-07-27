@@ -117,6 +117,7 @@ export const PHASE_B_TOOLS = [
   "getInstagramInsights",
   "getInstagramPosts",
   "getMetaAudienceDemographics",
+  "verPublicacion",
   "getGoogleAnalytics",
   // Brand write — editar identidad, audiencias, productos, colores, tipografías, reglas
   "updateBrandProfile",

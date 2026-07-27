@@ -86,6 +86,7 @@ const DASHBOARD_READING_TOOLS_RAW = [
   "getCampaigns", "getCampaignDetail", "getLiveAdsMetrics",
   "getMetaPageInsights", "getMetaPosts", "getInstagramInsights", "getInstagramPosts",
   "getMetaAudienceDemographics", // fuente de la card audiencia (mapa + pirámide)
+  "verPublicacion",            // "voy a verlo": describir la media de un post
   "getGoogleAnalytics", "getSocialSummary",
   // RETAIL / catálogo (MercadoLibre)
   "getCatalogDiagnosis", "getRetailPrices", "getLiveProducts", "getLivePosts",

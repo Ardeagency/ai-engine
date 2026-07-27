@@ -19,6 +19,7 @@ import * as campaignTools from "../tools/campaign.tools.js";
 import * as flowTools from "../tools/flow.tools.js";
 import * as actionTools from "../tools/action.tools.js";
 import * as socialTools from "../tools/social.tools.js";
+import * as mediaAnalysis from "./media-analysis.service.js";
 import * as scraperTools from "../tools/scraper.tools.js";
 import * as dashboardTools from "../tools/dashboard.tools.js";
 import * as strategyTools from "../tools/strategy.tools.js";
@@ -245,6 +246,16 @@ const TOOL_REGISTRY = {
   // Existía en social.tools.js desde hacía meses pero no estaba registrada en
   // ningún lado: 0 apariciones en dispatcher, catálogo, fases y MCP. Es la
   // fuente en vivo de la card "audiencia" (mapa + pirámide).
+  // "Voy a verlo": describe la media de un post AHORA y devuelve lo que se ve.
+  // Sin esto solo se puede juzgar por el copy — la mitad de la pieza.
+  verPublicacion: {
+    fn: ({ postId, post_id, force }) => mediaAnalysis.verPublicacion(postId || post_id, { force: !!force }),
+    requiresConsent: false,
+    // Describir una imagen con un modelo de vision no cabe en los 8s por defecto:
+    // sin este timeout propio la tool moriria siempre en el primer analisis y solo
+    // funcionaria cuando la descripcion ya estuviera cacheada.
+    timeout: Number(process.env.VER_PUBLICACION_TIMEOUT_MS || 120_000),
+  },
   getMetaAudienceDemographics: {
     fn: ({ organizationId }) =>
       socialTools.getMetaAudienceDemographics({ brandContainerId: null, organizationId }),

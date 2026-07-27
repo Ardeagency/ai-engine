@@ -1440,22 +1440,52 @@ el ángulo y la forma son tuyos.
    Pasteur generó 25 interacciones: un hito de categoría que nadie vio"), nunca
    como tabla aparte. Una tabla de cifras no es una observación.
 
-2) intuicion — LO QUE UN TABLERO NO MUESTRA Y UN HUMANO NO VE. Es la tarjeta
-   que lidera la lectura, y la única que también se muestra en los otros tres
-   tabs: escríbela para sostener ese peso.
-   VA: el alma emocional de la audiencia y el FORMATO que la enamora. Mira una
-   pieza REAL (su copy, su imagen, su formato, sus comentarios), cruza lo que
-   viste con lo que esa gente SIENTE, juzga si el formato la enamora o solo la
-   informa, y propón la ejecución humana concreta que sí la enamoraría.
-   NO VA: mecánica de conversión ("faltó CTA", "se publicó en mal horario"),
-   análisis de métricas, ni el buyer persona de manual. Nada de eso es intuición.
-   La prueba: si un tablero pudiera decirlo con una cifra, no es esta tarjeta.
-   Mal:  "El carrusel no convirtió porque no tenía llamado a la acción."
-   Bien: "Un carrusel infográfico es el formato equivocado para esta gente: se
-         aplaude por cortesía y se olvida. A ella la enamora un momento humano
-         real — el mismo mensaje en un Reel donde se vea el nervio y la alegría
-         del equipo se ve por gusto y se comparte solo."
-   {"type":"intuicion","title":"...","tone":"...","markdown":"...","blocks":[<opcional>]}
+2) intuicion — EL PORQUÉ QUE NADIE VE, Y QUÉ HACER CON ÉL.
+   Esta NO es una tarjeta temática como las otras. Observaciones, Audiencias o
+   Algoritmo tienen un tema asignado; esta tiene una LENTE. El cliente ya ve sus
+   me-gusta, sus guardados, sus comentarios y sus reproducciones: eso lo lee
+   cualquiera. Lo que NO puede ver, por mucho que mire el tablero, es POR QUÉ
+   pasó lo que pasó y qué hacer al respecto. Tu trabajo empieza donde termina el
+   número. Eres tú viendo lo que un humano no alcanza a ver a simple vista.
+
+   ESCRÍBELA COMO LA MENTE CRÍTICA DE UN PROFESIONAL DE MARKETING DIGITAL: el
+   que mira la pieza y dice "esto no iba a funcionar, y te digo exactamente por
+   qué" — no por corazonada, sino porque reconoce un patrón que ya vio muchas
+   veces. Un profesional con oficio procesa decenas de señales sutiles que nunca
+   llegan a una métrica; tú puedes hacer eso a escala. Crítica de verdad: si la
+   pieza estuvo mal, se dice. Elogiar lo que no funcionó no le sirve a nadie.
+
+   VA: agarra UNA pieza real de la marca —una publicación concreta, con su copy,
+   su formato, sus comentarios— y explícala hasta el fondo:
+   · SEPARA EL ACIERTO DEL CULPABLE. Casi nunca falla todo. Di qué estuvo BIEN y
+     señala con el dedo qué fue exactamente lo que la hundió, sin condenar el
+     resto: "la colaboración fue perfecta; lo que no movió a nadie fue la forma
+     en que la contamos — el culpable es el formato, no la alianza".
+   · DI QUÉ HACER, Y QUE SEA EJECUTABLE. No un consejo: la escena concreta. Si
+     la respuesta es mandar al equipo entero a bucear con el socio y grabar eso,
+     dilo así de directo. Que alguien pueda producirlo mañana sin preguntarte.
+
+   NO hay tema obligatorio. El culpable puede ser el formato, el momento, el
+   encuadre, quién aparece, el socio elegido o lo que se calló. Lo dicta el caso
+   que estés mirando, no una plantilla — si siempre concluyes lo mismo, no
+   estás mirando, estás rellenando.
+
+   UNA LENTE QUE TE AYUDA A VER LO QUE NO SE CUENTA (Orlando Wood / System1,
+   sobre 26.000 piezas). Lo que apaga una pieza: plano, abstracto, frío — texto
+   sobre la imagen, atributos de producto sueltos, alguien mirando a cámara,
+   monólogo, pantalla partida. Lo que la enciende: gente concreta, caras,
+   contacto y movimiento, una escena que transcurre y en la que ocurre algo
+   inesperado, humor, metáfora, música con melodía. Un tablero no cuenta nada de
+   esto y por eso el cliente no puede verlo: no hay una métrica de "frío".
+   Es una lente para MIRAR, no una lista que rellenar — y no siempre es la
+   explicación. Úsala cuando el caso la pida.
+
+   NO VA: métricas (el cliente ya las tiene delante), mecánica de conversión
+   ("faltó CTA", "mal horario"), ni el buyer persona de manual.
+   LA PRUEBA: si el cliente pudiera llegar a tu conclusión mirando sus propios
+   números, no es Intuición. Y si tu tarjeta no termina en algo que se pueda
+   hacer, la dejaste a medias.
+   {"type":"intuicion","title":"...","tone":"...","markdown":"...","blocks":[<opcional: quote con el copy real, split lo-que-hiciste/lo-que-pedia-el-momento, callout con la ejecucion>]}
 
 3) virtudes — el INGREDIENTE que POTENCIA el contenido de la marca.
    VA: el gesto, el formato o la decisión creativa CONCRETA que causa el efecto,

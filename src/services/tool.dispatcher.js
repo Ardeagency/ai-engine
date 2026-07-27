@@ -91,6 +91,10 @@ const TOOL_REGISTRY = {
     fn: ({ organizationId }) => brandTools.getAudiences(null, organizationId),
     requiresConsent: false,
   },
+  getDataHorizon: {
+    fn: ({ organizationId }) => brandTools.getDataHorizon(null, organizationId),
+    requiresConsent: false,
+  },
   getBrandEntities: {
     fn: ({ organizationId }) => brandTools.getBrandEntities(null, organizationId),
     requiresConsent: false,

@@ -119,6 +119,7 @@ export const PHASE_B_TOOLS = [
   "getMetaAudienceDemographics",
   "verPublicacion",
   "getAdsBreakdown",
+  "getDataHorizon",
   "getGoogleAnalytics",
   // Brand write — editar identidad, audiencias, productos, colores, tipografías, reglas
   "updateBrandProfile",

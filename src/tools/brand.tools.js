@@ -200,3 +200,56 @@ export async function getOrgOverview(organizationId) {
     data_model_reference: "Ver DATA_MODEL.md para descripción completa de cada entidad.",
   };
 }
+
+/**
+ * getDataHorizon — desde cuando la plataforma OBSERVA cada fuente.
+ *
+ * Nace de un error real (2026-07-27): Vera escribio "la pauta lleva mas de un
+ * año apagada" cuando habia 5,6M COP gastados ESE MES. Lo que pasaba es que los
+ * datos de pauta empiezan el 2 de julio de 2026 — no porque la marca no pautara
+ * antes, sino porque la plataforma empezo a mirar ese dia. Sin saber donde
+ * empieza su propia vista, quien analiza confunde "no lo tengo" con "no paso",
+ * y rellena el hueco con una historia que suena verdadera.
+ *
+ * Devuelve, por fuente: desde cuando hay dato, hasta cuando, y cuantas filas.
+ * La regla de lectura va incluida en la respuesta para que viaje con el dato.
+ */
+export async function getDataHorizon(brandContainerId, organizationId) {
+  const bc = await resolveBrandContainer(brandContainerId, organizationId);
+
+  const rango = async (tabla, campoFecha, filtros = {}) => {
+    let q = supabase.from(tabla).select(campoFecha, { count: "exact" }).eq("brand_container_id", bc.id);
+    for (const [k, v] of Object.entries(filtros)) q = q.eq(k, v);
+    const [asc, desc] = await Promise.all([
+      q.order(campoFecha, { ascending: true }).limit(1),
+      supabase.from(tabla).select(campoFecha).eq("brand_container_id", bc.id)
+        .match(filtros).order(campoFecha, { ascending: false }).limit(1),
+    ]);
+    const desde = asc?.data?.[0]?.[campoFecha] || null;
+    const hasta = desc?.data?.[0]?.[campoFecha] || null;
+    return {
+      desde: desde ? String(desde).slice(0, 10) : null,
+      hasta: hasta ? String(hasta).slice(0, 10) : null,
+      filas: asc?.count ?? 0,
+    };
+  };
+
+  const [propios, monitoreados, pauta, campanas] = await Promise.all([
+    rango("brand_posts", "captured_at", { post_source: "own" }),
+    rango("brand_posts", "captured_at", { post_source: "competitor" }),
+    rango("ad_insights_daily", "date"),
+    rango("campaigns", "created_at"),
+  ]);
+
+  return {
+    publicaciones_propias: propios,
+    publicaciones_monitoreadas: monitoreados,
+    gasto_de_pauta: pauta,
+    campanas_registradas: campanas,
+    como_leerlo:
+      "Estas fechas son desde cuando la PLATAFORMA observa cada fuente, no desde " +
+      "cuando existe la marca. Que no haya dato antes de una fecha NO significa que " +
+      "no pasara nada: significa que no lo tienes. Nunca afirmes que algo estuvo " +
+      "apagado, detenido o ausente en un periodo que cae fuera de tu horizonte.",
+  };
+}

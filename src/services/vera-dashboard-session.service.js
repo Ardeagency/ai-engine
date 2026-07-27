@@ -82,6 +82,7 @@ const DASHBOARD_READING_TOOLS_RAW = [
   // INTELIGENCIA (el análisis, no el dato crudo)
   "getPaidIntelligence",    // campañas: ROAS/CTR/anuncio eficiente/funnel Meta/demografía
   "getAdsBreakdown",        // desglose por anuncio/adset/día + frecuencia
+  "getDataHorizon",         // desde cuándo se observa cada fuente (anti-invención)
   "getContentIntelligence", // contenido orgánico: métricas reales + ratios + el POR QUÉ
   // CAMPAÑAS PAGAS + ANALYTICS DE PLATAFORMA
   "getCampaigns", "getCampaignDetail", "getLiveAdsMetrics",
@@ -1268,7 +1269,7 @@ const MIMARCA_PERIODOS = [
   { k: "week",  dias: 7,    label: "SEMANA — los últimos 7 días" },
   { k: "month", dias: 30,   label: "MES — los últimos 30 días" },
   { k: "year",  dias: 365,  label: "AÑO — los últimos 365 días" },
-  { k: "all",   dias: null, label: "TODO — toda la historia disponible" },
+  { k: "all",   dias: null, label: "TODO — sin recorte de ventana (el patrón que aguantó el tiempo, NO la crónica de la cuenta)" },
 ];
 // El filtro que trae el tab abierto (BrandGrid: this._gridWindow ?? 'month').
 const MIMARCA_PERIODO_DEFAULT = "month";
@@ -1327,7 +1328,7 @@ function _mensajePedirPeriodo(periodo, idx, total) {
 ${periodo.windowStart
     ? `Ventana EXACTA: desde:"${periodo.windowStart}" hasta:"${periodo.windowEnd}". Ese tramo y ningún otro.`
     : periodo.dias == null
-      ? "Sin límite de ventana: toda la historia disponible de la marca."
+      ? "Sin recorte de ventana. Ojo: esto NO te pide contar la historia de la cuenta — te pide el patrón de fondo, el que sigue siendo cierto cuando se mira lejos."
       : `Ventana: los últimos ${periodo.dias} días (windowDays:${periodo.dias}).`}
 
 Un solo sobre [[DIAGNOSIS]]{"schema":"cards.v2","cards":[...]}[[/DIAGNOSIS]], sin tools.
@@ -1482,6 +1483,19 @@ Y AL RECOMENDAR, SACA A LA MARCA DEL BUCLE. Repetir lo que ya le funcionó la
 mantiene donde está. Si tu recomendación es "hagan más de lo que ya hacen bien",
 no es una recomendación: es una descripción. Busca la palanca que todavía no ha
 usado.
+
+NO ERES LA CRONISTA DE LA CUENTA. No narres su historia, no reconstruyas "cómo
+llegó hasta aquí", no repartas su pasado en etapas ni en motores que se fueron
+apagando. Nadie abre un tablero para que le cuenten su propia biografía: la
+conocen mejor que tú. Tu trabajo es el presente y lo que sigue.
+
+Y NO RELLENES EL PASADO CON LO QUE SUENE RAZONABLE. La ausencia de un dato en la
+plataforma NO es evidencia de que algo no ocurrió: significa que no lo tienes.
+Que no haya campañas registradas antes de una fecha no quiere decir que la marca
+no pautara — quiere decir que la plataforma empezó a mirar ese día. Si vas a
+afirmar algo sobre un periodo, pregúntate qué tool te lo mostró; si ninguna, no
+lo afirmes. Inventar un hito, un año o una racha es el peor error que puedes
+cometer aquí, porque suena verdadero y nadie lo va a verificar.
 
 LAS TARJETAS QUE DEBES LLENAR (las 6 primeras son OBLIGATORIAS).
 

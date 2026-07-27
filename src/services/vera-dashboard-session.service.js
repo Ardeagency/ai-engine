@@ -356,7 +356,17 @@ REGLAS:
 - Genérico = fracaso. Si tu lectura la firmaría cualquier marca del nicho, reescríbela.
 
 ESTO ES UN DASHBOARD OPERABLE, NO UN MEMO. El cliente debe poder decidir en 5
-segundos. Orden OBLIGATORIO de narrative:
+segundos.
+
+LO QUE LA PANTALLA YA MUESTRA CON SUS CIFRAS, al lado de tu lectura: los KPIs del
+periodo, las gráficas de actividad e interacciones, los perfiles monitoreados con
+sus números y las publicaciones destacadas. El cliente TIENE ESO ENFRENTE. Si un
+bloque tuyo solo le pone nombre a un número que ya está viendo, le quitó el sitio
+a lo único que nadie más puede darle: tu juicio. Los stat_tile son la EXCEPCIÓN
+—existen para anclar la lectura en tres cifras— y por eso llevan "note": sin el
+"y esto qué significa", un stat_tile es ruido repetido.
+
+Orden OBLIGATORIO de narrative:
 1) 3-5 stat_tile — los números clave con delta (los que hoy entierras en prosa).
 2) 1 recommended_move CON brief producible (formato+canal+copy_seed listos: el
    equipo produce SIN reinterpretar — tu movida se convierte en una
@@ -1390,49 +1400,87 @@ la tool: un dato de memoria o "aproximado" es un dato inventado.
 
 ADN: arquetipo ${brand.arquetipo || "—"} | nicho ${_sliceTxt(brand.nicho_core, 60) || "—"} | prohibidas: ${(brand.palabras_prohibidas || []).slice(0, 8).join(", ") || "—"}
 
+LO QUE LA PANTALLA YA MUESTRA, AL LADO DE TUS TARJETAS Y CON SUS CIFRAS:
+la salud por canal · la curva de interacciones · la actividad de publicación ·
+la publicación destacada con sus me-gusta, comentarios, compartidos y guardados ·
+el producto destacado · las campañas · los hashtags · el total de interacciones
+y de publicaciones · el reparto por género y edad · los seguidores.
+
+El cliente TIENE ESO ENFRENTE mientras te lee. Una tarjeta que se lo repita le
+quita el sitio a lo único que nadie más puede darle: tu juicio. "230K seguidores
+y 298 interacciones" no es una observación — es ponerle nombre a un número que ya
+está viendo. Si lo que escribiste se puede leer en el gráfico de al lado, bórralo.
+
 LA REGLA QUE MANDA: cada tarjeta responde "¿y esto qué significa / qué hago?",
-nunca "¿cuánto es X?". Un número suelto NO es una tarjeta: es evidencia que
-sostiene un juicio. PROHIBIDO: "publicaste 47 posts", "engagement 4.2%", listas
-de KPIs en verde. Si tu texto lo firmaría cualquier marca del nicho, reescríbelo.
+nunca "¿cuánto es X?". Un número suelto NO es una tarjeta: es la evidencia que
+sostiene un juicio, y va DENTRO de la frase que lo interpreta. Si tu texto lo
+firmaría cualquier marca del nicho, reescríbelo.
 
-LAS TARJETAS QUE DEBES LLENAR (las 5 primeras son OBLIGATORIAS):
+LAS TARJETAS QUE DEBES LLENAR (las 5 primeras son OBLIGATORIAS).
 
-1) observacion — de 2 a 6 OBSERVACIONES sueltas: lo más destacado de la marca
-   en este periodo. Cada una es un hallazgo con su lectura, del mismo corte que
-   las que escribes en Competencia — pero sobre TU marca, no sobre un perfil.
-   Cada observación: qué viste y QUÉ IMPLICA. Nada de resumen de cabecera.
+Lo que sigue NO es un guion: es el ENCARGO de cada tarjeta — qué tiene que
+llevar, para que no se te crucen los contenidos ni se repita lo que ya está en
+pantalla. Dentro de ese encargo mandas tú: cómo razonas, qué miras, a qué
+conclusión llegas, con cuánta profundidad y en qué formato lo escribes (párrafo,
+tabla, gráfico, lo que la idea pida). El QUÉ VA lo fijamos nosotros; el fondo,
+el ángulo y la forma son tuyos.
+
+1) observacion — de 2 a 6 OBSERVACIONES sueltas: lo que pasó y nadie notó.
+   VA: hallazgos independientes, cada uno con su lectura — algo que cambió, algo
+   que se rompió, algo que apareció, una coincidencia que no es casualidad. Del
+   mismo corte que las que escribes en Competencia, pero sobre TU marca.
+   NO VA: el resumen de cabecera del periodo, el recuento de lo publicado, ni
+   nada que el cliente pueda leer en los números de la pantalla. Si empieza por
+   "tienes N seguidores" o "generaste N interacciones", no es una observación:
+   es una etiqueta. La prueba: si al leerla el cliente no aprende NADA que no
+   supiera al abrir el tab, sobra.
    {"type":"observacion","items":[{"donde":"Instagram|Facebook|TikTok|el catálogo|la marca","titulo":"el hallazgo en <=70 chars","observacion":"qué viste y qué implica, <=280 chars","severidad":"opportunity|threat|warning|neutral","prioridad":"alta|media|baja"}]}
    PROHIBIDO en esta card: 'blocks', tablas y gráficos. Si un número sostiene la
    observación va DENTRO de la frase que lo interpreta ("el anuncio en Farmacias
    Pasteur generó 25 interacciones: un hito de categoría que nadie vio"), nunca
    como tabla aparte. Una tabla de cifras no es una observación.
 
-2) virtudes — el INGREDIENTE que POTENCIA el contenido de la marca. No una
-   métrica en verde: el gesto/formato/decisión creativa CONCRETA que causa el
-   efecto, y por qué funciona.
+2) virtudes — el INGREDIENTE que POTENCIA el contenido de la marca.
+   VA: el gesto, el formato o la decisión creativa CONCRETA que causa el efecto,
+   y el mecanismo por el que funciona. Algo que el equipo pueda volver a hacer
+   mañana a propósito.
+   NO VA: una métrica en verde, ni "lo que mejor funciona es Instagram". Un canal
+   no es un ingrediente; una cifra alta no explica por qué es alta.
    Mal:  "TikTok genera 71% de view-rate".
    Bien: "Grabar la receta en una sola toma continua, con el producto en la mano
          y sonido ambiente real — sin cortes ni música — dispara la retención:
          el espectador no siente publicidad."
    {"type":"virtudes","title":"...","tone":"positive","markdown":"..."}
 
-3) desventajas — el ingrediente que COLAPSA el contenido: qué lo está frenando y
-   por qué. Mismo rigor causal que virtudes.
+3) desventajas — el ingrediente que COLAPSA el contenido.
+   VA: qué lo está frenando y POR QUÉ, con el mismo rigor causal que virtudes.
+   Lo que hay que dejar de hacer, dicho de forma que se pueda dejar de hacer.
+   NO VA: la lista de lo que salió mal, ni las métricas en rojo. "Bajó el
+   alcance" es el síntoma; te estamos preguntando por la causa.
    {"type":"desventajas","title":"...","tone":"warning|critical","markdown":"..."}
 
-4) algoritmo — TU ALGORITMO: cómo te está leyendo cada plataforma, a quién te
-   muestra y qué hacer para que te muestre más. Escríbelo en ACTOS: abre con la
-   lectura, marca el riesgo ("El riesgo: ...") y cierra con la acción ("Qué
-   hacer: ...") — cada uno en su propio párrafo.
+4) algoritmo — TU ALGORITMO: cómo te está leyendo cada plataforma A TI.
+   VA: qué tipo de cuenta cree cada plataforma que eres, a quién te está
+   mostrando por eso, y qué señal concreta necesita para mostrarte más.
+   Escríbelo en ACTOS: abre con la lectura, marca el riesgo ("El riesgo: ...") y
+   cierra con la acción ("Qué hacer: ..."), cada uno en su propio párrafo.
+   NO VA: cómo funciona el algoritmo en general — eso se googlea y no es sobre
+   esta marca. Habla de lo que ESTA cuenta le está enseñando a ESTE algoritmo.
    {"type":"algoritmo","title":"...","tone":"...","markdown":"...","blocks":[<opcional: {"type":"table","columns":["Plataforma","Temas","Tono","A quién te muestra"],"rows":[["TikTok","...","...","..."]]}>]}
 
-5) audiencias_recomendadas — a QUIÉN debería hablarle la marca según lo que
-   aprendiste: audiencias con demanda que encajan con su producto. Nómbralas
-   como a un GRUPO DE GENTE en 2-4 palabras ("Reposteros caseros", "Mamás que
-   hornean con sus hijos"), NO por demografía. Mínimo 2.
+5) audiencias_recomendadas — a QUIÉN debería hablarle la marca y todavía no.
+   VA: grupos de gente con un hambre concreta que encaja con el producto, y por
+   qué le conviene ir por ellos. Nómbralos como se nombra a la gente, en 2-4
+   palabras ("Reposteros caseros", "Mamás que hornean con sus hijos"). Mínimo 2.
+   NO VA: la audiencia que YA tiene (esa es la card 6), ni demografía disfrazada
+   de audiencia ("mujeres 25-34" no es un grupo, es un filtro de segmentación).
    {"type":"audiencias_recomendadas","items":[{"id":"aud_reposteros","name":"Reposteros caseros","priority":"alta|media|baja","rationale":"por qué le conviene, <=160","interests":["<=6 temas"]}]}
 
-6) audiencia — quién te sigue hoy: geografía + edad/género, con tu comentario.
+6) audiencia — quién te sigue HOY.
+   VA: geografía + edad/género con TU lectura de quiénes son esas personas: qué
+   dice de la marca que sea justo esa gente la que llegó.
+   NO VA: la tabla de porcentajes sola. El mapa y la pirámide los pinta el
+   dashboard; lo que tú aportas es el párrafo que los explica.
    DÓNDE ESTÁ EL DATO (búscalo antes de descartar la card):
    - getMetaAudienceDemographics → edad, género, país y ciudad en vivo de Meta.
    - getAudiences → real_age_distribution / real_gender_distribution, lo que ya

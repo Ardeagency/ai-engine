@@ -1506,14 +1506,33 @@ el ángulo y la forma son tuyos.
    alcance" es el síntoma; te estamos preguntando por la causa.
    {"type":"desventajas","title":"...","tone":"warning|critical","markdown":"..."}
 
-5) algoritmo — TU ALGORITMO: cómo te está leyendo cada plataforma A TI.
-   VA: qué tipo de cuenta cree cada plataforma que eres, a quién te está
-   mostrando por eso, y qué señal concreta necesita para mostrarte más.
-   Escríbelo en ACTOS: abre con la lectura, marca el riesgo ("El riesgo: ...") y
-   cierra con la acción ("Qué hacer: ..."), cada uno en su propio párrafo.
-   NO VA: cómo funciona el algoritmo en general — eso se googlea y no es sobre
-   esta marca. Habla de lo que ESTA cuenta le está enseñando a ESTE algoritmo.
-   {"type":"algoritmo","title":"...","tone":"...","markdown":"...","blocks":[<opcional: {"type":"table","columns":["Plataforma","Temas","Tono","A quién te muestra"],"rows":[["TikTok","...","...","..."]]}>]}
+5) algoritmo — HACIA DÓNDE TE ESTÁ EMPUJANDO, Y CÓMO REDIRIGIRLO.
+   Le hablas a un dueño de marca, no a un ingeniero. Nada de "pondera la
+   retención" ni de explicar cómo funciona el algoritmo en general: eso se
+   googlea y no es sobre esta marca. Es una conversación: mira, hoy nos está
+   mostrando ASÍ; si queremos llegar ALLÁ, esto no podemos hacerlo.
+   VA, en este orden:
+   · CÓMO TE LEE HOY, con la prueba delante: qué tipo de cuenta cree que eres, a
+     quién te está entregando y qué tráfico te está generando por eso.
+   · QUÉ TE IMPIDE LLEGAR A DONDE QUIERES. Aquí está el nudo: la plataforma
+     agrupa el contenido por TEMAS —y ya deja que cada persona elija de qué
+     temas quiere ver más—, así que tu cuenta vive asociada a unos cuantos. Si
+     te tiene ubicada en recetas y de golpe publicas buceo o fútbol, esa pieza
+     no aterriza en la audiencia nueva que buscas. Y el motivo es más simple que
+     "el algoritmo se confunde": los PRIMEROS en verla son los que ya te siguen,
+     que no reaccionan porque no es lo suyo — y sin esa primera reacción el
+     reparto se apaga antes de salir de casa. Saltar en frío se castiga solo.
+   · CÓMO SE TIENDE EL PUENTE. No se salta: se tiende. Busca el solape entre lo
+     que ya publicas y el territorio nuevo y entra por ahí — la pieza que es las
+     dos cosas a la vez (el snack que se lleva al buceo, no "el buceo"). Se
+     siembra el terreno con varias piezas puente antes de que el tema nuevo se
+     sostenga solo. Un giro en seco casi siempre cuesta audiencia.
+   · TERMINA EN INSTRUCCIÓN: qué publicar en las próximas semanas para mover la
+     aguja hacia allá. Concreto, no "sé constante".
+   NO VA: la tabla de plataformas como plato principal (si la usas, que sea de
+   apoyo), la clase teórica de algoritmos, ni consejos de manual (horarios,
+   cantidad de hashtags). Si tu texto sirve para cualquier cuenta, sobra.
+   {"type":"algoritmo","title":"...","tone":"...","markdown":"...","blocks":[<opcional: {"type":"table","columns":["Plataforma","Cómo te lee","A quién te muestra","Qué necesita"],"rows":[["TikTok","...","...","..."]]}>]}
 
 6) audiencias_recomendadas — A QUIÉN MÁS DEBERÍA HABLARLE, SEGÚN SU PLAN.
    No es una lluvia de ideas: la organización YA declaró a qué apunta y tu trabajo

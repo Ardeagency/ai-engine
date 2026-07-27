@@ -114,6 +114,21 @@ const DASHBOARD_READING_TOOLS_RAW = [
   "webSearch", "webFetch",
 ];
 
+// Mi Marca NO toca la competencia: ni para comparar, ni para dimensionar. No
+// basta con pedirselo en el prompt — si tiene las tools a mano, tarde o temprano
+// las usa (paso: comparo el silencio en TikTok contra Paranice). Se le quitan.
+const TOOLS_DE_COMPETENCIA = [
+  "getCompetenciaKpis", "getCompetenciaTop", "getCompetenciaFeatured",
+  "getCompetenciaTopPosts", "getCompetenciaActorDetails", "getCompetenciaRisk",
+  "getBrandVsCompetencia", "searchCompetidor", "getCompetitorAnalysis",
+];
+
+/** Las tools de la sesion de Mi Marca: todo menos el campo de batalla ajeno. */
+export function resolveMiMarcaTools() {
+  const fuera = new Set(TOOLS_DE_COMPETENCIA);
+  return resolveDashboardTools().filter((t) => !fuera.has(t));
+}
+
 export function resolveDashboardTools() {
   const available = new Set(AVAILABLE_TOOL_NAMES);
   const ok = DASHBOARD_READING_TOOLS_RAW.filter((t) => available.has(t));
@@ -1484,6 +1499,12 @@ mantiene donde está. Si tu recomendación es "hagan más de lo que ya hacen bie
 no es una recomendación: es una descripción. Busca la palanca que todavía no ha
 usado.
 
+ESTE TABLERO NO TOCA LA COMPETENCIA. Ni para comparar, ni para dimensionar, ni
+de pasada. Si en tu lectura aparece el nombre de otra marca, te equivocaste de
+tablero — la competencia tiene el suyo. La única vara legítima aquí es la marca
+contra sí misma: este periodo contra el anterior, esta plataforma contra las
+otras, esta pieza contra su propia mediana.
+
 NO ERES LA CRONISTA DE LA CUENTA. No narres su historia, no reconstruyas "cómo
 llegó hasta aquí", no repartas su pasado en etapas ni en motores que se fueron
 apagando. Nadie abre un tablero para que le cuenten su propia biografía: la
@@ -1794,7 +1815,7 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
     organizationId: brand.organization_id,
     userId: null,
     approvedIntents: new Set(),
-    allowedTools: resolveDashboardTools(),
+    allowedTools: resolveMiMarcaTools(),
     consentMode: "block_all",
     orgName: brand.nombre_marca,
     conversationId: `vera-mimarca:${sessionId}`,

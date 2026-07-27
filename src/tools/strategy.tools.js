@@ -226,7 +226,8 @@ async function _computeOpportunityForTopic({ topic, brandContainerId, competitor
       .from("brand_posts")
       .select("id", { count: "exact", head: true })
       .eq("brand_container_id", brandContainerId)
-      .eq("is_competitor", false)
+      // post_source, no is_competitor: los referentes tambien traen is_competitor=false
+      .eq("post_source", "own")
       .ilike("content", `%${kwLower}%`)
       .gte("captured_at", sinceISO)
   );

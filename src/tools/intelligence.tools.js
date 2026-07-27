@@ -49,11 +49,19 @@ export async function getIntelligenceSignals(entityId, brandContainerId, organiz
 export async function getBrandPosts(brandContainerId, organizationId, isCompetitor = false) {
   const bc = await resolveBrandContainer(brandContainerId, organizationId);
 
-  const { data, error } = await supabase
+  // FUENTE DE VERDAD: `post_source` ('own' | 'competitor' | 'reference'), NO
+  // `is_competitor`. Ese booleano solo separa competidor de todo-lo-demas, asi
+  // que los REFERENTES (is_competitor=false) caian en el mismo saco que la
+  // marca: el 63% de lo que devolvia una consulta "propia" no era de la marca.
+  // Sin argumento devuelve los posts DE LA MARCA. Con isCompetitor=true, los de
+  // los perfiles monitoreados (competidores Y referentes).
+  const q = supabase
     .from("brand_posts")
-    .select("id, network, profile_handle, content, metrics, sentiment, is_competitor, captured_at")
-    .eq("brand_container_id", bc.id)
-    .eq("is_competitor", isCompetitor)
+    .select("id, network, profile_handle, content, metrics, post_source, is_competitor, captured_at")
+    .eq("brand_container_id", bc.id);
+  const { data, error } = await (isCompetitor
+    ? q.in("post_source", ["competitor", "reference"])
+    : q.eq("post_source", "own"))
     .order("captured_at", { ascending: false })
     .limit(20);
 

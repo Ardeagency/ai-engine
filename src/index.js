@@ -1,5 +1,5 @@
 import dotenv from "dotenv";
-import { startDiagnosisScheduler } from "./services/vera-dashboard-session.service.js";
+import { startDiagnosisScheduler, startReadingRequestWorker } from "./services/vera-dashboard-session.service.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -13,6 +13,7 @@ import chatRoutes from "./routes/chat.routes.js";
 import agentsRoutes from "./routes/agents.routes.js";
 import missionsRoutes from "./routes/missions.routes.js";
 import taskRoutes from "./routes/task.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
 import internalRoutes from "./routes/internal.routes.js";
 import serverRoutes from "./routes/server.routes.js";
 import webhooksRoutes from "./routes/webhooks.routes.js";
@@ -102,6 +103,7 @@ app.use("/chat", chatRoutes);
 app.use("/agents", agentsRoutes);
 app.use("/missions", missionsRoutes);
 app.use("/task-events", taskRoutes);
+app.use("/dashboard", dashboardRoutes);
 app.use("/internal", internalRoutes);
 app.use("/server", serverRoutes);
 app.use("/webhooks", webhooksRoutes);
@@ -172,6 +174,14 @@ app.listen(PORT, () => {
   // scope diagnostico). Deshabilitar con VERA_DIAG_SCHEDULER_ENABLED=false
   if (process.env.VERA_DIAG_SCHEDULER_ENABLED !== "false") {
     startDiagnosisScheduler();
+  }
+
+  // Rango a mano del dashboard: el humano fija un tramo, el frontend lo encola
+  // en vera_reading_requests y Vera lo analiza acotada a esas fechas. Es trabajo
+  // PEDIDO por una persona que está esperando, no cadencia automática, por eso
+  // lleva su propio interruptor. Deshabilitar con VERA_REQUEST_WORKER_ENABLED=false
+  if (process.env.VERA_REQUEST_WORKER_ENABLED !== "false") {
+    startReadingRequestWorker();
   }
 
   // Radiografia de Visibilidad — sensor GEO: mide si la marca aparece en respuestas

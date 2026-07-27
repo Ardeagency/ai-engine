@@ -48,9 +48,12 @@ export async function compileFeed(brandContainerId, windowStart, windowEnd) {
   // ── COMPETITOR INTELLIGENCE: posts nuevos de competidores en la ventana ──
   const { data: competitorPosts } = await supabase
     .from("brand_posts")
-    .select("id, entity_id, network, profile_handle, content, sentiment_text, sentiment_score, tone, topics, captured_at, engagement_total, metrics")
+    .select("id, entity_id, network, profile_handle, content, post_source, sentiment_text, sentiment_score, tone, topics, captured_at, engagement_total, metrics")
     .eq("brand_container_id", brandContainerId)
-    .eq("is_competitor", true)
+    // Todo perfil monitoreado, no solo is_competitor=true: los REFERENTES son
+    // post_source='reference' y quedaban fuera del feed por completo (521 posts
+    // invisibles). El rol de cada uno lo aporta entityCtx mas abajo.
+    .neq("post_source", "own")
     .gte("updated_at", startISO)
     .lte("updated_at", endISO)
     .order("engagement_total", { ascending: false, nullsFirst: false })

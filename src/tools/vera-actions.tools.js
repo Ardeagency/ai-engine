@@ -466,9 +466,13 @@ export async function getBrandHealthMetrics(brandContainerId, organizationId, wi
 
   const { data, error } = await supabase
     .from("brand_posts")
-    .select("captured_at, engagement_total, sentiment_score, followers_snapshot, network, is_competitor")
+    .select("captured_at, engagement_total, followers_snapshot, network, post_source")
     .eq("brand_container_id", bc.id)
-    .eq("is_competitor", false)
+  // FUENTE DE VERDAD: `post_source` ('own' | 'competitor' | 'reference'), NO
+  // `is_competitor`. Ese booleano solo separa competidor de todo-lo-demas, asi
+  // que los REFERENTES (is_competitor=false) caian en el mismo saco que la
+  // marca: el 63% de lo que devolvia una consulta "propia" no era de la marca.
+    .eq("post_source", "own")
     .gte("captured_at", sinceIso)
     .order("captured_at", { ascending: true });
 

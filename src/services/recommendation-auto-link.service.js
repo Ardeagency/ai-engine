@@ -114,7 +114,9 @@ async function _fetchCandidatePosts(brandContainerId, anchorISO) {
     .from("brand_posts")
     .select("id, network, content, captured_at, engagement_total, metrics")
     .eq("brand_container_id", brandContainerId)
-    .eq("is_competitor", false)
+    // post_source, no is_competitor: si no, se enlazan recomendaciones a posts
+    // de marcas de referencia como si fueran de la marca.
+    .eq("post_source", "own")
     .gte("captured_at", fromISO)
     .not("content", "is", null)
     .order("captured_at", { ascending: true })

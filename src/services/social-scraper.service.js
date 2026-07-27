@@ -1363,7 +1363,10 @@ async function runOwnedAnalyticsSensor(trigger, entity, sensorRunId) {
         try {
           const { data: ownPosts } = await supabase.from("brand_posts")
             .select("id,post_id,network").eq("brand_container_id", brandContainerId)
-            .eq("is_competitor", false).order("captured_at", { ascending: false }).limit(40);
+            // post_source: con is_competitor=false se cosechaban comentarios de
+            // marcas de REFERENCIA — se paga Apify por conversacion ajena y el
+            // sentimiento de la marca queda envenenado.
+            .eq("post_source", "own").order("captured_at", { ascending: false }).limit(40);
           const commentRows = await fetchOwnPostComments({ brandContainerId, organizationId, posts: ownPosts || [] });
           if (commentRows.length) {
             const { error: cErr } = await supabase.from("brand_post_comments")
@@ -1732,7 +1735,7 @@ async function runHeatmapCompute(brandContainerId, organizationId) {
     .from("brand_posts")
     .select("network, captured_at, metrics")
     .eq("brand_container_id", brandContainerId)
-    .eq("is_competitor", false)
+    .eq("post_source", "own")
     .gte("captured_at", cutoff);
 
   if (!posts?.length) {
@@ -1740,7 +1743,7 @@ async function runHeatmapCompute(brandContainerId, organizationId) {
       .from("brand_posts")
       .select("network, captured_at, metrics")
       .eq("brand_container_id", brandContainerId)
-      .eq("is_competitor", false);
+      .eq("post_source", "own");
     posts = fb.data || [];
   }
   if (!posts?.length) return { networks: 0, posts: 0 };

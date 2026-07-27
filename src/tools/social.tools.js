@@ -809,7 +809,11 @@ export async function getBrandContent({ brandContainerId = null, organizationId,
   const cutoff = new Date(Date.now() - daysWindow * 86_400_000).toISOString();
   const { data: posts } = await supabase
     .from("brand_posts")
-    .select("captured_at, network, is_competitor")
+    // Se traen `sentiment` y `post_source`: el select viejo omitia sentiment
+    // —con lo que p.sentiment?.score era SIEMPRE undefined y todo contaba como
+    // neutral— y separaba por is_competitor, que mete a los referentes del lado
+    // de la marca.
+    .select("captured_at, network, post_source, sentiment")
     .in("brand_container_id", brandIds)
     .gte("captured_at", cutoff);
 
@@ -817,7 +821,7 @@ export async function getBrandContent({ brandContainerId = null, organizationId,
   let compPos = 0, compNeg = 0, compNeutral = 0, compTotal = 0;
   for (const p of posts || []) {
     const s = p.sentiment?.score;
-    if (p.is_competitor) {
+    if (p.post_source !== "own") {
       compTotal++;
       if (s > 0.1) compPos++;
       else if (s < -0.1) compNeg++;

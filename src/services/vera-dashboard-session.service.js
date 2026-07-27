@@ -1487,23 +1487,44 @@ el ángulo y la forma son tuyos.
    hacer, la dejaste a medias.
    {"type":"intuicion","title":"...","tone":"...","markdown":"...","blocks":[<opcional: quote con el copy real, split lo-que-hiciste/lo-que-pedia-el-momento, callout con la ejecucion>]}
 
-3) virtudes — el INGREDIENTE que POTENCIA el contenido de la marca.
-   VA: el gesto, el formato o la decisión creativa CONCRETA que causa el efecto,
-   y el mecanismo por el que funciona. Algo que el equipo pueda volver a hacer
-   mañana a propósito.
-   NO VA: una métrica en verde, ni "lo que mejor funciona es Instagram". Un canal
-   no es un ingrediente; una cifra alta no explica por qué es alta.
+3) virtudes — EL INGREDIENTE QUE POTENCIA, ENCONTRADO A PULSO.
+   Esta card es más investigación que opinión: hay un método y hay que seguirlo.
+   CÓMO SE BUSCA:
+   a) Ordena por TASA, no por totales. 300 interacciones sobre 2.000 alcanzados
+      valen más que 500 sobre 40.000. Y separa las señales: un guardado dice "me
+      sirve", un compartido dice "quiero que lo vean", un me-gusta dice poco.
+   b) Toma lo mejor y busca el denominador común REAL. No el tema — el GESTO:
+      cómo abre, quién aparece, si hay una persona o un producto, si hay
+      movimiento, si es una toma o veinte cortes, si se lee sin sonido.
+   c) LA PRUEBA QUE SEPARA LA CAUSA DE LA COINCIDENCIA: comprueba si ese mismo
+      rasgo aparece TAMBIÉN en los que fracasaron. Si está en los dos lados, no
+      es el ingrediente — es solo algo que la marca hace siempre. Mirar solo a
+      los ganadores es el error clásico: los que fallaron usaban la misma receta.
+   d) Descarta lo irrepetible. Si el pico dependió de un evento que no vuelve,
+      no es un ingrediente: es suerte prestada.
+   VA: ese gesto concreto, el mecanismo por el que funciona, y dónde se ve. Algo
+   que el equipo pueda volver a hacer mañana a propósito.
+   NO VA: una métrica en verde, ni "lo que mejor funciona es Instagram" — un
+   canal no es un ingrediente, y una cifra alta no explica por qué es alta.
    Mal:  "TikTok genera 71% de view-rate".
    Bien: "Grabar la receta en una sola toma continua, con el producto en la mano
          y sonido ambiente real — sin cortes ni música — dispara la retención:
          el espectador no siente publicidad."
    {"type":"virtudes","title":"...","tone":"positive","markdown":"..."}
 
-4) desventajas — el ingrediente que COLAPSA el contenido.
-   VA: qué lo está frenando y POR QUÉ, con el mismo rigor causal que virtudes.
-   Lo que hay que dejar de hacer, dicho de forma que se pueda dejar de hacer.
+4) desventajas — EL INGREDIENTE QUE COLAPSA, CON EL MISMO MÉTODO AL REVÉS.
+   Mismos pasos que virtudes, mirando el fondo de la tabla por tasa: qué
+   comparten las piezas que se hundieron, y la misma prueba invertida — si ese
+   rasgo está también en las que funcionaron, no es el culpable.
+   CONTROLA LO QUE ENSUCIA LA LECTURA antes de acusar al contenido: una pieza
+   publicada en medio de una ráfaga compite con las otras cuatro; una muy
+   reciente todavía no terminó de repartirse. Si el problema es el ritmo o el
+   momento, dilo — pero no le eches la culpa al contenido por eso.
+   VA: qué lo está frenando y POR QUÉ. Lo que hay que dejar de hacer, dicho de
+   forma que se pueda dejar de hacer mañana.
    NO VA: la lista de lo que salió mal, ni las métricas en rojo. "Bajó el
-   alcance" es el síntoma; te estamos preguntando por la causa.
+   alcance" es el síntoma; te estamos preguntando por la causa. Y distingue lo
+   que está ROTO de lo que simplemente FALTA: no son el mismo problema.
    {"type":"desventajas","title":"...","tone":"warning|critical","markdown":"..."}
 
 5) algoritmo — HACIA DÓNDE TE ESTÁ EMPUJANDO, Y CÓMO REDIRIGIRLO.

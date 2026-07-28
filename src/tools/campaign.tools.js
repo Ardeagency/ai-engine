@@ -5,21 +5,59 @@
 import { supabase } from "../lib/supabase.js";
 import { resolveBrandContainer } from "../lib/brand-resolver.js";
 
+/**
+ * Campanas de la marca. Las ACTIVAS van SIEMPRE, completas; las pausadas se
+ * recortan.
+ *
+ * EL FALLO QUE ARREGLA (WAKEUP, 2026-07-28): ordenaba por created_at y cortaba
+ * en 20. Con 104 pausadas y 2 activas, esas 20 salian TODAS pausadas y las
+ * activas quedaban fuera de la ventana. Vera escribio "sin pauta activa, todas
+ * las campanas son de 2023 y estan en pausa" mientras la card de al lado del
+ * tablero mostraba las 2 activas con 5.221.798 de gasto y ROAS 10.6x. No fue
+ * invencion suya: la tool no se las enseno.
+ *
+ * Tampoco devolvia cached_spend ni cached_roas, asi que ni con la campana
+ * delante podia saber si habia dinero corriendo.
+ */
 export async function getCampaigns(brandContainerId, organizationId) {
   const bc = await resolveBrandContainer(brandContainerId, organizationId);
+  const COLS =
+    "id, nombre_campana, external_campaign_name, descripcion_interna, platform, " +
+    "platform_objective, status, cta, cta_url, starts_at, ends_at, created_at, " +
+    "budget_daily, budget_total, budget_currency, " +
+    "cached_spend, cached_roas, cached_ctr, cached_clicks, cached_conversions, cached_impressions";
 
-  const { data, error } = await supabase
-    .from("campaigns")
-    .select(
-      "id, nombre_campana, descripcion_interna, platform_objective, status, " +
-      "cta, cta_url, starts_at, ends_at, created_at"
-    )
-    .eq("brand_container_id", bc.id)
+  // Las activas NUNCA se recortan: son las que dicen si hay pauta corriendo.
+  const { data: activas, error: e1 } = await supabase
+    .from("campaigns").select(COLS)
+    .eq("brand_container_id", bc.id).eq("status", "active")
+    .order("cached_spend", { ascending: false, nullsFirst: false });
+  if (e1) throw e1;
+
+  const { data: resto, error: e2 } = await supabase
+    .from("campaigns").select(COLS)
+    .eq("brand_container_id", bc.id).neq("status", "active")
     .order("created_at", { ascending: false })
     .limit(20);
+  if (e2) throw e2;
 
-  if (error) throw error;
-  return Array.isArray(data) ? data : [];
+  const { count: total } = await supabase
+    .from("campaigns").select("id", { count: "exact", head: true })
+    .eq("brand_container_id", bc.id);
+
+  const lista = [...(activas || []), ...(resto || [])];
+  // El resumen va DELANTE para que no haya que contar filas: la afirmacion
+  // "no hay pauta activa" tiene que chocar con un numero, no con una lista larga.
+  lista.resumen = {
+    activas: (activas || []).length,
+    total_registradas: total ?? lista.length,
+    no_activas_mostradas: (resto || []).length,
+    gasto_de_las_activas: (activas || []).reduce((a, c) => a + (Number(c.cached_spend) || 0), 0),
+    nota: (activas || []).length
+      ? `HAY ${(activas || []).length} campana(s) ACTIVA(S). No digas que la pauta esta apagada.`
+      : "ninguna campana en estado active — pero comprueba el gasto real antes de afirmar que no hay pauta",
+  };
+  return lista;
 }
 
 export async function getCampaignDetail(campaignId, brandContainerId, organizationId) {

@@ -76,6 +76,16 @@ export async function publishMiMarcaCard({
 export async function getMiMarcaProgress({ brandContainerId }) {
   if (!brandContainerId) throw new Error("brandContainerId es requerido.");
   const porPeriodo = await estadoBorradores(brandContainerId);
+  // La card `audiencia` es OPCIONAL y por eso nunca salia en "faltan": mi propio
+  // lazo se la escondia. Vera la omitio en WAKEUP (2026-07-28) teniendo delante
+  // 230.635 seguidores con reparto por edad, genero, pais y ciudad. Ahora la
+  // tool dice que se puede hacer; si vale la pena o no, lo juzga ella.
+  const opcional = {
+    tipo: "audiencia",
+    cuando: "solo si hay demografia REAL (getMetaAudienceDemographics u otra fuente); inventada es peor que ausente",
+    nota: "no cuenta para completar el periodo, pero si tienes los datos el tablero la pinta",
+  };
+
   const listos = Object.entries(porPeriodo)
     .filter(([, v]) => v.publicado)
     .map(([k, v]) => `${k} (hace ${v.antiguedad_horas}h)`);
@@ -84,6 +94,7 @@ export async function getMiMarcaProgress({ brandContainerId }) {
     .map(([k, v]) => `${k}: faltan ${v.faltan.join(", ")}`);
   return {
     obligatorias: REQUIRED_TYPES,
+    opcional,
     periodos: porPeriodo,
     publicados: listos,
     resumen: [

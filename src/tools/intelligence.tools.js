@@ -66,7 +66,12 @@ export async function getBrandPosts(brandContainerId, organizationId, isCompetit
     ? q.in("post_source", ["competitor", "reference"])
     : q.eq("post_source", "own"))
     .order("captured_at", { ascending: false })
-    .limit(20);
+    // 20 repartidos entre TODAS las redes dejaba a la red pequena sin muestra:
+    // con 58 posts de TikTok en base, Vera veia 3 y escribio "TikTok es una caja
+    // negra, sus metricas son inaccesibles" (WAKEUP, 2026-07-28). No le faltaba
+    // el dato, le faltaba MUESTRA. Un limite de consulta no puede decidir de que
+    // red se puede opinar.
+    .limit(Number(process.env.BRAND_POSTS_LIMIT || 120));
 
   if (error) throw error;
   // Se entrega la DESCRIPCION VISUAL (lo que se ve en la imagen o el video), no el

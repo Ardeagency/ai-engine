@@ -56,6 +56,10 @@ export const PHASE_A_TOOLS = [
 ];
 
 export const PHASE_B_TOOLS = [
+  // Escritura del tablero: Vera publica sus propias cards, una por una. Sin
+  // esto ai-engine seguiria siendo el unico escritor y tendria que sostener la
+  // conversacion entera para persistir lo que ella ya habia escrito.
+  "publishMiMarcaCard", "getMiMarcaProgress",
   ...PHASE_A_TOOLS,
   "getCatalogDiagnosis", "getLiveProducts", "getLivePosts", "getLiveAdsMetrics",
   // Brand read — ampliado

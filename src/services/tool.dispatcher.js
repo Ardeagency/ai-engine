@@ -22,6 +22,7 @@ import * as socialTools from "../tools/social.tools.js";
 import * as mediaAnalysis from "./media-analysis.service.js";
 import * as scraperTools from "../tools/scraper.tools.js";
 import * as dashboardTools from "../tools/dashboard.tools.js";
+import * as dashboardWriteTools from "../tools/dashboard-write.tools.js";
 import * as strategyTools from "../tools/strategy.tools.js";
 import * as cmoTools from "../tools/cmo.tools.js";
 import * as veraFeedTools from "../tools/vera-feed.tools.js";
@@ -287,6 +288,20 @@ const TOOL_REGISTRY = {
   getBrandContent: {
     fn: ({ organizationId, brandContainerId, daysWindow }) =>
       socialTools.getBrandContent({ brandContainerId: brandContainerId || null, organizationId, daysWindow: daysWindow || 90 }),
+    requiresConsent: false,
+  },
+
+  // ── Dashboard write ───────────────────────────────────────────────────────
+  // Las UNICAS tools que escriben el tablero. Existen para que sea VERA quien
+  // publique: antes ai-engine era el unico escritor y por eso tenia que sostener
+  // 30 rondas de conversacion por HTTP. Sin consentimiento: son datos que ella
+  // misma produjo, no una modificacion de la identidad de la marca.
+  publishMiMarcaCard: {
+    fn: (params) => dashboardWriteTools.publishMiMarcaCard(params),
+    requiresConsent: false,
+  },
+  getMiMarcaProgress: {
+    fn: (params) => dashboardWriteTools.getMiMarcaProgress(params),
     requiresConsent: false,
   },
 

@@ -198,14 +198,14 @@ const audienciasRecomendadasCard = z.object({
    entera. Misma forma que las cards de juicio. */
 const intuicionCard = textCard("intuicion");
 
-const cardSchema = z.discriminatedUnion("type", [
+export const cardSchema = z.discriminatedUnion("type", [
   observacionCard, virtudesCard, desventajasCard, algoritmoCard,
   audienciaCard, audienciasRecomendadasCard, intuicionCard,
 ]);
 
 // Los moldes que el tab exige llenar. `audiencia` (viz) queda fuera: depende de
 // datos demográficos que no toda marca tiene, y un mapa inventado envenena.
-const REQUIRED_TYPES = ["observacion", "intuicion", "virtudes", "desventajas", "algoritmo", "audiencias_recomendadas"];
+export const REQUIRED_TYPES = ["observacion", "intuicion", "virtudes", "desventajas", "algoritmo", "audiencias_recomendadas"];
 
 /* ── LA LECTURA COMPLETA ────────────────────────────────────────────────────
    Libertad controlada como regla de código: la lectura DEBE traer las 5 cards

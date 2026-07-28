@@ -68,6 +68,8 @@ const FEED_MAX_AGE_H = Number(process.env.VERA_DASH_FEED_MAX_AGE_H || 24);
 // todo el dato de la marca. Solo lectura (0 escrituras, consentMode block_all).
 // Filtrada contra TOOL_REGISTRY al vuelo (anti-footgun).
 const DASHBOARD_READING_TOOLS_RAW = [
+  // Escritura del tablero (Vera publica sus cards y consulta que le falta)
+  "publishMiMarcaCard", "getMiMarcaProgress",
   // Identidad y contexto de la marca
   "getBrandDNA", "getBrandProfile", "getBrandContainers", "getOrgOverview",
   "getProducts", "getAudiences", "getAudienceAlignment", "getIntegrations",

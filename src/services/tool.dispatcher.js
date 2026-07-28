@@ -24,6 +24,7 @@ import * as scraperTools from "../tools/scraper.tools.js";
 import * as dashboardTools from "../tools/dashboard.tools.js";
 import * as dashboardWriteTools from "../tools/dashboard-write.tools.js";
 import * as destacadaTools from "../tools/destacada.tools.js";
+import * as materialesTools from "../tools/materiales.tools.js";
 import * as strategyTools from "../tools/strategy.tools.js";
 import * as cmoTools from "../tools/cmo.tools.js";
 import * as veraFeedTools from "../tools/vera-feed.tools.js";
@@ -298,6 +299,19 @@ const TOOL_REGISTRY = {
   getBrandContent: {
     fn: ({ organizationId, brandContainerId, daysWindow }) =>
       socialTools.getBrandContent({ brandContainerId: brandContainerId || null, organizationId, daysWindow: daysWindow || 90 }),
+    requiresConsent: false,
+  },
+
+  // ── Material para que ella juzgue ────────────────────────────────────────
+  // Reemplazan a getDistinctiveAssetsAudit y getPackagingAnalysis, que llamaban
+  // a gpt-4o con VISION desde ai-engine y devolvian el veredicto ya masticado.
+  // Vera tiene la doctrina en skills; lo que le faltaba era el material.
+  getMaterialDeCodigos: {
+    fn: (params) => materialesTools.getMaterialDeCodigos(params),
+    requiresConsent: false,
+  },
+  getMaterialDeEmpaque: {
+    fn: (params) => materialesTools.getMaterialDeEmpaque(params),
     requiresConsent: false,
   },
 

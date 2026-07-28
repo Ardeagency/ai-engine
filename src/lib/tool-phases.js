@@ -62,6 +62,7 @@ export const PHASE_B_TOOLS = [
   "publishMiMarcaCard", "getMiMarcaProgress",
   "getPublicacionDestacada", "explainPublicacionDestacada",
   "describirPublicacion",
+  "getMaterialDeCodigos", "getMaterialDeEmpaque",
   ...PHASE_A_TOOLS,
   "getCatalogDiagnosis", "getLiveProducts", "getLivePosts", "getLiveAdsMetrics",
   // Brand read — ampliado
@@ -172,11 +173,11 @@ export const PHASE_B_TOOLS = [
   "getDemandDiagnosis",
   "getConversionOutcomes",
   // CMO: visibilidad IA / contenido citable + crecimiento (casos de uso) + activos (vision)
-  "scoreContentCitability",
+
   "getUseCaseExpansion",
-  "getDistinctiveAssetsAudit",
-  "getPackagingAnalysis",
-  "getAuthorityClusterPlan",
+
+
+
   // Command Center / canvas de estrategia (Vera materializa estrategias)
   "placeNodeOnCanvas","moveNodeOnCanvas","removeNodeFromCanvas","connectNodes","disconnectNodes","setVeraState","createStrategy","listStrategies","createStickyNote","createGroup","buildStrategy","proposeExternalAction",
 ];

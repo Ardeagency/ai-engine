@@ -72,6 +72,7 @@ const DASHBOARD_READING_TOOLS_RAW = [
   "publishMiMarcaCard", "getMiMarcaProgress",
   "getPublicacionDestacada", "explainPublicacionDestacada",
   "describirPublicacion",
+  "getMaterialDeCodigos", "getMaterialDeEmpaque",
   // Identidad y contexto de la marca
   "getBrandDNA", "getBrandProfile", "getBrandContainers", "getOrgOverview",
   "getProducts", "getAudiences", "getAudienceAlignment", "getIntegrations",
@@ -110,8 +111,8 @@ const DASHBOARD_READING_TOOLS_RAW = [
   "getTrendTopics", "searchIntelligence", "getBriefingHoy",
   // Diagnóstico CMO (penetración, ocasiones, demanda, conversión) + visión
   "getPenetrationDiagnosis", "getCEPGaps", "getDemandDiagnosis",
-  "getConversionOutcomes", "scoreContentCitability", "getUseCaseExpansion",
-  "getDistinctiveAssetsAudit", "getPackagingAnalysis", "getAuthorityClusterPlan",
+  "getConversionOutcomes", "getUseCaseExpansion",
+ 
   // Aprendizaje de resultados medidos
   "getActionOutcomes", "getActionOutcomeDetail", "getOutcomeSummary",
   // Investigación externa (Vera profundiza)

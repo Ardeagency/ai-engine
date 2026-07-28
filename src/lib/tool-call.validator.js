@@ -61,6 +61,8 @@ export const TOOL_SCHEMAS = {
   getUseCaseExpansion:          { brandContainerId: "uuid" },
   getDistinctiveAssetsAudit:    { brandContainerId: "uuid" },
   describirPublicacion:        { postId: "uuid", descripcion: "string" },
+  getMaterialDeCodigos:        { brandContainerId: "uuid", maxPiezas: "string" },
+  getMaterialDeEmpaque:        { brandContainerId: "uuid", maxImagenes: "string" },
   getBrandContainers:      {},
   getBrandProfile:         { brandContainerId: "uuid" },
   getAudiences:            { brandContainerId: "uuid" },

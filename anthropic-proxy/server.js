@@ -24,6 +24,7 @@
  */
 import http from "node:http";
 import https from "node:https";
+import zlib from "node:zlib";
 import { createClient } from "@supabase/supabase-js";
 
 const PORT          = Number(process.env.ANTHROPIC_PROXY_PORT) || 8788;
@@ -104,6 +105,21 @@ async function logUsage({ model, usage, usd, conversationHint, statusCode }) {
     },
   });
   if (error) console.error("[anthropic-proxy] log usage error:", error.message);
+}
+
+// ── Descompresion para MEDIR (al cliente se le reenvia el original intacto).
+//    Si falla, se devuelve el texto crudo: perder una medicion es malo, pero
+//    tumbar la respuesta del usuario por un error de gzip seria peor.
+function _descomprimir(buf, encoding) {
+  const enc = String(encoding || "").toLowerCase();
+  try {
+    if (enc.includes("gzip"))    return zlib.gunzipSync(buf).toString("utf8");
+    if (enc.includes("br"))      return zlib.brotliDecompressSync(buf).toString("utf8");
+    if (enc.includes("deflate")) return zlib.inflateSync(buf).toString("utf8");
+  } catch (e) {
+    console.warn(`[anthropic-proxy] no se pudo descomprimir (${enc}): ${e.message}`);
+  }
+  return buf.toString("utf8");
 }
 
 // ── Parse usage de respuesta JSON (non-streaming).
@@ -223,7 +239,12 @@ const server = http.createServer(async (req, res) => {
       res.end();
 
       try {
-        const body  = Buffer.concat(chunks).toString("utf8");
+        // El cliente pide gzip y Anthropic responde comprimido. Al cliente se le
+        // reenvia tal cual (arriba, sin tocar), pero para MEDIR hay que
+        // descomprimir: leer bytes gzip como utf8 daba basura, el parser no
+        // encontraba message_start y no se anotaba una sola llamada. Un curl a
+        // mano no pide compresion, por eso las pruebas manuales si dejaban fila.
+        const body  = _descomprimir(Buffer.concat(chunks), upRes.headers["content-encoding"]);
         const ctype = String(upRes.headers["content-type"] || "");
         const parsed = ctype.includes("event-stream")
           ? parseUsageFromSse(body)

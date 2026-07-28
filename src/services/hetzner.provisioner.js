@@ -188,7 +188,7 @@ const server = http.createServer(async (req, res) => {
     req.on('end', async () => {
       try {
         const body = JSON.parse(raw);
-        const ALLOWED = ['USER.md', 'AGENTS.md', 'IDENTITY.md', 'SOUL.md', 'MEMORY.md'];
+        const ALLOWED = ['USER.md', 'AGENTS.md', 'IDENTITY.md', 'SOUL.md', 'MEMORY.md', 'HEARTBEAT.md'];
         const file = String(body.path || '').replace(/[^A-Za-z0-9._-]/g, '');
         if (!ALLOWED.includes(file)) return send(400, { error: 'file not allowed' });
         const aid = String(body.agentId || '').replace(/[^a-z0-9_]/g, '');

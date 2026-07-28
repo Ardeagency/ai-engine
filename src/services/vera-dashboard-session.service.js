@@ -1158,9 +1158,14 @@ export async function runBrandDiagnosis(brandContainerId, { trigger = "manual" }
       iterations: rounds,
       input_chars: inputChars,
       output_chars: outputChars,
-      // Si el agente nunca respondió, el modelo no corrió: el costo real es 0.
-      // Estimarlo por caracteres aquí inflaba /dev/costs con gasto inexistente.
-      est_cost_usd: agentFailed ? 0 : _estimateCostUsd(inputChars, outputChars),
+      // El coste sale de lo que REALMENTE se envió, falle o no la sesión. Poner
+      // 0 al fallar (como se hacía hasta 2026-07-28) borraba de /dev/costs las
+      // rondas que sí corrieron antes del fallo: una sesión que quemaba media
+      // hora de generación y moría en la última ronda se anotaba gratis, y el
+      // modelo había facturado igual. Si el fallo fue no poder ni hablar con el
+      // org-server, `inputChars` apenas trae el envío que no llegó a correr:
+      // sobreestimar eso es infinitamente más barato que perder la sesión entera.
+      est_cost_usd: _estimateCostUsd(inputChars, outputChars),
       error_message: err ? String(err).slice(0, 500) : null,
       finished_at: new Date().toISOString(),
     }).eq("session_id", sessionId);
@@ -1916,7 +1921,10 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
       iterations: rounds,
       input_chars: inputChars,
       output_chars: outputChars,
-      est_cost_usd: agentFailed ? 0 : _estimateCostUsd(inputChars, outputChars),
+      // Lo enviado se paga aunque la sesión muera a mitad. Ver la nota gemela en
+      // la sesión de diagnóstico: el `agentFailed ? 0` borraba de la cuenta todas
+      // las rondas que sí corrieron antes del fallo.
+      est_cost_usd: _estimateCostUsd(inputChars, outputChars),
       error_message: err ? String(err).slice(0, 500) : null,
       finished_at: new Date().toISOString(),
     }).eq("session_id", sessionId);

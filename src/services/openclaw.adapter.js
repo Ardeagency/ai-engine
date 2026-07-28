@@ -23,6 +23,14 @@ import { supabase } from "../lib/supabase.js";
 // dashboard, diagnóstico) → credit_usage con el costo exacto. Así se puede
 // calcular cuánto gasta una Vera real. El cache-read domina (Vera recarga su
 // system prompt de ~32KB en cada tool call interno).
+//
+// SUPLENTE, NO TITULAR (2026-07-28). Desde que el anthropic-proxy de la VM mide
+// de verdad, esto contaba los MISMOS tokens una segunda vez: dos filas por turno
+// en `credit_usage` y cualquier suma por org inflada al doble. El proxy gana
+// —mide en el cable, ve también los turnos de latido y cron que jamás pasan por
+// ai-engine—, así que esta estimación solo entra donde el proxy aún no llega
+// (VMs que no han pasado por un ciclo dormir/despertar). Ver
+// `_proxyMideEstaOrg`.
 // Precios claude-sonnet-4-6 (USD por millón de tokens):
 const SONNET_USD_PER_MTOK = { input: 3, output: 15, cacheRead: 0.30, cacheWrite: 3.75 };
 
@@ -60,10 +68,37 @@ function _usageToUsd(u) {
          (u.cacheRead / 1e6) * p.cacheRead + (u.cacheWrite / 1e6) * p.cacheWrite;
 }
 
+/**
+ * ¿El anthropic-proxy de esta org está midiendo? Se pregunta al ledger, que es
+ * el único sitio donde consta: si el proxy dejó fila propia en la última media
+ * hora, este turno también pasó por él y la estimación de aquí sobra.
+ *
+ * Se consulta DESPUÉS del turno a propósito: el proxy escribe su fila mientras
+ * la respuesta aún viaja hacia ai-engine, así que para cuando esto corre la
+ * fila del turno en curso ya existe. Sin caché — si el proxy se cae, la
+ * estimación vuelve a entrar en el turno siguiente, no media hora después.
+ */
+async function _proxyMideEstaOrg(organizationId) {
+  try {
+    const desde = new Date(Date.now() - 30 * 60 * 1000).toISOString();
+    const { count, error } = await supabase
+      .from("credit_usage")
+      .select("id", { count: "exact", head: true })
+      .eq("organization_id", organizationId)
+      .eq("source_table", "anthropic_proxy")
+      .gte("created_at", desde);
+    if (error) return false;   // ante la duda, medir de más y no de menos
+    return (count || 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
 async function _logVeraUsage(organizationId, raw, meta = {}) {
   try {
     const u = _extractUsageTotals(raw);
     if (!u) return;
+    if (await _proxyMideEstaOrg(organizationId)) return;
     const usd = Number(_usageToUsd(u).toFixed(6));
     await supabase.from("credit_usage").insert({
       organization_id: organizationId,
@@ -76,6 +111,10 @@ async function _logVeraUsage(organizationId, raw, meta = {}) {
         model: "claude-sonnet-4-6",
         ...u,
         usd,
+        // La fila lo dice de sí misma: esto es la suplencia, no la medición del
+        // cable. Quien sume gasto sabe qué tiene delante sin mirar el código.
+        estimado: true,
+        motivo: "org sin anthropic-proxy midiendo",
         session_key: meta.sessionKey || null,
         at: new Date().toISOString(),
       },

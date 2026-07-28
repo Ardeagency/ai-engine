@@ -22,6 +22,48 @@ import {
   MIMARCA_PERIODOS,
 } from "../lib/mimarca-publish.js";
 import { REQUIRED_TYPES } from "../lib/vera-mimarca-cards.schema.js";
+import { supabase } from "../lib/supabase.js";
+import { resolveBrandContainer } from "../lib/brand-resolver.js";
+
+/**
+ * El contenedor de marca sobre el que trabaja este par de tools.
+ *
+ * POR QUE EXISTE: el dispatcher solo inyecta `brandContainerId` cuando la
+ * llamada viene de una CONVERSACION que ya lo trae. Cuando Vera despierta sola
+ * —su latido, un cron— no hay conversacion, y estas dos tools morian con
+ * "brandContainerId es requerido". Su propio guion del latido (HEARTBEAT.md) le
+ * manda empezar por `getMiMarcaProgress`: el paso 2 de su rutina autonoma fallaba
+ * SIEMPRE, en las dos VMs, y el error culpaba a quien llamaba. Verificado en vivo
+ * el 2026-07-28 en WAKEUP e IGNIS.
+ *
+ * POR QUE NO RESUELVE A CIEGAS: `resolveBrandContainer` cae a "la marca mas
+ * antigua" cuando no le dan id, y depositar la card de una marca en el tablero de
+ * otra es peor que no depositarla. Asi que solo se auto-resuelve cuando la
+ * organizacion tiene UNA marca y no hay ambiguedad posible. Con varias, se le
+ * devuelve la lista para que elija — un error que dice como salir de el.
+ */
+async function _contenedor(brandContainerId, organizationId) {
+  if (brandContainerId) {
+    const bc = await resolveBrandContainer(brandContainerId, organizationId);
+    return bc.id;
+  }
+  if (!organizationId) {
+    throw new Error("brandContainerId es requerido (y no llego organizationId para resolverlo).");
+  }
+  const { data, error } = await supabase
+    .from("brand_containers")
+    .select("id, nombre_marca")
+    .eq("organization_id", organizationId)
+    .order("created_at", { ascending: true })
+    .limit(5);
+  if (error) throw new Error(`No se pudo resolver la marca: ${error.message}`);
+  if (!data?.length) throw new Error("Esta organizacion no tiene ninguna marca creada.");
+  if (data.length === 1) return data[0].id;
+  throw new Error(
+    "Esta organizacion tiene varias marcas: pasa brandContainerId explicito. " +
+    data.map((b) => `${b.nombre_marca}=${b.id}`).join(" | ")
+  );
+}
 
 /**
  * Deposita UNA card de Mi Marca en el periodo indicado.
@@ -39,7 +81,7 @@ import { REQUIRED_TYPES } from "../lib/vera-mimarca-cards.schema.js";
 export async function publishMiMarcaCard({
   organizationId, brandContainerId, periodo, card, sessionId,
 }) {
-  if (!brandContainerId) throw new Error("brandContainerId es requerido.");
+  const contenedor = await _contenedor(brandContainerId, organizationId);
   if (!periodo) {
     throw new Error(
       `El campo 'periodo' es requerido. Validos: ${MIMARCA_PERIODOS.map((x) => x.k).join(", ")}`
@@ -62,7 +104,7 @@ export async function publishMiMarcaCard({
 
   return depositarCard({
     organizationId,
-    brandContainerId,
+    brandContainerId: contenedor,
     periodoKey: periodo,
     card,
     sessionId: sessionId || crypto.randomUUID(),
@@ -73,9 +115,9 @@ export async function publishMiMarcaCard({
  * Que cards hay y cuales faltan, periodo por periodo. Sirve para retomar
  * despues de un fallo sin repetir trabajo ya hecho.
  */
-export async function getMiMarcaProgress({ brandContainerId }) {
-  if (!brandContainerId) throw new Error("brandContainerId es requerido.");
-  const porPeriodo = await estadoBorradores(brandContainerId);
+export async function getMiMarcaProgress({ brandContainerId, organizationId }) {
+  const contenedor = await _contenedor(brandContainerId, organizationId);
+  const porPeriodo = await estadoBorradores(contenedor);
   // La card `audiencia` es OPCIONAL y por eso nunca salia en "faltan": mi propio
   // lazo se la escondia. Vera la omitio en WAKEUP (2026-07-28) teniendo delante
   // 230.635 seguidores con reparto por edad, genero, pais y ciudad. Ahora la

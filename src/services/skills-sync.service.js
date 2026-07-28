@@ -19,12 +19,13 @@
  * dormir/despertar, que conserva su memoria y los deja con el puente nuevo.
  */
 import { execSync } from "child_process";
+import { createHash } from "crypto";
 import { readFileSync } from "fs";
 import { watch as fsWatch } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { supabase } from "../lib/supabase.js";
-import { calcularDiferencial, pedirAutoactualizacion, pedirRetirada } from "./skills-selfupdate.service.js";
+import { calcularDiferencial, pedirAutoactualizacion, pedirRetirada, firmaDeEncargo } from "./skills-selfupdate.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULTS_DIR = path.join(__dirname, "..", "..", "defaults");
@@ -33,6 +34,17 @@ const TIMEOUT_MS = Number(process.env.SKILLS_SYNC_TIMEOUT_MS || 60_000);
 /** Deriva el agentId igual que el provisioner: org_<32 hex del uuid>. */
 function deriveAgentId(orgId) {
   return "org_" + String(orgId).replace(/-/g, "").slice(0, 24);
+}
+
+// Huella del contenido de la biblioteca, por proceso. Sirve para no despertar a
+// una Vera de puente viejo cuando no ha cambiado nada: el diferencial va por
+// NOMBRES y no ve la edicion de una skill existente, asi que hace falta mirar el
+// contenido. Se pierde al reiniciar, y eso es lo que se quiere: en frio manda el
+// diferencial de nombres, que si consta en la base.
+const _ultimaHuella = new Map();   // orgId -> sha1 de defaults/
+
+function _huellaDefaults() {
+  return createHash("sha1").update(_tarballDefaults()).digest("hex");
 }
 
 function _tarballDefaults() {
@@ -44,20 +56,29 @@ function _tarballDefaults() {
 
 // Ficheros de doctrina RAIZ. El endpoint /skills/refresh solo instala `skills/`,
 // asi que sin esto AGENTS.md e IDENTITY.md solo cambiaban al recrear la VM.
-// /workspace/file existe tambien en los puentes viejos: su lista blanca es
-// ['USER.md','AGENTS.md','IDENTITY.md','SOUL.md','MEMORY.md'].
-// HEARTBEAT.md es el guion del latido: sin el, Vera despierta cada 30 min sin
-// encargo. Ojo: el puente solo admite por /workspace/file la lista blanca
-// ['USER.md','AGENTS.md','IDENTITY.md','SOUL.md','MEMORY.md'], asi que a los
-// org-servers ya existentes llega por la autoactualizacion, no por empuje.
-const RAIZ = ["AGENTS.md", "IDENTITY.md", "SOUL.md"];
-const RAIZ_POR_AUTOACTUALIZACION = ["HEARTBEAT.md"];
+//
+// HEARTBEAT.md es el guion del latido: sin el, Vera despierta cada 30 minutos,
+// no sabe a que vino y se vuelve a dormir. Estaba declarado aparte en una
+// constante que NADIE leia, asi que de hecho no viajaba por ningun sitio salvo
+// el aprovisionamiento. Ahora se empuja como los demas; los puentes anteriores a
+// su lista blanca lo rechazan con 400 y eso se REPORTA (antes se tragaba en
+// silencio, que es como esta clase de fallo sobrevive meses).
+const RAIZ = ["AGENTS.md", "IDENTITY.md", "SOUL.md", "HEARTBEAT.md"];
 
-async function _empujarRaiz({ ip, puerto, token, agentId }) {
+async function _empujarRaiz({ ip, puerto, token, agentId, orgId }) {
   const escritos = [];
+  const rechazados = [];
   for (const f of RAIZ) {
     try {
-      const contenido = readFileSync(path.join(DEFAULTS_DIR, f), "utf8");
+      let contenido = readFileSync(path.join(DEFAULTS_DIR, f), "utf8");
+      // La firma va PEGADA a la doctrina, y la doctrina solo entra por este
+      // canal —el puente, con el token de la org—. Ahi esta la prueba: no en que
+      // el mensaje describa bien el encargo, sino en que cite algo que solo
+      // puede haber llegado por una via autenticada. Sin esto, la Vera de IGNIS
+      // rechazaba a su propio operador con un argumento impecable: "una cosa es
+      // que yo reconozca los signos, y otra que cualquier mensaje que los cite
+      // sea automaticamente legitimo".
+      if (f === "AGENTS.md") contenido += firmaDeEncargo(orgId);
       const r = await fetch(`http://${ip}:${puerto}/workspace/file`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-org-token": token },
@@ -65,9 +86,14 @@ async function _empujarRaiz({ ip, puerto, token, agentId }) {
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });
       if (r.ok) escritos.push(f);
-    } catch { /* la doctrina raiz no debe tumbar el refresco de skills */ }
+      else rechazados.push(`${f}:HTTP ${r.status}`);
+    } catch (e) {
+      // La doctrina raiz no debe tumbar el refresco de skills, pero tampoco
+      // desaparecer sin dejar rastro.
+      rechazados.push(`${f}:${String(e.message).slice(0, 60)}`);
+    }
   }
-  return escritos;
+  return { escritos, rechazados };
 }
 
 /** Empuja las skills a UNA organizacion. */
@@ -81,7 +107,8 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
 
   // Primero la doctrina raiz: funciona hasta en los puentes viejos, asi que una
   // org sin /skills/refresh al menos no se queda con un AGENTS.md fosil.
-  const raiz = await _empujarRaiz({ ip, puerto, token, agentId });
+  const { escritos: raiz, rechazados: raizRechazada } = await _empujarRaiz({ ip, puerto, token, agentId, orgId });
+  const raizInfo = raizRechazada.length ? { raiz, raiz_rechazada: raizRechazada } : { raiz };
 
   // Lo que hay que RETIRAR se calcula ANTES de empujar, contra lo que ella reporto
   // la ultima vez. El empuje instala y sobreescribe; borrar es lo unico que ningun
@@ -103,8 +130,25 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
     if (resp.status === 404) {
       // Puente anterior a /skills/refresh. Ya no es motivo para recrear la VM:
       // /agent/run existe en todos los puentes desde el principio.
+      //
+      // Pero un turno de agente cuesta dinero y atencion, y aqui se pedia SIEMPRE,
+      // hubiera o no algo que hacer: cada sincronizacion la despertaba para
+      // decirle que su biblioteca ya estaba al dia. Solo se le pide turno si su
+      // inventario no coincide con la biblioteca, o si el contenido cambio desde
+      // el ultimo empuje que hizo ESTE proceso.
+      const { aInstalar } = calcularDiferencial(instancia.skills_installed);
+      const huella = _huellaDefaults();
+      const cambioContenido = _ultimaHuella.has(orgId) && _ultimaHuella.get(orgId) !== huella;
+      if (!aInstalar.length && !aEliminar.length && !cambioContenido) {
+        _ultimaHuella.set(orgId, huella);
+        return {
+          orgId, ok: true, skills: (instancia.skills_installed || []).length, ...raizInfo,
+          nota: "puente viejo — su inventario ya coincide; no se le pide turno",
+        };
+      }
       const r = await pedirAutoactualizacion(instancia);
-      return { ...r, raiz, nota: "puente viejo — resuelto por autoactualizacion, sin dormir/despertar" };
+      if (r.ok) _ultimaHuella.set(orgId, huella);
+      return { ...r, ...raizInfo, nota: "puente viejo — resuelto por autoactualizacion, sin dormir/despertar" };
     }
     const body = await resp.json().catch(() => ({}));
     if (!resp.ok) return { orgId, ok: false, motivo: body?.error || `HTTP ${resp.status}` };
@@ -122,7 +166,7 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
     return {
       orgId, ok: retirada ? retirada.ok : true,
       skills: retirada?.skills ?? (body.total ?? (body.skills || []).length),
-      raiz,
+      ...raizInfo,
       ...(aEliminar.length ? { retiradas: aEliminar, retirada } : { retiradas: body.retiradas || [] }),
     };
   } catch (e) {

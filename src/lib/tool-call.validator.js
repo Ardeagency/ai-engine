@@ -113,8 +113,63 @@ export const TOOL_SCHEMAS = {
   getFlows:                  {},
   getFlowInputs:             { flowId: "uuid", params: "object", brandContainerId: "uuid" },
   forgeProductionPrompt:     { params: "object", brandContainerId: "uuid" },
-  generateImageDirect:       { params: "object", brandContainerId: "uuid" },
-  generateVideoDirect:       { params: "object", brandContainerId: "uuid" },
+  // El input REAL de KIE, declarado entero. Desde que se quito el LLM intermedio
+  // (2026-07-28) el `prompt` de Vera viaja verbatim al proveedor: si no ve los
+  // campos, no puede dirigir la pieza. Antes esto era `params: "object"` — un
+  // saco opaco — y ella tenia que adivinar que ponerle.
+  generateImageDirect: {
+    params: {
+      type: "object",
+      description: "input de KIE (modelo nano-banana-pro). Tu escribes el prompt final: NO hay otro modelo que lo reescriba.",
+      properties: {
+        prompt: {
+          type: "string",
+          description: "OBLIGATORIO. La imagen COMPLETA descrita por ti, tal cual se va a generar: sujeto, accion, escena, luz, paleta, encuadre/plano, estilo, y el texto exacto si la pieza lleva texto. Entre 10 y 5000 caracteres. Lo que escribas es lo que sale — un prompt vago da una imagen generica.",
+        },
+        image_input: {
+          type: "array",
+          items: { type: "string" },
+          description: "Opcional. Hasta 5 URLs http(s) publicas de imagenes de REFERENCIA (foto del producto, pieza previa, rostro de un personaje) para que la generacion parta de ellas. Vacio o ausente = texto a imagen.",
+        },
+        aspect_ratio: {
+          type: "string",
+          enum: ["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "auto"],
+          description: "Encuadre. Default 1:1. Feed de Instagram 4:5, historias y Reels 9:16, portada web 16:9.",
+        },
+        resolution: {
+          type: "string",
+          enum: ["1K", "2K", "4K"],
+          description: "Default 2K. 1K para bocetos y pruebas (mas barato), 4K solo si la pieza se va a imprimir o ampliar.",
+        },
+        output_format: {
+          type: "string",
+          enum: ["png", "jpg"],
+          description: "Default png. Usa png si lleva texto o necesita transparencia; jpg si es una foto y pesa mucho.",
+        },
+      },
+      required: ["prompt"],
+    },
+    brandContainerId: "uuid",
+  },
+  generateVideoDirect: {
+    params: {
+      type: "object",
+      description: "input de KIE para video. Tu escribes el prompt final: NO hay otro modelo que lo reescriba.",
+      properties: {
+        prompt: {
+          type: "string",
+          description: "OBLIGATORIO. El plano COMPLETO descrito por ti: sujeto, accion, movimiento de camara, ambiente, luz y estilo. Entre 10 y 5000 caracteres.",
+        },
+        aspect_ratio: {
+          type: "string",
+          enum: ["16:9", "9:16", "1:1"],
+          description: "Encuadre. Default 16:9. Reels/TikTok 9:16.",
+        },
+      },
+      required: ["prompt"],
+    },
+    brandContainerId: "uuid",
+  },
   getRunsAwaitingApproval:   { brandContainerId: "uuid" },
   approveRunStage:           { params: "object", brandContainerId: "uuid" },
   getScraperStatus:          {},
@@ -217,9 +272,14 @@ export function validateToolCall(toolCall) {
 
   // 4. Field type validation per schema
   const schema = TOOL_SCHEMAS[name] ?? {};
-  for (const [field, expectedType] of Object.entries(schema)) {
+  for (const [field, spec] of Object.entries(schema)) {
     const val = p[field];
     if (val === undefined || val === null || val === "") continue; // optional fields skip
+
+    // Un spec puede venir como tipo ("uuid") o como JSON Schema completo (ver
+    // TOOL_SCHEMAS). En el segundo caso aqui solo se comprueba la FORMA externa;
+    // los campos internos los valida el servicio, que puede explicar el porque.
+    const expectedType = (spec && typeof spec === "object") ? (spec.type || "object") : spec;
 
     if (expectedType === "uuid") {
       if (!isValidUUID(val)) {

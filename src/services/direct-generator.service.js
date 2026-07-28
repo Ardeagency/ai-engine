@@ -2,12 +2,20 @@
  * direct-generator.service.js
  * Generador DIRECTO de imagen/video via KIE (api.kie.ai), INDEPENDIENTE de los
  * content-flows / dispatcher ComfyUI. Pipeline "muy al punto":
- *   intent -> forgeProductionPrompt (RAG ai_global_vectors + OpenAI) -> KIE createTask
+ *   prompt de Vera -> KIE createTask
  *   -> [ASYNC] poll recordInfo -> persist R2 -> entrega la media a la conversacion.
  *
- * ASYNC a proposito: el tool DEVUELVE RAPIDO (forge+createTask ~7s) para no
- * exceder el timeout del cliente MCP (error -32001). Un poll de fondo entrega la
- * imagen a la conversacion (insert ai_messages) cuando el resultado REAL existe.
+ * SIN LLM INTERMEDIO (2026-07-28). Antes, entre Vera y KIE habia un segundo
+ * modelo: `forgeProductionPrompt` (RAG sobre ai_global_vectors + OpenAI) reescribia
+ * su descripcion y ESE texto —no el suyo— era el que llegaba al generador. Vera
+ * escribia una intencion y recibia una imagen de un prompt que nunca vio: no podia
+ * corregir el encuadre, ni fijar un detalle, ni saber por que salio distinta.
+ * Ahora ai-engine le pasa el ESQUEMA de KIE y ella lo llena: su `prompt` viaja
+ * VERBATIM al proveedor. El motor solo valida y transporta.
+ *
+ * ASYNC a proposito: el tool DEVUELVE RAPIDO (createTask ~2-4s) para no exceder
+ * el timeout del cliente MCP (error -32001). Un poll de fondo entrega la imagen a
+ * la conversacion (insert ai_messages) cuando el resultado REAL existe.
  * "Generando" es HONESTO porque hay un task KIE real detras (task_id devuelto).
  *
  * LIMITACION v1: el poll vive en memoria del proceso — si ai-engine reinicia a
@@ -15,7 +23,6 @@
  * se entrega). Upgrade pendiente: tabla durable direct_generations + poller cron.
  */
 import { supabase } from "../lib/supabase.js";
-import { forgeProductionPrompt } from "../tools/prompt-forge.tools.js";
 
 const KIE_BASE     = (process.env.KIE_API_BASE_URL || "https://api.kie.ai").replace(/\/$/, "");
 const CREATE_PATH  = "/api/v1/jobs/createTask";
@@ -32,6 +39,15 @@ const R2_INGEST_KEY = process.env.R2_INGEST_KEY;
 
 const IMAGE_ASPECTS = new Set(["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "auto"]);
 const VIDEO_ASPECTS = new Set(["16:9", "9:16", "1:1"]);
+// Valores que acepta `input` de nano-banana-pro. Antes estaban CLAVADOS en el
+// codigo (2K/png): Vera no tenia como pedir otra cosa aunque el modelo la ofrezca.
+const IMAGE_RESOLUTIONS = new Set(["1K", "2K", "4K"]);
+const OUTPUT_FORMATS    = new Set(["png", "jpg"]);
+// Tope del proveedor para el texto del prompt. Se RECHAZA al pasarse en vez de
+// truncar en silencio: un prompt cortado a la mitad produce una imagen que no es
+// la que Vera pidio, y ella no tendria como enterarse.
+const MAX_PROMPT_CHARS  = 5000;
+const MIN_PROMPT_CHARS  = 10;
 
 function _headers() {
   const key = process.env.KIE_API_KEY;
@@ -117,7 +133,11 @@ async function _deliver(conversationId, organizationId, content) {
 // Poll de fondo: espera el resultado REAL, persiste a R2 y lo entrega a la conversacion.
 async function _pollAndDeliver({ taskId, timeoutMs, conversationId, organizationId, mediaType, intent }) {
   const start = Date.now();
-  const label = String(intent || "").slice(0, 80) || (mediaType === "video" ? "video" : "imagen");
+  // Con el prompt escrito por Vera (largo y detallado) un slice crudo cortaba a
+  // mitad de palabra en pleno mensaje al usuario. Se corta en el ultimo espacio.
+  const crudo = String(intent || "").replace(/\s+/g, " ").trim();
+  const corto = crudo.length > 80 ? crudo.slice(0, 80).replace(/\s+\S*$/, "") + "…" : crudo;
+  const label = corto || (mediaType === "video" ? "video" : "imagen");
   while (Date.now() - start < timeoutMs) {
     await new Promise((r) => setTimeout(r, 5000));
     let d = {};
@@ -149,68 +169,101 @@ async function _pollAndDeliver({ taskId, timeoutMs, conversationId, organization
   await _deliver(conversationId, organizationId, `La generación de ${label} está tardando más de lo normal y no la pude confirmar. Pídeme que lo reintente.`);
 }
 
-async function _start({ mediaType, intent, brandContainerId, organizationId, conversationId, aspectRatio, imageInput }) {
-  intent = String(intent || "").trim();
-  if (!intent) throw new Error("Falta la descripcion de que generar");
+// Un valor fuera de la lista se RECHAZA con las opciones al lado, en vez de caer
+// a un default silencioso: si Vera pide 4:5 y el motor le entrega 1:1 sin decirlo,
+// ella cree que el modelo no respeta el encuadre y reintenta contra un fantasma.
+function _pick(value, allowed, field) {
+  if (value === undefined || value === null || value === "") return null;
+  const v = String(value).trim();
+  if (!allowed.has(v)) {
+    throw new Error(`${field}: "${v}" no es un valor valido. Opciones: ${[...allowed].join(" | ")}`);
+  }
+  return v;
+}
+
+function _cleanImageInput(imageInput) {
+  if (imageInput === undefined || imageInput === null) return null;
+  const arr = Array.isArray(imageInput) ? imageInput : [imageInput];
+  const urls = arr.filter((u) => typeof u === "string" && /^https?:\/\//.test(u.trim())).map((u) => u.trim());
+  if (arr.length && !urls.length) {
+    throw new Error("image_input: cada referencia debe ser una URL http(s) publica de una imagen ya existente.");
+  }
+  return urls.length ? urls.slice(0, 5) : null;
+}
+
+async function _start({ mediaType, prompt, organizationId, conversationId, aspectRatio, imageInput, resolution, outputFormat }) {
+  // El prompt de Vera viaja VERBATIM al proveedor: ni se reescribe, ni se enriquece,
+  // ni se trunca. Ella es la directora creativa; el motor es el cable.
+  prompt = String(prompt ?? "").trim();
   const isVideo = mediaType === "video";
+  const que = isVideo ? "el video" : "la imagen";
 
-  // 1. Prompt profesional (RAG ai_global_vectors + OpenAI)
-  let prompt = intent;
-  try {
-    const forged = await forgeProductionPrompt({ intent, productionType: isVideo ? "video" : "image" }, brandContainerId, organizationId);
-    prompt = forged?.prompt || forged?.forged_prompt || forged?.production_prompt || forged?.text ||
-             (typeof forged === "string" ? forged : intent);
-  } catch (e) { console.warn(`direct-generator: forge fail-open -> ${e.message}`); }
-  prompt = String(prompt).slice(0, 2500);
+  if (!prompt) {
+    throw new Error(`Falta "prompt": describe TU MISMA ${que} completa (sujeto, escena, luz, encuadre, estilo, texto si lleva). Ya no hay un modelo intermedio que lo redacte por ti — lo que escribas es lo que se genera.`);
+  }
+  if (prompt.length < MIN_PROMPT_CHARS) {
+    throw new Error(`"prompt" tiene ${prompt.length} caracteres: es muy corto para dirigir ${que}. Describela con detalle.`);
+  }
+  if (prompt.length > MAX_PROMPT_CHARS) {
+    throw new Error(`"prompt" tiene ${prompt.length} caracteres y el maximo es ${MAX_PROMPT_CHARS}. Recortalo tu (no lo trunco yo: te entregaria una pieza distinta de la que pediste).`);
+  }
 
-  // 2. createTask (rapido)
+  // createTask (rapido)
   let taskId, timeoutMs;
   if (isVideo) {
-    const ar = VIDEO_ASPECTS.has(aspectRatio) ? aspectRatio : "16:9";
-    taskId = await _createTask(VIDEO_MODEL, { prompt, aspect_ratio: ar, duration: "5" });
+    const input = { prompt, aspect_ratio: _pick(aspectRatio, VIDEO_ASPECTS, "aspect_ratio") || "16:9", duration: "5" };
+    taskId = await _createTask(VIDEO_MODEL, input);
     timeoutMs = 300_000;
   } else {
-    const ar = IMAGE_ASPECTS.has(aspectRatio) ? aspectRatio : "1:1";
-    const input = { prompt, aspect_ratio: ar, resolution: "2K", output_format: "png" };
-    if (Array.isArray(imageInput) && imageInput.length) {
-      input.image_input = imageInput.filter((u) => typeof u === "string" && u.startsWith("http")).slice(0, 5);
-    }
+    const input = {
+      prompt,
+      aspect_ratio:  _pick(aspectRatio, IMAGE_ASPECTS, "aspect_ratio") || "1:1",
+      resolution:    _pick(resolution, IMAGE_RESOLUTIONS, "resolution") || "2K",
+      output_format: _pick(outputFormat, OUTPUT_FORMATS, "output_format") || "png",
+    };
+    const refs = _cleanImageInput(imageInput);
+    if (refs) input.image_input = refs;
     taskId = await _createTask(IMAGE_MODEL, input);
     timeoutMs = 200_000;
   }
 
-  // 3. Dispara el poll de fondo (no bloquea el retorno del tool)
+  // Dispara el poll de fondo (no bloquea el retorno del tool)
   setImmediate(() => {
-    _pollAndDeliver({ taskId, timeoutMs, conversationId, organizationId, mediaType, intent })
+    _pollAndDeliver({ taskId, timeoutMs, conversationId, organizationId, mediaType, intent: prompt })
       .catch((e) => console.warn(`direct-generator: poll fallo task=${taskId} — ${e.message}`));
   });
 
-  // 4. Retorno RAPIDO (task real ya existe -> "generando" es honesto)
+  // Retorno RAPIDO (task real ya existe -> "generando" es honesto)
   return {
     ok: true,
     status: "generating",
     task_id: taskId,
     media_type: isVideo ? "video" : "image",
-    prompt_used: prompt.slice(0, 400),
-    note: `Generacion REAL iniciada (task ${taskId}). Dile al usuario en 1 linea que la estas generando y que aparecera aqui en la conversacion en ~60-90s. NO afirmes que ya esta lista ni inventes una URL: el sistema la entrega solo cuando el archivo REAL existe.`,
+    prompt_sent: prompt,
+    note: `Generacion REAL iniciada (task ${taskId}) con TU prompt tal cual, sin reescribir. Dile al usuario en 1 linea que la estas generando y que aparecera aqui en la conversacion en ~60-90s. NO afirmes que ya esta lista ni inventes una URL: el sistema la entrega solo cuando el archivo REAL existe.`,
   };
 }
 
+// `intent`/`description` se siguen aceptando como alias de `prompt` para no romper
+// una llamada vieja en vuelo, pero ya NO significan "una idea que otro redactara":
+// lo que llegue por cualquiera de los tres nombres se manda al proveedor tal cual.
 export function generateImageDirect(params = {}, brandContainerId, organizationId, conversationId) {
   return _start({
     mediaType: "image",
-    intent: params.intent || params.description || params.prompt,
-    brandContainerId, organizationId, conversationId,
-    aspectRatio: params.aspect_ratio,
-    imageInput: params.image_input,
+    prompt: params.prompt ?? params.intent ?? params.description,
+    organizationId, conversationId,
+    aspectRatio:  params.aspect_ratio,
+    imageInput:   params.image_input,
+    resolution:   params.resolution,
+    outputFormat: params.output_format,
   });
 }
 
 export function generateVideoDirect(params = {}, brandContainerId, organizationId, conversationId) {
   return _start({
     mediaType: "video",
-    intent: params.intent || params.description || params.prompt,
-    brandContainerId, organizationId, conversationId,
+    prompt: params.prompt ?? params.intent ?? params.description,
+    organizationId, conversationId,
     aspectRatio: params.aspect_ratio,
   });
 }

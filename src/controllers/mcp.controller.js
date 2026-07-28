@@ -139,6 +139,19 @@ function _buildInputSchema(toolName) {
   const properties = {};
   const required = [];
   for (const [param, t] of Object.entries(spec)) {
+    // Un spec puede ser un TIPO ("uuid"/"object"/...) o un JSON Schema COMPLETO.
+    // La segunda forma existe porque "params: object" no le dice a Vera NADA de
+    // que va adentro: veia un saco vacio y tenia que adivinar los campos. Cuando
+    // el payload tiene forma conocida (el input de KIE, p.ej.), se declara aqui
+    // entera y ella recibe los campos, sus valores validos y cual es obligatorio.
+    if (t && typeof t === "object") {
+      // Copia: el spec es un objeto compartido a nivel de modulo. Borrarle la
+      // marca __required in-place la perderia para todas las llamadas siguientes.
+      const { __required, ...jsonSchema } = t;
+      properties[param] = jsonSchema;
+      if (!_AUTO_RESOLVED.has(param) && (param === "params" || __required)) required.push(param);
+      continue;
+    }
     properties[param] = { type: _TYPE_MAP[t] || "string", description: `${param} (${t})` };
     if (!_AUTO_RESOLVED.has(param) && (t === "uuid" || param === "params")) required.push(param);
   }

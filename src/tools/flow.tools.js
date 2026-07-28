@@ -148,12 +148,51 @@ export async function getFlowRunOutputs(runId, brandContainerId, organizationId)
 
   const { data, error } = await supabase
     .from("runs_outputs")
-    .select("id, output_type, text_content, generated_copy, generated_hashtags, created_at")
+    // Antes solo se pedian los campos de TEXTO: Vera revisaba una produccion
+    // audiovisual sin ver la pieza, sin el prompt con que se hizo y sin su
+    // racional. `storage_path` ya viene como URL publica de R2.
+    .select(
+      "id, output_type, status, error_message, created_at, " +
+      "storage_path, reference_image_url, " +
+      "text_content, generated_copy, generated_hashtags, " +
+      "prompt_used, creative_rationale, technical_params, models, provider"
+    )
     .eq("run_id", runId)
     .limit(10);
 
   if (error) throw error;
-  return Array.isArray(data) ? data : [];
+
+  const salidas = (Array.isArray(data) ? data : []).map((o) => ({
+    id: o.id,
+    tipo: o.output_type,
+    estado: o.status,
+    fallo: o.error_message || null,
+    creada: o.created_at,
+    // Lo que hay que MIRAR
+    media: o.storage_path || null,
+    referencia: o.reference_image_url || null,
+    sin_media: !o.storage_path,
+    // Lo que hay que LEER
+    copy: o.generated_copy || o.text_content || null,
+    hashtags: o.generated_hashtags || null,
+    // Con que se hizo — para poder decir que cambiar, no solo si gusta
+    prompt: o.prompt_used || null,
+    racional: o.creative_rationale || null,
+    parametros: o.technical_params || null,
+    modelos: o.models || null,
+    proveedor: o.provider || null,
+  }));
+
+  return {
+    salidas,
+    total: salidas.length,
+    sin_media: salidas.filter((x) => x.sin_media).length,
+    encargo:
+      "MIRA la media de cada salida antes de opinar de ella: enlace en `media`. " +
+      "Para decir que cambiar y no solo si te gusta, lee tambien `prompt` y `racional` " +
+      "— ahi esta con que se hizo. Juzgar una pieza que no viste es inventar con " +
+      "buena redaccion.",
+  };
 }
 
 

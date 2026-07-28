@@ -24,6 +24,7 @@ import { watch as fsWatch } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { supabase } from "../lib/supabase.js";
+import { calcularDiferencial, pedirAutoactualizacion, pedirRetirada } from "./skills-selfupdate.service.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULTS_DIR = path.join(__dirname, "..", "..", "defaults");
@@ -77,6 +78,11 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
   // org sin /skills/refresh al menos no se queda con un AGENTS.md fosil.
   const raiz = await _empujarRaiz({ ip, puerto, token, agentId });
 
+  // Lo que hay que RETIRAR se calcula ANTES de empujar, contra lo que ella reporto
+  // la ultima vez. El empuje instala y sobreescribe; borrar es lo unico que ningun
+  // endpoint del puente sabe hacer, y va despues, ya con el contenido en su sitio.
+  const { aEliminar } = calcularDiferencial(instancia.skills_installed);
+
   try {
     const resp = await fetch(`http://${ip}:${puerto}/skills/refresh`, {
       method: "POST",
@@ -90,12 +96,10 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
     });
 
     if (resp.status === 404) {
-      return {
-        orgId, ok: false,
-        motivo: "el puente de este org-server es anterior al endpoint /skills/refresh — necesita un ciclo dormir/despertar",
-        necesita_wake: true,
-        raiz,
-      };
+      // Puente anterior a /skills/refresh. Ya no es motivo para recrear la VM:
+      // /agent/run existe en todos los puentes desde el principio.
+      const r = await pedirAutoactualizacion(instancia);
+      return { ...r, raiz, nota: "puente viejo — resuelto por autoactualizacion, sin dormir/despertar" };
     }
     const body = await resp.json().catch(() => ({}));
     if (!resp.ok) return { orgId, ok: false, motivo: body?.error || `HTTP ${resp.status}` };
@@ -106,7 +110,16 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
       .update({ skills_installed: body.skills || [], updated_at: new Date().toISOString() })
       .eq("organization_id", orgId);
 
-    return { orgId, ok: true, skills: body.total ?? (body.skills || []).length, raiz, retiradas: body.retiradas || [] };
+    // El contenido ya esta puesto por ai-engine. Si algo fue retirado, ahora si se
+    // le dicta la lista exacta: es el unico paso que necesita sus manos.
+    const retirada = aEliminar.length ? await pedirRetirada(instancia, aEliminar) : null;
+
+    return {
+      orgId, ok: retirada ? retirada.ok : true,
+      skills: retirada?.skills ?? (body.total ?? (body.skills || []).length),
+      raiz,
+      ...(aEliminar.length ? { retiradas: aEliminar, retirada } : { retiradas: body.retiradas || [] }),
+    };
   } catch (e) {
     return { orgId, ok: false, motivo: String(e.message).slice(0, 200) };
   }
@@ -116,7 +129,7 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
 export async function syncSkillsToAllOrgs() {
   const { data: sanas, error } = await supabase
     .from("openclaw_instances")
-    .select("organization_id, server_ip, server_port, org_token, agent_id, status")
+    .select("organization_id, server_ip, server_port, org_token, agent_id, status, skills_installed")
     .eq("status", "healthy");
   if (error) throw new Error(`skills-sync: ${error.message}`);
   if (!sanas?.length) return { total: 0, ok: 0, resultados: [] };

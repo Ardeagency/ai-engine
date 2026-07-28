@@ -12,6 +12,7 @@ import {
   hetznerStatus,
   forceRemoteHealthCheck,
   serveDefaultsTarball,
+  serveSkillsBundle,
   serveMcpServer,
   serveAnthropicProxy,
   approveVeraAction,
@@ -40,6 +41,8 @@ router.get("/brand-scrape/status/:jobId", brandScrapeStatus);
 
 // ── Defaults tarball (para cloud-init de org-servers) ─────────────────────────
 router.get("/defaults.tar.gz", serveDefaultsTarball);
+// Autoactualizacion: la Vera se lo descarga ella misma con un token de un solo uso.
+router.get("/skills/bundle/:token", serveSkillsBundle);
 
 // Sirve el codigo del puente para que un org-server lo refresque al despertar,
 // igual que ya hace con el MCP server. Sin esto, un servidor recreado desde

@@ -493,6 +493,7 @@ export const forceRemoteHealthCheck = async (req, res) => {
 // Autenticado con x-webhook-secret.
 
 import { execSync } from "child_process";
+import { consumirTokenBundle } from "../services/skills-selfupdate.service.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -516,6 +517,27 @@ export const serveDefaultsTarball = (req, res) => {
   } catch (e) {
     console.error("internal: error generando defaults tarball:", e.message);
     res.status(500).json({ error: "Error generando tarball de defaults" });
+  }
+};
+
+// ── GET /internal/skills/bundle/:token ───────────────────────────────────────
+// Gemela de defaults.tar.gz para que Vera se actualice SOLA. No pide el secreto
+// interno —ese no puede acabar en el prompt de un agente— sino un token de un
+// solo uso, acunado por skills-selfupdate para una org y con 15 min de vida.
+export const serveSkillsBundle = (req, res) => {
+  const orgId = consumirTokenBundle(req.params?.token);
+  if (!orgId) return res.status(403).json({ error: "token invalido, caducado o ya usado" });
+  try {
+    const tarball = execSync(`tar -czf - -C "${DEFAULTS_DIR}" .`, {
+      maxBuffer: 50 * 1024 * 1024, timeout: 30_000,
+    });
+    console.log(`skills-bundle: entregado a org=${String(orgId).slice(0, 8)} (${tarball.length} bytes)`);
+    res.setHeader("Content-Type", "application/gzip");
+    res.setHeader("Content-Disposition", "attachment; filename=biblioteca.tar.gz");
+    res.send(tarball);
+  } catch (e) {
+    console.error("internal: error generando bundle de skills:", e.message);
+    res.status(500).json({ error: "Error generando el paquete de skills" });
   }
 };
 

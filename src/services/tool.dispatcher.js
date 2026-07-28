@@ -263,8 +263,17 @@ const TOOL_REGISTRY = {
   // fuente en vivo de la card "audiencia" (mapa + pirámide).
   // "Voy a verlo": describe la media de un post AHORA y devuelve lo que se ve.
   // Sin esto solo se puede juzgar por el copy — la mitad de la pieza.
+  // Ya NO describe por ella: le entrega la media y Vera mira. Probado que ve
+  // una imagen desde su URL en 28s. `force` desaparecio — no hay nada que
+  // recalcular, solo se pasan los enlaces.
+  // Lo que VIO queda pegado a la pieza y alimenta `que_se_ve` de getBrandPosts:
+  // una publicacion mirada una vez queda mirada para todas las lecturas.
+  describirPublicacion: {
+    fn: (params) => mediaAnalysis.describirPublicacion(params),
+    requiresConsent: false,
+  },
   verPublicacion: {
-    fn: ({ postId, post_id, force }) => mediaAnalysis.verPublicacion(postId || post_id, { force: !!force }),
+    fn: ({ postId, post_id }) => mediaAnalysis.verPublicacion(postId || post_id),
     requiresConsent: false,
     // Describir una imagen con un modelo de vision no cabe en los 8s por defecto:
     // sin este timeout propio la tool moriria siempre en el primer analisis y solo
@@ -812,6 +821,11 @@ const TOOL_REGISTRY = {
   },
 
   // ── Web research (Tavily) — lectura de internet abierto, read-only ─────────
+  // NO se expone a Vera: OpenClaw trae web_search y web_fetch integrados con 14+
+  // proveedores (Tavily incluido) y ya tiene duckduckgo encendido en su config.
+  // Mandarle los nuestros era darle una version mas pobre de algo que el motor
+  // hace mejor. Los handlers se quedan por si un proceso de ai-engine los
+  // necesita; simplemente no estan en ninguna fase.
   webSearch: {
     fn: ({ params, ...rest }) => webTools.webSearch({ ...(params || {}), ...rest }),
     requiresConsent: false,

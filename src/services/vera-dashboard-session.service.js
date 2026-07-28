@@ -71,6 +71,7 @@ const DASHBOARD_READING_TOOLS_RAW = [
   // Escritura del tablero (Vera publica sus cards y consulta que le falta)
   "publishMiMarcaCard", "getMiMarcaProgress",
   "getPublicacionDestacada", "explainPublicacionDestacada",
+  "describirPublicacion",
   // Identidad y contexto de la marca
   "getBrandDNA", "getBrandProfile", "getBrandContainers", "getOrgOverview",
   "getProducts", "getAudiences", "getAudienceAlignment", "getIntegrations",
@@ -114,7 +115,6 @@ const DASHBOARD_READING_TOOLS_RAW = [
   // Aprendizaje de resultados medidos
   "getActionOutcomes", "getActionOutcomeDetail", "getOutcomeSummary",
   // Investigación externa (Vera profundiza)
-  "webSearch", "webFetch",
 ];
 
 // Mi Marca NO toca la competencia: ni para comparar, ni para dimensionar. No

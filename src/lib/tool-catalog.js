@@ -218,7 +218,7 @@ const CORE_TOOLS = [
   "getBrandDNA", "getProducts", "getAudiences", "getCampaigns",
   "getBrandKpisStrip", "getPlatformHealth", "getUpcomingDates",
   "getFlows", "generateImageDirect", "generateVideoDirect",
-  "createArtifact", "webSearch",
+  "createArtifact",
 ];
 
 // Una linea de "cuando usarlo" por grupo, para el indice.

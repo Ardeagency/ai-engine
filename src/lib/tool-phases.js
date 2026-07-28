@@ -61,6 +61,7 @@ export const PHASE_B_TOOLS = [
   // conversacion entera para persistir lo que ella ya habia escrito.
   "publishMiMarcaCard", "getMiMarcaProgress",
   "getPublicacionDestacada", "explainPublicacionDestacada",
+  "describirPublicacion",
   ...PHASE_A_TOOLS,
   "getCatalogDiagnosis", "getLiveProducts", "getLivePosts", "getLiveAdsMetrics",
   // Brand read — ampliado
@@ -89,8 +90,6 @@ export const PHASE_B_TOOLS = [
   "getOutcomeSummary",
   // Web research (Tavily) — internet abierto, read-only. Desde Phase B para
   // gatear costo por API externa (igual que searchIntelligence).
-  "webSearch",
-  "webFetch",
   // Generación de archivos de marca (PDF/PNG/XLSX/DOCX). Riesgo BAJO; desde Phase B.
   "getBrandKit",
   "createArtifact",

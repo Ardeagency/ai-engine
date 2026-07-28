@@ -76,14 +76,19 @@ export async function publishMiMarcaCard({
 export async function getMiMarcaProgress({ brandContainerId }) {
   if (!brandContainerId) throw new Error("brandContainerId es requerido.");
   const porPeriodo = await estadoBorradores(brandContainerId);
+  const listos = Object.entries(porPeriodo)
+    .filter(([, v]) => v.publicado)
+    .map(([k, v]) => `${k} (hace ${v.antiguedad_horas}h)`);
   const pendientes = Object.entries(porPeriodo)
-    .filter(([, v]) => v.faltan.length)
+    .filter(([, v]) => !v.publicado)
     .map(([k, v]) => `${k}: faltan ${v.faltan.join(", ")}`);
   return {
     obligatorias: REQUIRED_TYPES,
     periodos: porPeriodo,
-    resumen: pendientes.length
-      ? pendientes.join(" | ")
-      : "no hay borradores pendientes: o esta todo publicado, o no has empezado",
+    publicados: listos,
+    resumen: [
+      listos.length ? `YA PUBLICADOS: ${listos.join(", ")} — los recientes no se rehacen; los viejos los juzgas tu` : null,
+      pendientes.length ? `PENDIENTES — ${pendientes.join(" | ")}` : "no queda nada pendiente",
+    ].filter(Boolean).join(" || "),
   };
 }

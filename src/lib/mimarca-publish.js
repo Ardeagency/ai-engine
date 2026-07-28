@@ -200,16 +200,53 @@ export async function depositarCard({
   };
 }
 
-/** Que falta en cada periodo — para que Vera sepa por donde seguir. */
+/**
+ * Que falta en cada periodo — para que Vera sepa por donde seguir.
+ *
+ * Mira los borradores Y lo ya PUBLICADO. Sin lo segundo hay bucle de retrabajo:
+ * al publicar se borran los borradores del periodo, asi que un periodo terminado
+ * volvia como "faltan las 6" y Vera lo rehacia entero. Paso en la primera
+ * corrida real (2026-07-28): week se publico 04:24:21 y a las 04:34:06 estaba
+ * escribiendola otra vez.
+ */
 export async function estadoBorradores(brandContainerId) {
-  const { data } = await supabase
-    .from("vera_mimarca_card_drafts")
-    .select("periodo, card_type")
-    .eq("brand_container_id", brandContainerId);
+  const [{ data: borradores }, { data: publicadas }] = await Promise.all([
+    supabase
+      .from("vera_mimarca_card_drafts")
+      .select("periodo, card_type")
+      .eq("brand_container_id", brandContainerId),
+    supabase
+      .from("vera_dashboard_readings")
+      .select("periodo, created_at")
+      .eq("brand_container_id", brandContainerId)
+      .eq("scope", MIMARCA_SCOPE)
+      .eq("status", "published"),
+  ]);
+
   const porPeriodo = {};
   for (const p of MIMARCA_PERIODOS) {
-    const presentes = (data || []).filter((d) => d.periodo === p.k).map((d) => d.card_type);
+    const yaPublicado = (publicadas || []).find((r) => r.periodo === p.k);
+    if (yaPublicado) {
+      // Se da la ANTIGUEDAD, no un veredicto. Una lectura de hace media hora
+      // esta terminada; una de ayer esta vieja, y quien decide si eso merece
+      // rehacerse es Vera, no esta tool. Decir "no rehacer" a secas la dejaba
+      // sin tocar lecturas de la corrida anterior.
+      const horas = (Date.now() - new Date(yaPublicado.created_at)) / 3600000;
+      porPeriodo[p.k] = {
+        publicado: true,
+        publicado_en: yaPublicado.created_at,
+        antiguedad_horas: Math.round(horas * 10) / 10,
+        presentes: REQUIRED_TYPES,
+        faltan: [],
+        nota: horas < 2
+          ? "recien publicado en esta corrida — no lo rehagas"
+          : `publicado hace ${Math.round(horas)}h — decide tu si sigue vigente o toca refrescarlo`,
+      };
+      continue;
+    }
+    const presentes = (borradores || []).filter((d) => d.periodo === p.k).map((d) => d.card_type);
     porPeriodo[p.k] = {
+      publicado: false,
       presentes,
       faltan: REQUIRED_TYPES.filter((t) => !presentes.includes(t)),
     };

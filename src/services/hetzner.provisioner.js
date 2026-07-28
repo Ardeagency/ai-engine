@@ -31,6 +31,13 @@ const ORG_BRIDGE_PORT     = 3001;
 const PROVISION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 
 // Tipos de servidor Hetzner por plan
+// Puerto del proxy Anthropic local. Vive aqui —y no como literal suelto— porque
+// el cloud-init lo escribia y el script de despertar NO: cualquier VM que se
+// durmiera una vez perdia ANTHROPIC_BASE_URL, openclaw pasaba a hablar directo
+// con api.anthropic.com y el proxy quedaba de adorno. Resultado: CERO filas de
+// medicion en credit_usage para TODAS las orgs, y los topes de gasto inertes.
+const ANTHROPIC_PROXY_PORT_DEFAULT = 8788;
+
 const SERVER_TYPES = {
   starter: "cx23",   // 2 vCPU / 4 GB — ~5€/mes (Intel/AMD shared, EU locations)
   growth:  "cx33",   // 4 vCPU / 8 GB — ~8€/mes
@@ -250,7 +257,7 @@ function _generateCloudInitScript({
   orgId, orgName, orgToken, agentId, serverName,
   anthropicApiKey, openaiApiKey, openclawGatewayToken,
   callbackUrl, webhookSecret, model,
-  supabaseUrl, supabaseServiceKey, anthropicProxyPort = 8788,
+  supabaseUrl, supabaseServiceKey, anthropicProxyPort = ANTHROPIC_PROXY_PORT_DEFAULT,
   userMdContent = null,
 }) {
   const safeName = String(orgName || orgId)
@@ -618,6 +625,7 @@ cat > /opt/openclaw-bridge/.env << 'ENV_EOF'
 ORG_ID=${orgId}
 ORG_TOKEN=${orgToken}
 ANTHROPIC_API_KEY=${anthropicApiKey}
+ANTHROPIC_BASE_URL=http://127.0.0.1:${ANTHROPIC_PROXY_PORT_DEFAULT}
 OPENCLAW_GATEWAY_TOKEN=${openclawGatewayToken}
 OPENCLAW_TIMEOUT_MS=900000
 ENV_EOF

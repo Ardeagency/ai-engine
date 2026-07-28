@@ -127,13 +127,19 @@ async function _refrescarLecturaViva({
 }) {
   const lectura = { schema: MIMARCA_SCHEMA, cards };
 
-  // La fila viva se identifica por estar INCOMPLETA, no por session_id: cada
-  // llamada a la tool trae su propio id, asi que atarse a el insertaba una fila
-  // nueva por tarjeta. Incompleta = le faltan tipos obligatorios; esa se
-  // actualiza. Completa = esta terminada, y una tarjeta nueva abre corrida.
+  // La fila viva se elige por VENTANA, no por session_id ni por estar incompleta.
+  //
+  // Por session_id insertaba una fila por tarjeta (cada llamada trae su propio id).
+  // Por incompletitud arreglaba eso pero rompia lo incremental: sobre un conjunto
+  // ya completo, refrescar UNA tarjeta abria una corrida nueva y obligaba a
+  // reescribir las seis. Ahora, mientras la ventana del periodo sea la misma, se
+  // actualiza ESA fila: cambiar una tarjeta deja las otras cinco intactas.
+  // Solo al cambiar la ventana (otra semana, otro mes) la anterior cede el sitio
+  // y queda como historia — que es cuando la historia significa algo.
+  const { windowStart: winIni } = await ventanaPeriodo(brandContainerId, periodo);
   const { data: ultimas } = await supabase
     .from("vera_dashboard_readings")
-    .select("id, reading")
+    .select("id, reading, window_start")
     .eq("brand_container_id", brandContainerId)
     .eq("scope", MIMARCA_SCOPE)
     .eq("periodo", periodo.k)
@@ -141,9 +147,8 @@ async function _refrescarLecturaViva({
     .order("created_at", { ascending: false })
     .limit(1);
   const ultima = ultimas?.[0] || null;
-  const tiposUltima = ultima?.reading?.cards?.map((c) => c?.type) || [];
-  const ultimaIncompleta = ultima && !REQUIRED_TYPES.every((t) => tiposUltima.includes(t));
-  const viva = ultimaIncompleta ? ultima : null;
+  const mismaVentana = ultima && String(ultima.window_start) === String(winIni);
+  const viva = mismaVentana ? ultima : null;
 
   if (viva?.id) {
     const { error } = await supabase
@@ -267,11 +272,9 @@ export async function depositarCard({
   });
   const { windowStart, windowEnd } = await ventanaPeriodo(brandContainerId, periodo);
 
-  await supabase
-    .from("vera_mimarca_card_drafts")
-    .delete()
-    .eq("brand_container_id", brandContainerId)
-    .eq("periodo", periodo.k);
+  // Los borradores NO se borran: son el contenido VIGENTE del tablero. Borrarlos
+  // hacia que la sesion siguiente abriera con "faltan las 6" y Vera reescribiera
+  // seis analisis caros para cambiar, quiza, uno solo.
 
   return {
     ok: true, publicado: true, periodo: periodo.k, guardada: valida.type,
@@ -293,7 +296,7 @@ export async function estadoBorradores(brandContainerId) {
   const [{ data: borradores }, { data: publicadas }] = await Promise.all([
     supabase
       .from("vera_mimarca_card_drafts")
-      .select("periodo, card_type")
+      .select("periodo, card_type, updated_at")
       .eq("brand_container_id", brandContainerId),
     supabase
       .from("vera_dashboard_readings")
@@ -303,42 +306,45 @@ export async function estadoBorradores(brandContainerId) {
       .eq("status", "published"),
   ]);
 
+  const ahora = Date.now();
+  const edadH = (t) => Math.round(((ahora - new Date(t).getTime()) / 3600000) * 10) / 10;
+
   const porPeriodo = {};
   for (const p of MIMARCA_PERIODOS) {
+    const mias = (borradores || []).filter((d) => d.periodo === p.k);
     const enTablero = (publicadas || []).find((r) => r.periodo === p.k);
-    // Con guardado incremental "publicado" ya no significa "terminado": la
-    // lectura esta visible desde la primera tarjeta. Terminado = tiene las seis.
     const tiposEnTablero = enTablero?.reading?.cards?.map((c) => c?.type) || [];
-    const completaEnTablero = REQUIRED_TYPES.every((t) => tiposEnTablero.includes(t));
-    const yaPublicado = completaEnTablero ? enTablero : null;
-    if (yaPublicado) {
-      // Se da la ANTIGUEDAD, no un veredicto. Una lectura de hace media hora
-      // esta terminada; una de ayer esta vieja, y quien decide si eso merece
-      // rehacerse es Vera, no esta tool. Decir "no rehacer" a secas la dejaba
-      // sin tocar lecturas de la corrida anterior.
-      const horas = (Date.now() - new Date(yaPublicado.created_at)) / 3600000;
-      porPeriodo[p.k] = {
-        publicado: true,
-        publicado_en: yaPublicado.created_at,
-        antiguedad_horas: Math.round(horas * 10) / 10,
-        presentes: REQUIRED_TYPES,
-        faltan: [],
-        nota: horas < 2
-          ? "recien publicado en esta corrida — no lo rehagas"
-          : `publicado hace ${Math.round(horas)}h — decide tu si sigue vigente o toca refrescarlo`,
-      };
-      continue;
+
+    // Las tarjetas guardadas son el contenido VIGENTE del tablero, cada una con
+    // su edad. Lo que esta en el tablero pero ya no tiene borrador se lista
+    // igual, sin edad: existe, pero no se sabe de cuando.
+    const tarjetas = mias
+      .map((d) => ({ tipo: d.card_type, edad_horas: edadH(d.updated_at) }))
+      .sort((a, b) => b.edad_horas - a.edad_horas);
+    for (const t of tiposEnTablero) {
+      if (!tarjetas.some((x) => x.tipo === t)) tarjetas.push({ tipo: t, edad_horas: null });
     }
-    const enBorrador = (borradores || []).filter((d) => d.periodo === p.k).map((d) => d.card_type);
-    // Si hay lectura viva pero incompleta, sus tipos tambien cuentan: lo que ya
-    // esta en el tablero no hay que volver a escribirlo.
-    const presentes = [...new Set([...enBorrador, ...tiposEnTablero])];
+
+    const presentes = tarjetas.map((t) => t.tipo);
+    const faltan = REQUIRED_TYPES.filter((t) => !presentes.includes(t));
+    const conEdad = tarjetas.filter((t) => t.edad_horas != null);
+    const masVieja = conEdad.length ? conEdad[0] : null;
+
     porPeriodo[p.k] = {
-      publicado: false,
-      visible_parcial: presentes.length > 0,
-      presentes,
-      faltan: REQUIRED_TYPES.filter((t) => !presentes.includes(t)),
+      completo: faltan.length === 0,
+      visible_en_tablero: tiposEnTablero.length > 0,
+      tarjetas,
+      faltan,
+      mas_vieja: masVieja,
+      nota: faltan.length
+        ? `faltan ${faltan.length}: ${faltan.join(", ")}. Escribe SOLO esas.`
+        : masVieja
+          ? `las ${tarjetas.length} estan puestas; la mas vieja es '${masVieja.tipo}' (${masVieja.edad_horas}h). ` +
+            "Refresca SOLO las que creas caducadas: las que no toques se quedan como estan. " +
+            "Lo que envejece en dias para 'week' puede aguantar semanas en 'year'."
+          : "las tarjetas estan en el tablero pero sin fecha conocida; refresca la que dudes.",
     };
   }
+
   return porPeriodo;
 }

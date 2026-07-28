@@ -26,6 +26,9 @@ import { supabase } from "../lib/supabase.js";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+// Los documentos de doctrina que las VMs nuevas reciben al nacer viven aqui.
+const DEFAULTS_DIR_PROV = fileURLToPath(new URL("../../defaults/", import.meta.url));
+
 const HETZNER_API         = "https://api.hetzner.cloud/v1";
 const ORG_BRIDGE_PORT     = 3001;
 const PROVISION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
@@ -393,6 +396,12 @@ SyslogIdentifier=openclaw-bridge
 [Install]
 WantedBy=multi-user.target
 `;
+  // El guion del latido. Sin el, el heartbeat despierta cada 30 min y se vuelve a
+  // dormir: el mecanismo de autonomia del motor girando en vacio.
+  const heartbeatB64 = Buffer.from(
+    readFileSync(DEFAULTS_DIR_PROV + "HEARTBEAT.md", "utf8")
+  ).toString("base64");
+
   const systemdB64 = Buffer.from(systemdUnit).toString("base64");
 
   // El gateway es el plano de control de Vera: por ahi pasan sus tools `cron` y
@@ -645,6 +654,9 @@ write_files:
   - path: /root/workspaces/${agentId}/USER.md
     encoding: b64
     content: ${userMdB64}
+  - path: /root/workspaces/${agentId}/HEARTBEAT.md
+    encoding: b64
+    content: ${heartbeatB64}
   - path: /root/workspaces/${agentId}/.openclaw/settings.json
     encoding: b64
     content: ${hooksB64}

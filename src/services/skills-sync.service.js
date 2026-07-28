@@ -46,7 +46,12 @@ function _tarballDefaults() {
 // asi que sin esto AGENTS.md e IDENTITY.md solo cambiaban al recrear la VM.
 // /workspace/file existe tambien en los puentes viejos: su lista blanca es
 // ['USER.md','AGENTS.md','IDENTITY.md','SOUL.md','MEMORY.md'].
+// HEARTBEAT.md es el guion del latido: sin el, Vera despierta cada 30 min sin
+// encargo. Ojo: el puente solo admite por /workspace/file la lista blanca
+// ['USER.md','AGENTS.md','IDENTITY.md','SOUL.md','MEMORY.md'], asi que a los
+// org-servers ya existentes llega por la autoactualizacion, no por empuje.
 const RAIZ = ["AGENTS.md", "IDENTITY.md", "SOUL.md"];
+const RAIZ_POR_AUTOACTUALIZACION = ["HEARTBEAT.md"];
 
 async function _empujarRaiz({ ip, puerto, token, agentId }) {
   const escritos = [];

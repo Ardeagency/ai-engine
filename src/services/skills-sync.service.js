@@ -19,6 +19,7 @@
  * dormir/despertar, que conserva su memoria y los deja con el puente nuevo.
  */
 import { execSync } from "child_process";
+import { readFileSync } from "fs";
 import { watch as fsWatch } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -40,6 +41,29 @@ function _tarballDefaults() {
   });
 }
 
+// Ficheros de doctrina RAIZ. El endpoint /skills/refresh solo instala `skills/`,
+// asi que sin esto AGENTS.md e IDENTITY.md solo cambiaban al recrear la VM.
+// /workspace/file existe tambien en los puentes viejos: su lista blanca es
+// ['USER.md','AGENTS.md','IDENTITY.md','SOUL.md','MEMORY.md'].
+const RAIZ = ["AGENTS.md", "IDENTITY.md", "SOUL.md"];
+
+async function _empujarRaiz({ ip, puerto, token, agentId }) {
+  const escritos = [];
+  for (const f of RAIZ) {
+    try {
+      const contenido = readFileSync(path.join(DEFAULTS_DIR, f), "utf8");
+      const r = await fetch(`http://${ip}:${puerto}/workspace/file`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-org-token": token },
+        body: JSON.stringify({ path: f, agentId, content: contenido }),
+        signal: AbortSignal.timeout(TIMEOUT_MS),
+      });
+      if (r.ok) escritos.push(f);
+    } catch { /* la doctrina raiz no debe tumbar el refresco de skills */ }
+  }
+  return escritos;
+}
+
 /** Empuja las skills a UNA organizacion. */
 export async function syncSkillsToOrg(instancia, tarball = null) {
   const { organization_id: orgId, server_ip: ip, server_port: puerto, org_token: token, agent_id } = instancia;
@@ -48,6 +72,10 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
   }
   const cuerpo = tarball || _tarballDefaults();
   const agentId = agent_id || deriveAgentId(orgId);
+
+  // Primero la doctrina raiz: funciona hasta en los puentes viejos, asi que una
+  // org sin /skills/refresh al menos no se queda con un AGENTS.md fosil.
+  const raiz = await _empujarRaiz({ ip, puerto, token, agentId });
 
   try {
     const resp = await fetch(`http://${ip}:${puerto}/skills/refresh`, {
@@ -66,6 +94,7 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
         orgId, ok: false,
         motivo: "el puente de este org-server es anterior al endpoint /skills/refresh — necesita un ciclo dormir/despertar",
         necesita_wake: true,
+        raiz,
       };
     }
     const body = await resp.json().catch(() => ({}));
@@ -77,7 +106,7 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
       .update({ skills_installed: body.skills || [], updated_at: new Date().toISOString() })
       .eq("organization_id", orgId);
 
-    return { orgId, ok: true, skills: body.total ?? (body.skills || []).length };
+    return { orgId, ok: true, skills: body.total ?? (body.skills || []).length, raiz, retiradas: body.retiradas || [] };
   } catch (e) {
     return { orgId, ok: false, motivo: String(e.message).slice(0, 200) };
   }

@@ -395,6 +395,30 @@ WantedBy=multi-user.target
 `;
   const systemdB64 = Buffer.from(systemdUnit).toString("base64");
 
+  // El gateway es el plano de control de Vera: por ahi pasan sus tools `cron` y
+  // `gateway`. Antes se lanzaba con `openclaw gateway start || true` y nadie lo
+  // vigilaba — si moria, ella perdia la capacidad de programarse cualquier cosa
+  // y no se enteraba nadie. Con Restart=always vuelve solo.
+  const gatewayUnit = `[Unit]
+Description=OpenClaw Gateway (plano de control de ${serverName})
+After=network.target
+Before=openclaw-bridge.service
+
+[Service]
+Type=simple
+WorkingDirectory=/root
+ExecStart=/usr/bin/env openclaw gateway
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=openclaw-gateway
+
+[Install]
+WantedBy=multi-user.target
+`;
+  const gatewayUnitB64 = Buffer.from(gatewayUnit).toString("base64");
+
   // Setup script — todo el provisioning pesado va aquí para no romper YAML
   const setupScript = `#!/bin/bash
 set -e
@@ -548,8 +572,24 @@ fi
 
 echo "[setup] Gateway + Crons..."
 openclaw config set gateway.mode local || true
-openclaw gateway start || true
-sleep 5
+# Supervisado: si muere, systemd lo devuelve. Antes era un disparo a ciegas.
+systemctl daemon-reload
+systemctl enable openclaw-gateway || true
+systemctl restart openclaw-gateway || true
+# Y se ESPERA a que escuche de verdad. Con un sleep 5 a ciegas, los tres cron
+# add de abajo (que van con 2>/dev/null || true) fallaban en silencio y la VM
+# quedaba "aprovisionada con exito" sin un solo cron.
+GW_OK=0
+for _i in $(seq 1 30); do
+  if ss -ltn 2>/dev/null | grep -q ':18789'; then GW_OK=1; break; fi
+  sleep 2
+done
+if [ "$GW_OK" = "1" ]; then
+  echo "[setup] gateway escuchando en 18789"
+else
+  echo "[setup] ERROR: el gateway NO levanto en 60s — los crons de abajo van a fallar"
+  systemctl status openclaw-gateway --no-pager 2>&1 | tail -20
+fi
 openclaw cron add --agent ${agentId} --cron '0 8 * * *' --tz America/New_York --name daily-brief --message 'Daily briefing' --light-context --session isolated --timeout-seconds 120 2>/dev/null || true
 openclaw cron add --agent ${agentId} --cron '0 */6 * * *' --tz America/New_York --name engagement-monitor --message 'Engagement check' --light-context --session isolated --timeout-seconds 90 2>/dev/null || true
 openclaw cron add --agent ${agentId} --cron '0 10 * * 1' --tz America/New_York --name weekly-scan --message 'Competitor scan' --light-context --session isolated --timeout-seconds 180 2>/dev/null || true
@@ -611,6 +651,9 @@ write_files:
   - path: /etc/systemd/system/openclaw-bridge.service
     encoding: b64
     content: ${systemdB64}
+  - path: /etc/systemd/system/openclaw-gateway.service
+    encoding: b64
+    content: ${gatewayUnitB64}
   - path: /opt/anthropic-proxy/.env
     permissions: "0600"
     encoding: b64

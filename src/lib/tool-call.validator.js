@@ -25,6 +25,12 @@ const MAX_TOOL_CALLS_PER_ROUND = 5;
 // Esquema de validación por tool: campo → tipo esperado
 // "uuid" = string UUID | "object" = plain object | "boolean" = bool | "string" = string
 export const TOOL_SCHEMAS = {
+  // Escritura del tablero. Sin esto la tool queda registrada pero SIN parametros
+  // en el esquema MCP: Vera la ve, la llama, y no tiene por donde pasarle nada.
+  // Lo detecto ella misma en la primera prueba — "el schema no expone ningun
+  // parametro, asi que no hay forma de pasarle el brandContainerId".
+  publishMiMarcaCard:      { brandContainerId: "uuid", periodo: "string", card: "object" },
+  getMiMarcaProgress:      { brandContainerId: "uuid" },
   getBrandContainers:      {},
   getBrandProfile:         { brandContainerId: "uuid" },
   getAudiences:            { brandContainerId: "uuid" },
@@ -39,6 +45,7 @@ export const TOOL_SCHEMAS = {
   getCampaigns:            { brandContainerId: "uuid" },
   getCampaignDetail:       { campaignId: "uuid", brandContainerId: "uuid" },
   getAvailableFlows:       {},
+  getUpcomingDates:        {},
   getFlowSchedules:        { brandContainerId: "uuid" },
   getFlowRuns:             { brandContainerId: "uuid" },
   getFlowRunOutputs:       { runId: "uuid", brandContainerId: "uuid" },

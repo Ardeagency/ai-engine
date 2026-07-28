@@ -28,17 +28,26 @@ const KIE_BASE     = (process.env.KIE_API_BASE_URL || "https://api.kie.ai").repl
 const CREATE_PATH  = "/api/v1/jobs/createTask";
 const RECORD_PATH  = "/api/v1/jobs/recordInfo";
 const IMAGE_MODEL  = process.env.KIE_IMAGE_MODEL || "nano-banana-pro";
-// El unico nombre de video que /jobs/createTask reconoce hoy. Sondeados y rechazados:
-// veo3*, kling-*, seedance-* (incluido "seedance-2", que es vocabulario del dispatcher
-// externo del flow runner, no de KIE), wan, hailuo, runway. Veo3 existe pero en otra
-// ruta (/veo3-api/...) que _createTask no habla. OJO: KIE tiene la interfaz de Sora
-// PAUSADA de su lado — el nombre es correcto y aun asi devuelve 500 "temporarily paused".
-const VIDEO_MODEL  = process.env.KIE_VIDEO_MODEL || "sora-2-text-to-video";
+// 2026-07-28: pasa a Seedance 2 Fast. El nombre anterior (`sora-2-text-to-video`)
+// era correcto pero KIE tiene la interfaz de Sora PAUSADA de su lado, asi que toda
+// generacion de video moria en 500 "temporarily paused". El comentario viejo daba
+// "seedance-*" por sondeado-y-rechazado: eso valia para el string suelto
+// "seedance-2" (vocabulario del dispatcher externo del flow runner, no de KIE); el
+// nombre que KIE si reconoce lleva el prefijo del proveedor.
+const VIDEO_MODEL  = process.env.KIE_VIDEO_MODEL || "bytedance/seedance-2-fast";
 const R2_INGEST_URL = process.env.R2_INGEST_URL;
 const R2_INGEST_KEY = process.env.R2_INGEST_KEY;
 
 const IMAGE_ASPECTS = new Set(["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9", "auto"]);
-const VIDEO_ASPECTS = new Set(["16:9", "9:16", "1:1"]);
+// Los 6 que KIE declara para Seedance 2 (antes aqui solo habia 3: 4:3, 3:4 y 21:9
+// eran validos y se rechazaban por nuestra cuenta).
+const VIDEO_ASPECTS = new Set(["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"]);
+// Union de lo que KIE ofrece en la familia Seedance 2. La variante `-fast` puede
+// no servir las altas: si el proveedor la rechaza, su mensaje sube tal cual a Vera.
+// Preferimos eso a bloquear por nuestra cuenta un valor que el modelo si acepta.
+const VIDEO_RESOLUTIONS = new Set(["480p", "720p", "1080p", "4k"]);
+const VIDEO_DUR_MIN = 4;
+const VIDEO_DUR_MAX = 15;
 // Valores que acepta `input` de nano-banana-pro. Antes estaban CLAVADOS en el
 // codigo (2K/png): Vera no tenia como pedir otra cosa aunque el modelo la ofrezca.
 const IMAGE_RESOLUTIONS = new Set(["1K", "2K", "4K"]);
@@ -181,17 +190,49 @@ function _pick(value, allowed, field) {
   return v;
 }
 
-function _cleanImageInput(imageInput) {
-  if (imageInput === undefined || imageInput === null) return null;
-  const arr = Array.isArray(imageInput) ? imageInput : [imageInput];
+// Las listas de referencia admiten un solo string suelto por comodidad. Se filtran
+// las cadenas vacias (la propia doc de KIE las muestra asi: reference_video_urls:[""])
+// pero si NADA queda en pie y el llamador si mando algo, se avisa: una referencia
+// que se cae en silencio produce un video que no se parece a lo que Vera pidio.
+function _urlList(value, field, max = 5) {
+  if (value === undefined || value === null) return null;
+  const arr = (Array.isArray(value) ? value : [value]).filter((u) => String(u ?? "").trim() !== "");
+  if (!arr.length) return null;
   const urls = arr.filter((u) => typeof u === "string" && /^https?:\/\//.test(u.trim())).map((u) => u.trim());
-  if (arr.length && !urls.length) {
-    throw new Error("image_input: cada referencia debe ser una URL http(s) publica de una imagen ya existente.");
+  if (!urls.length) {
+    throw new Error(`${field}: cada referencia debe ser una URL http(s) publica de un archivo ya existente.`);
   }
-  return urls.length ? urls.slice(0, 5) : null;
+  return urls.slice(0, max);
 }
 
-async function _start({ mediaType, prompt, organizationId, conversationId, aspectRatio, imageInput, resolution, outputFormat }) {
+function _url(value, field) {
+  if (value === undefined || value === null || String(value).trim() === "") return null;
+  const u = String(value).trim();
+  if (!/^https?:\/\//.test(u)) {
+    throw new Error(`${field}: debe ser una URL http(s) publica de un archivo ya existente (recibido: ${u.slice(0, 60)}).`);
+  }
+  return u;
+}
+
+function _bool(value, field) {
+  if (value === undefined || value === null || value === "") return null;
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  throw new Error(`${field}: debe ser true o false (recibido: ${JSON.stringify(value)}).`);
+}
+
+// KIE quiere un NUMERO en segundos, no la cadena "5" que se mandaba antes.
+function _duration(value) {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < VIDEO_DUR_MIN || n > VIDEO_DUR_MAX) {
+    throw new Error(`duration: debe ser un numero entero de segundos entre ${VIDEO_DUR_MIN} y ${VIDEO_DUR_MAX} (recibido: ${JSON.stringify(value)}).`);
+  }
+  return n;
+}
+
+async function _start({ mediaType, prompt, organizationId, conversationId, aspectRatio, imageInput, resolution, outputFormat, video = {} }) {
   // El prompt de Vera viaja VERBATIM al proveedor: ni se reescribe, ni se enriquece,
   // ni se trunca. Ella es la directora creativa; el motor es el cable.
   prompt = String(prompt ?? "").trim();
@@ -199,10 +240,13 @@ async function _start({ mediaType, prompt, organizationId, conversationId, aspec
   const que = isVideo ? "el video" : "la imagen";
 
   if (!prompt) {
-    throw new Error(`Falta "prompt": describe TU MISMA ${que} completa (sujeto, escena, luz, encuadre, estilo, texto si lleva). Ya no hay un modelo intermedio que lo redacte por ti — lo que escribas es lo que se genera.`);
+    const pieza = isVideo
+      ? "el video completo (sujeto, accion, movimiento de camara, ambiente, luz y estilo)"
+      : "la imagen completa (sujeto, escena, luz, encuadre, estilo, y el texto exacto si lleva)";
+    throw new Error(`Falta "prompt": describe TU MISMA ${pieza}. Ya no hay un modelo intermedio que lo redacte por ti — lo que escribas es lo que se genera.`);
   }
   if (prompt.length < MIN_PROMPT_CHARS) {
-    throw new Error(`"prompt" tiene ${prompt.length} caracteres: es muy corto para dirigir ${que}. Describela con detalle.`);
+    throw new Error(`"prompt" tiene ${prompt.length} caracteres: es muy corto para dirigir ${que}. ${isVideo ? "Describelo" : "Describela"} con detalle.`);
   }
   if (prompt.length > MAX_PROMPT_CHARS) {
     throw new Error(`"prompt" tiene ${prompt.length} caracteres y el maximo es ${MAX_PROMPT_CHARS}. Recortalo tu (no lo trunco yo: te entregaria una pieza distinta de la que pediste).`);
@@ -211,9 +255,36 @@ async function _start({ mediaType, prompt, organizationId, conversationId, aspec
   // createTask (rapido)
   let taskId, timeoutMs;
   if (isVideo) {
-    const input = { prompt, aspect_ratio: _pick(aspectRatio, VIDEO_ASPECTS, "aspect_ratio") || "16:9", duration: "5" };
+    const input = {
+      prompt,
+      aspect_ratio: _pick(aspectRatio, VIDEO_ASPECTS, "aspect_ratio") || "16:9",
+      resolution:   _pick(video.resolution, VIDEO_RESOLUTIONS, "resolution") || "720p",
+      duration:     _duration(video.duration) ?? 5,
+    };
+    // Opcionales: solo se mandan si Vera los puso. Enviar un null o un [] vacio a
+    // KIE no es lo mismo que no enviar el campo.
+    const firstFrame = _url(video.first_frame_url, "first_frame_url");
+    const lastFrame  = _url(video.last_frame_url, "last_frame_url");
+    const refImgs    = _urlList(video.reference_image_urls, "reference_image_urls");
+    const refVids    = _urlList(video.reference_video_urls, "reference_video_urls");
+    const refAudio   = _urlList(video.reference_audio_urls, "reference_audio_urls");
+    const genAudio   = _bool(video.generate_audio, "generate_audio");
+    const retLast    = _bool(video.return_last_frame, "return_last_frame");
+    const webSearch  = _bool(video.web_search, "web_search");
+    if (firstFrame) input.first_frame_url = firstFrame;
+    if (lastFrame)  input.last_frame_url = lastFrame;
+    if (refImgs)    input.reference_image_urls = refImgs;
+    if (refVids)    input.reference_video_urls = refVids;
+    if (refAudio)   input.reference_audio_urls = refAudio;
+    if (genAudio  !== null) input.generate_audio = genAudio;
+    if (retLast   !== null) input.return_last_frame = retLast;
+    if (webSearch !== null) input.web_search = webSearch;
+
     taskId = await _createTask(VIDEO_MODEL, input);
-    timeoutMs = 300_000;
+    // Seedance 2 Fast promedia ~4 min. Los 5 min de antes dejaban margen para un
+    // solo mal minuto: un video que llegaba tarde se reportaba como "no lo pude
+    // confirmar" aunque KIE lo hubiera entregado bien.
+    timeoutMs = 600_000;
   } else {
     const input = {
       prompt,
@@ -221,7 +292,7 @@ async function _start({ mediaType, prompt, organizationId, conversationId, aspec
       resolution:    _pick(resolution, IMAGE_RESOLUTIONS, "resolution") || "2K",
       output_format: _pick(outputFormat, OUTPUT_FORMATS, "output_format") || "png",
     };
-    const refs = _cleanImageInput(imageInput);
+    const refs = _urlList(imageInput, "image_input");
     if (refs) input.image_input = refs;
     taskId = await _createTask(IMAGE_MODEL, input);
     timeoutMs = 200_000;
@@ -265,5 +336,17 @@ export function generateVideoDirect(params = {}, brandContainerId, organizationI
     prompt: params.prompt ?? params.intent ?? params.description,
     organizationId, conversationId,
     aspectRatio: params.aspect_ratio,
+    video: {
+      resolution:           params.resolution,
+      duration:             params.duration,
+      first_frame_url:      params.first_frame_url,
+      last_frame_url:       params.last_frame_url,
+      reference_image_urls: params.reference_image_urls,
+      reference_video_urls: params.reference_video_urls,
+      reference_audio_urls: params.reference_audio_urls,
+      generate_audio:       params.generate_audio,
+      return_last_frame:    params.return_last_frame,
+      web_search:           params.web_search,
+    },
   });
 }

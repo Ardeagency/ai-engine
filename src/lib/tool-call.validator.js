@@ -154,16 +154,62 @@ export const TOOL_SCHEMAS = {
   generateVideoDirect: {
     params: {
       type: "object",
-      description: "input de KIE para video. Tu escribes el prompt final: NO hay otro modelo que lo reescriba.",
+      description: "input de KIE (modelo bytedance/seedance-2-fast). Tu escribes el prompt final: NO hay otro modelo que lo reescriba.",
       properties: {
         prompt: {
           type: "string",
-          description: "OBLIGATORIO. El plano COMPLETO descrito por ti: sujeto, accion, movimiento de camara, ambiente, luz y estilo. Entre 10 y 5000 caracteres.",
+          description: "OBLIGATORIO. El plano COMPLETO descrito por ti: sujeto, accion, movimiento de camara, ambiente, luz, paleta y estilo. Entre 10 y 5000 caracteres. Lo que escribas es lo que sale.",
         },
         aspect_ratio: {
           type: "string",
-          enum: ["16:9", "9:16", "1:1"],
-          description: "Encuadre. Default 16:9. Reels/TikTok 9:16.",
+          enum: ["21:9", "16:9", "4:3", "1:1", "3:4", "9:16"],
+          description: "Encuadre. Default 16:9. Reels/TikTok/historias 9:16.",
+        },
+        resolution: {
+          type: "string",
+          enum: ["480p", "720p", "1080p", "4k"],
+          description: "Default 720p. 480p para bocetos (mas barato). La variante rapida puede no servir 1080p/4k: si el proveedor lo rechaza te lo digo con su mensaje.",
+        },
+        duration: {
+          type: "integer",
+          minimum: 4,
+          maximum: 15,
+          description: "Segundos de video, NUMERO entero entre 4 y 15. Default 5. Cada segundo cuesta: pide 15 solo si el plano lo necesita.",
+        },
+        first_frame_url: {
+          type: "string",
+          description: "Opcional. URL http(s) publica de una imagen que sera el PRIMER fotograma. Sirve para animar una pieza que ya generaste con generateImageDirect.",
+        },
+        last_frame_url: {
+          type: "string",
+          description: "Opcional. URL http(s) publica de la imagen que sera el ULTIMO fotograma. Con first_frame_url, define un recorrido entre dos imagenes fijas.",
+        },
+        reference_image_urls: {
+          type: "array",
+          items: { type: "string" },
+          description: "Opcional. Hasta 5 URLs http(s) de imagenes de referencia de ESTILO o de personaje (para que el video se parezca a ellas, no para usarlas como fotogramas).",
+        },
+        reference_video_urls: {
+          type: "array",
+          items: { type: "string" },
+          description: "Opcional. Hasta 5 URLs http(s) de videos de referencia: de ahi toma movimiento y ritmo.",
+        },
+        reference_audio_urls: {
+          type: "array",
+          items: { type: "string" },
+          description: "Opcional. Hasta 5 URLs http(s) de audio de referencia (voz o musica a la que ajustarse).",
+        },
+        generate_audio: {
+          type: "boolean",
+          description: "Opcional. true = el modelo genera pista de audio. Default del proveedor si no lo pones.",
+        },
+        return_last_frame: {
+          type: "boolean",
+          description: "Opcional. true = devuelve tambien el ultimo fotograma como imagen. Util para encadenar un segundo plano que siga a este.",
+        },
+        web_search: {
+          type: "boolean",
+          description: "Opcional. true = el modelo consulta la web para referencias visuales reales (una marca, un lugar, una persona publica).",
         },
       },
       required: ["prompt"],

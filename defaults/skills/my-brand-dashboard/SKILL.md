@@ -1,6 +1,6 @@
 ---
 name: my-brand-dashboard
-description: Como leo el dashboard MI MARCA — el tablero donde le muestro a la organizacion como coexisten sus plataformas sociales y sus tiendas dentro de un mismo sistema digital, y de ahi saco planes que sostengan un trafico que suba y mas interaccion social. La uso cada vez que escribo o reviso las tarjetas de Mi Marca (observacion, intuicion, virtudes, desventajas, algoritmo, audiencias recomendadas, audiencia), cuando me piden leer como va la marca por dentro, o cuando dudo si lo que voy a afirmar sobre ella es verificable. Se activa en "lee mi marca", "como vamos", "que esta pasando con nuestras redes", "llena el tablero", "analiza nuestra cuenta". NO es el analisis de la competencia (ese mira hacia afuera, a los perfiles monitoreados) ni el de tendencias (ese mira al mercado): aqui el sujeto es la marca misma y nadie mas.
+description: Como construyo el dashboard MI MARCA — el tablero donde le muestro a la organizacion como coexisten sus plataformas sociales y sus tiendas dentro de un mismo sistema digital, y de ahi saco planes que sostengan un trafico que suba y mas interaccion social. Incluye COMO me organizo para llenarlo — una investigacion y despues un trabajo aislado por tarjeta, que publico yo con publishMiMarcaCard. La uso cada vez que escribo o reviso las tarjetas de Mi Marca (observacion, intuicion, virtudes, desventajas, algoritmo, audiencias recomendadas, audiencia), cuando me piden leer como va la marca por dentro, o cuando dudo si lo que voy a afirmar sobre ella es verificable. Se activa en "lee mi marca", "como vamos", "que esta pasando con nuestras redes", "llena el tablero", "analiza nuestra cuenta". NO es el analisis de la competencia (ese mira hacia afuera, a los perfiles monitoreados) ni el de tendencias (ese mira al mercado) — aqui el sujeto es la marca misma y nadie mas.
 ---
 
 # My Brand Dashboard — Leer a la marca por dentro sin inventarle nada
@@ -35,6 +35,63 @@ Si algo no lo puedo ver ni verificar, tengo dos salidas honestas: pedirlo, o
 decir que no lo tengo. La tercera —rellenar el hueco con lo que suena razonable—
 es la que destruye la confianza, porque suena verdadera y nadie la va a revisar.
 
+## Este tablero lo construyo yo, tarjeta por tarjeta
+
+**Yo publico. Nadie extrae mis tarjetas de mi texto.** Tengo dos herramientas:
+
+- `publishMiMarcaCard` — deposita **UNA** tarjeta en **UN** periodo. Me responde
+  siempre qué me falta.
+- `getMiMarcaProgress` — qué tengo y qué me falta, periodo por periodo.
+
+El periodo se publica **solo** cuando están las seis obligatorias: `observacion`,
+`intuicion`, `virtudes`, `desventajas`, `algoritmo`, `audiencias_recomendadas`.
+Una tarjeta rechazada me vuelve con el motivo y no tumba a las demás.
+
+Escribir las veinticuatro de un tirón es lo que me hacía razonar sobre todo a la
+vez y perderlo todo por un fallo. Ya no.
+
+### El ritmo
+
+1. **Investigo una vez**, para los cuatro periodos. No cuatro veces.
+2. **Destilo lo que encontré a hechos**: cifras con su fuente y su fecha, piezas
+   concretas, huecos declarados. No prosa.
+3. **Me programo un trabajo por tarjeta**, aislado y escalonado:
+
+```
+openclaw cron add --at +30s --session isolated --light-context --delete-after-run \
+  --name "mimarca-week-intuicion" \
+  --message "<el encargo COMPLETO de esta tarjeta>"
+```
+
+4. Cada trabajo despierta con su contexto propio, escribe **su** tarjeta con
+   `publishMiMarcaCard`, y muere.
+
+Escalono los `--at` (+30s, +60s, +90s…) o uso `--stagger`. La máquina donde vivo
+tiene dos núcleos: amontonar veinte trabajos a la vez no los hace más rápidos,
+los hace competir.
+
+### Lo que decide si esto funciona: el mensaje
+
+El trabajo despierta **sin mi investigación y sin esta skill**. Lo único que
+tiene es el mensaje que yo le escribí. Si le mando *"escribe la tarjeta de
+intuición de la semana"*, va a inventar — porque no le di con qué no inventar.
+
+Cada mensaje lleva, siempre:
+
+- **Qué tarjeta y de qué periodo**, con las fechas exactas de la ventana.
+- **Los hechos** que sostienen esa tarjeta: cifras con su fuente, piezas con su
+  fecha, lo que vi de la pieza si la vi.
+- **Qué NO debe decir**: lo que ya dice otra tarjeta o lo que el tablero ya
+  muestra. Una tarjeta que repite la pantalla no vale nada.
+- **La orden de publicar** con `publishMiMarcaCard`, nombrando el periodo exacto.
+- **Los huecos**: lo que no pude verificar, dicho como hueco. Si no se lo digo,
+  el trabajo lo va a rellenar.
+
+### Si algo falla
+
+Un trabajo caído cuesta una tarjeta, no la lectura. `getMiMarcaProgress` me dice
+cuál falta y la reprogramo sola. No repito lo que ya está publicado.
+
 ## Este tablero se lee con un filtro, y cada periodo pide otra lectura
 
 Arriba del tablero hay un filtro —Semana, Mes, Año, Todo— y un rango que el
@@ -58,76 +115,40 @@ con hablar de tendencias — en siete días casi nunca hay una.
 
 - **Muestra el sistema, no las partes.** ¿La tienda recibe lo que las redes
   mandan? ¿Hay un canal produciendo contenido que no lleva a ninguna parte? ¿Una
-  plataforma sostiene a las otras o cada una vive sola?
-- **Explica lo que el número no dice.** El cliente ve el gráfico; yo digo por qué
-  se mueve así y qué hacer con eso.
-- **Entrega plan, no diagnóstico.** Toda lectura termina en algo que alguien
-  puede producir esta semana.
-- **Piensa en tráfico sostenido.** Un pico prestado no es crecimiento. La
-  pregunta no es qué funcionó, es qué se puede repetir a propósito y qué deja
-  audiencia después de apagarse.
+  plataforma sostiene a otra o compiten por lo mismo?
+- **Nombra lo que hay que hacer distinto**, no lo que pasó.
+- **Distingue lo que la marca causó de lo que iba a pasar igual.**
+- **Deja el plan en algo que alguien pueda ejecutar el lunes.**
 
 ## Lo que este tablero NO hace
 
-- **No cuenta la historia de la cuenta.** Nadie abre un tablero para que le
-  narren su propia biografía: la conocen mejor que yo.
-- **No repite lo que ya está en pantalla.** Salud por canal, curva de
-  interacciones, publicación destacada, campañas, seguidores — todo eso lo están
-  viendo mientras me leen. Una tarjeta que lo repita les quitó el espacio a lo
-  único que solo yo puedo dar.
-- **No toca la competencia. En absoluto.** Ni para comparar, ni para dimensionar,
-  ni de pasada. Si en mi lectura aparece el nombre de otra marca, me equivoqué de
-  tablero: la competencia tiene el suyo. Aquí el sujeto de cada frase es esta
-  marca, y la vara con la que la mido es ella misma en otro momento.
-- **No penaliza que el producto no sea el protagonista.** Muchas piezas buenas
-  no venden nada: construyen para después — eso lo decide
-  **building-versus-harvesting**, no mi impresión.
-- **No castiga una temática por no hablar de la marca.** Si la marca se subió a
-  un momento que el mercado estaba mirando, eso fue correcto: el alcance salía
-  gratis. Lo que juzgo es si se montó algo encima —una razón para compartir,
-  seguimiento, algo que quedara— no si el producto aparecía. Ver
-  **the-moments-they-buy-in**.
-- **No recomienda repetir.** Si mi consejo es "hagan más de lo que ya hacen
-  bien", no es un consejo: es una descripción, y deja al negocio donde está.
+- **No narra la historia de la cuenta.** Nadie abre un tablero para que le
+  cuenten su propia biografía: la conocen mejor que yo.
+- **No mira a la competencia.** Ni de refilón, ni "para dar contexto". Ese
+  tablero existe y es otro. Aquí el sujeto es la marca y nadie más.
+- **No repite lo que la pantalla ya muestra.** Si mi tarjeta dice el número que
+  está tres centímetros más arriba, sobra.
+- **No condena un tema por su formato** sin mirar si el momento lo premiaba.
+- **No rellena huecos.** Un hueco declarado es información.
 
 ## ¿Estoy leyendo el sistema o una sola red?
 
-- ¿Qué papel cumple cada plataforma para ESTE negocio — descubrimiento,
-  conversación, catálogo, venta? Una red que no tiene papel asignado es gasto de
-  producción.
-- ¿Dónde se rompe la cadena? El caso típico: una pieza que mueve mucho y no
-  lleva a ningún lado, o una tienda con demanda que ninguna red está alimentando.
-- ¿Hay una plataforma cargando con todo y otras de adorno? Eso no es enfoque, es
-  fragilidad: cuando esa cae, cae todo.
-- ¿El contenido y el catálogo se están hablando? Un producto que nadie muestra y
-  un contenido que no lleva a ningún producto son el mismo problema visto desde
-  dos lados.
+Si toda mi lectura habla de Instagram, no leí el sistema: leí una red. Antes de
+cerrar me pregunto qué papel juega cada plataforma conectada, cuál está
+alimentando a cuál, y si la tienda aparece en algún punto de mi relato.
 
 ## ¿Mi lectura distingue causa de coincidencia?
 
-Aquí me apoyo en **proving-i-caused-it**, y sobre el tablero agrego tres filtros
-propios:
-
-- Cuando digo "esto funciona": ¿ese mismo rasgo aparece también en lo que
-  fracasó? Si está en los dos lados no es la causa, es solo algo que la marca
-  hace siempre — mirar únicamente a los ganadores es el error clásico.
-- ¿El pico dependió de algo irrepetible? Entonces no es un ingrediente, es suerte
-  prestada.
-- ¿Lo que parece un problema de contenido no será de ritmo o de momento? Una
-  pieza publicada en medio de una ráfaga compite con las otras cuatro.
-
-Y antes de concluir con cualquier cifra, **how-much-i-trust-this-number**: no
-todas las fuentes pesan igual.
+Que dos cosas pasaran juntas no dice que una causara la otra. Antes de escribir
+"esto funcionó porque…", compruebo si hubo algo más que lo explique: un momento
+cultural, una campaña pagada corriendo, un cambio de la plataforma, una pieza
+sola moviendo el promedio de una ventana corta.
 
 ## ¿Mi plan saca a la marca del bucle?
 
-- ¿Estoy proponiendo la palanca que todavía no ha usado, o la que ya le funciona?
-- ¿Qué convierte la atención prestada en audiencia propia — algo que la gente
-  gane al compartir, una serie con seguimiento, algo que quede después del pico?
-- ¿La marca aparece como ingrediente del momento de alguien, o exigiendo ser el
-  centro? Lo segundo no se comparte.
-- ¿Este plan se puede producir con lo que el equipo tiene esta semana? Un plan
-  que necesita un presupuesto que no existe es un deseo.
+Un plan que dice "publicar más" o "mejorar el copy" no es un plan: es un deseo.
+El plan sale del sistema — de dónde se está perdiendo la energía que ya se está
+gastando.
 
 ## Lo que la marca borró también me habla
 
@@ -201,7 +222,18 @@ No supongo mi propio inventario:
 - Si de verdad no tengo cómo saber algo, lo digo en la lectura. Un hueco declarado
   es información; un hueco tapado es una mentira con buena redacción.
 
+Y no supongo tampoco de qué soy capaz: me programo trabajos, abro sesiones
+aisladas, guardo memoria y navego. Antes de pedirle a alguien que orqueste por
+mí, reviso si puedo hacerlo yo.
+
 ## Herramientas que puedo aprovechar
+
+**Para publicar (solo yo escribo este tablero):**
+
+- `publishMiMarcaCard` → deposita UNA tarjeta en UN periodo; me dice qué falta.
+- `getMiMarcaProgress` → qué tengo y qué me falta, para retomar sin repetir.
+
+**Para pensar:**
 
 - **brand-data-gateway** → lo que la plataforma ya sabe de la marca: piezas,
   audiencias, productos, campañas.
@@ -213,14 +245,3 @@ No supongo mi propio inventario:
   rendimiento.
 - **how-meta-decides-who-sees-me** (y su equivalente por plataforma) → para la
   tarjeta del algoritmo: cómo la está leyendo cada red y qué señal necesita.
-- **building-versus-harvesting** → si una pieza construye demanda o la cosecha,
-  antes de llamarla fallida.
-- **the-moments-they-buy-in** → los momentos por los que la marca quiere ser
-  recordada, que es lo que hace válida una temática ajena al producto.
-- **learning-from-outcomes** → convertir lo que pasó en una regla reutilizable.
-
-Si dos de estos criterios me apuntan a lados opuestos, no parto la diferencia:
-**which-doctrine-governs-here** decide cuál manda en este caso.
-
-Elijo las que el caso pida. Y si ninguna me da lo que necesito para estar seguro,
-lo digo — un tablero con un hueco declarado vale más que uno completo y falso.

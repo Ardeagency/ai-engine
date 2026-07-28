@@ -87,6 +87,20 @@ async function _logVeraUsage(organizationId, raw, meta = {}) {
 }
 
 const OPENCLAW_TIMEOUT_MS = Number(process.env.OPENCLAW_TIMEOUT_MS) || 60_000;
+
+// El fetch de Node usa undici por debajo, y su headersTimeout POR DEFECTO son
+// 300000 ms. El puente del org-server no manda cabeceras hasta que `openclaw`
+// TERMINA, asi que cualquier generacion de mas de 5 minutos moria con
+// "fetch failed" — y el AbortSignal de OPENCLAW_TIMEOUT_MS ni llegaba a contar.
+// Ese era el corte de 301s EXACTOS que aguanto tres ciclos de dormir/despertar
+// arreglando los dos servidores HTTP de la VM: el cortador estaba aqui.
+// 0 = sin limite; el limite real lo sigue poniendo el AbortSignal de abajo.
+const { Agent: _UndiciAgent } = await import("undici");
+const _dispatcherLargo = new _UndiciAgent({
+  headersTimeout: 0,
+  bodyTimeout: 0,
+  connectTimeout: 15_000,
+});
 const SESSION_TTL_MS      = 2 * 60 * 60 * 1000; // 2 horas
 
 // ── Session store ─────────────────────────────────────────────────────────────
@@ -850,6 +864,7 @@ async function _callRemoteOpenClaw({ orgEntry, agentId, enrichedMessage, clawSes
     }),
     // Timeout del lado del control plane = OPENCLAW_TIMEOUT_MS + 5s de red
     signal: AbortSignal.timeout(OPENCLAW_TIMEOUT_MS + 5_000),
+    dispatcher: _dispatcherLargo,
   });
 
   if (!res.ok) {

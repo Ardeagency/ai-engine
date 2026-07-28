@@ -70,6 +70,7 @@ const FEED_MAX_AGE_H = Number(process.env.VERA_DASH_FEED_MAX_AGE_H || 24);
 const DASHBOARD_READING_TOOLS_RAW = [
   // Escritura del tablero (Vera publica sus cards y consulta que le falta)
   "publishMiMarcaCard", "getMiMarcaProgress",
+  "getPublicacionDestacada", "explainPublicacionDestacada",
   // Identidad y contexto de la marca
   "getBrandDNA", "getBrandProfile", "getBrandContainers", "getOrgOverview",
   "getProducts", "getAudiences", "getAudienceAlignment", "getIntegrations",

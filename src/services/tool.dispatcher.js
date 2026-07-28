@@ -23,6 +23,7 @@ import * as mediaAnalysis from "./media-analysis.service.js";
 import * as scraperTools from "../tools/scraper.tools.js";
 import * as dashboardTools from "../tools/dashboard.tools.js";
 import * as dashboardWriteTools from "../tools/dashboard-write.tools.js";
+import * as destacadaTools from "../tools/destacada.tools.js";
 import * as strategyTools from "../tools/strategy.tools.js";
 import * as cmoTools from "../tools/cmo.tools.js";
 import * as veraFeedTools from "../tools/vera-feed.tools.js";
@@ -288,6 +289,20 @@ const TOOL_REGISTRY = {
   getBrandContent: {
     fn: ({ organizationId, brandContainerId, daysWindow }) =>
       socialTools.getBrandContent({ brandContainerId: brandContainerId || null, organizationId, daysWindow: daysWindow || 90 }),
+    requiresConsent: false,
+  },
+
+  // ── Publicacion destacada ──────────────────────────────────
+  // getTopHighlightedPosts no sirve para juzgar una pieza: content_preview sale
+  // VACIO, no trae comentarios ni descripcion visual, y rankea por
+  // engagement_total mientras el tablero re-rankea desde metrics — podia
+  // analizar un post DISTINTO al que el cliente tiene en pantalla.
+  getPublicacionDestacada: {
+    fn: (params) => destacadaTools.getPublicacionDestacada(params),
+    requiresConsent: false,
+  },
+  explainPublicacionDestacada: {
+    fn: (params) => destacadaTools.explainPublicacionDestacada(params),
     requiresConsent: false,
   },
 

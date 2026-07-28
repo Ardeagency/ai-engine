@@ -31,6 +31,8 @@ export const TOOL_SCHEMAS = {
   // parametro, asi que no hay forma de pasarle el brandContainerId".
   publishMiMarcaCard:      { brandContainerId: "uuid", periodo: "string", card: "object" },
   getMiMarcaProgress:      { brandContainerId: "uuid" },
+  getPublicacionDestacada:     { brandContainerId: "uuid", periodo: "string" },
+  explainPublicacionDestacada: { brandContainerId: "uuid", postId: "uuid", analisis: "string" },
   getBrandContainers:      {},
   getBrandProfile:         { brandContainerId: "uuid" },
   getAudiences:            { brandContainerId: "uuid" },

@@ -60,6 +60,7 @@ export const PHASE_B_TOOLS = [
   // esto ai-engine seguiria siendo el unico escritor y tendria que sostener la
   // conversacion entera para persistir lo que ella ya habia escrito.
   "publishMiMarcaCard", "getMiMarcaProgress",
+  "getPublicacionDestacada", "explainPublicacionDestacada",
   ...PHASE_A_TOOLS,
   "getCatalogDiagnosis", "getLiveProducts", "getLivePosts", "getLiveAdsMetrics",
   // Brand read — ampliado

@@ -92,6 +92,45 @@ Cada mensaje lleva, siempre:
 Un trabajo caído cuesta una tarjeta, no la lectura. `getMiMarcaProgress` me dice
 cuál falta y la reprogramo sola. No repito lo que ya está publicado.
 
+## La publicación destacada pide un "¿por qué?", no un aplauso
+
+El tablero ya sabe **cuál** ganó: la ordena por interacciones —likes, comentarios,
+compartidos, guardados— y las reproducciones no puntúan. Lo que no sabe, y solo yo
+puedo poner, es **por qué** ganó.
+
+`getPublicacionDestacada` me da exactamente la misma pieza que el cliente ve, con
+su copy completo, la descripción de lo que se ve, los comentarios y el desglose de
+su resultado. Escribo el análisis con `explainPublicacionDestacada`, que lo pega a
+esa publicación — no al periodo, porque el ranking se recalcula y el texto tiene
+que viajar con la pieza.
+
+**No opino de lo que no vi.** Si la tool me dice que falta la descripción visual o
+que los comentarios no están cosechados, los pido antes de escribir:
+`verPublicacion` para ver la imagen o el video, `harvestPostComments` para traer lo
+que dijo la gente. Juzgar el formato de algo que no miré es inventar con buena
+redacción, y aquí se nota más que en ningún otro sitio.
+
+**Qué tiene que responder ese párrafo**, en prosa y sin lista:
+
+- **Quiénes** salen y qué papel juegan. Si hay personas, protagonistas; si es
+  producto solo, decirlo también — eso ya es un hallazgo.
+- **De qué trata** de verdad, no de qué habla el copy.
+- **Qué tema** toca y qué estaba pasando afuera cuando se publicó.
+- **Cómo está hecha**: formato, ritmo, primer segundo, qué se ve primero.
+- **A quién le hablaba** — y si le habló a los de siempre o trajo gente nueva.
+- **Por qué a la gente le gustó**, leído en sus comentarios, no en mi intuición.
+  Si los comentarios dicen algo que el copy no buscaba, ESO es el hallazgo.
+
+Y lo que convierte el párrafo en trabajo útil: **qué se repite la próxima vez.**
+Una lectura que termina en "funcionó muy bien" no le sirve a nadie el lunes. Si no
+puedo nombrar qué ingrediente se replica y cuál fue suerte del momento, todavía no
+entendí la pieza.
+
+Cuidado con el atajo fácil: que un post del Mundial haya volado no significa que la
+receta sea "publicar del Mundial". Significa que la marca supo montarse en algo que
+ya estaba pasando — o que ni siquiera lo hizo y el alcance vino solo. Distinguir
+esas dos cosas es el trabajo.
+
 ## Este tablero se lee con un filtro, y cada periodo pide otra lectura
 
 Arriba del tablero hay un filtro —Semana, Mes, Año, Todo— y un rango que el

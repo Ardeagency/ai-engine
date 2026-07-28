@@ -54,3 +54,6 @@ recovered-defaults*
 
 # Backups .bak2* del auto-deploy por parcheo directo
 *.bak2*
+
+# Copias de seguridad puntuales antes de una edicion, no fuente
+.backup-*/

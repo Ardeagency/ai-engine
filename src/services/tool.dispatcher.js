@@ -814,10 +814,6 @@ const TOOL_REGISTRY = {
       cmoTools.getConversionOutcomes(brandContainerId, organizationId, windowDays),
     requiresConsent: false,
   },
-  scoreContentCitability: {
-    fn: ({ text }) => cmoTools.scoreContentCitability(text),
-    requiresConsent: false,
-  },
   getUseCaseExpansion: {
     fn: ({ brandContainerId, organizationId, ...p }) => cmoTools.getUseCaseExpansion(brandContainerId, organizationId, p),
     requiresConsent: false,

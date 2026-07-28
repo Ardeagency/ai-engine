@@ -21,6 +21,7 @@ export const PHASE_A_TOOLS = [
   "getAudiences",
   "getProducts",
   "getCampaigns",
+  "getCampaignDetail",
   "getAvailableFlows",
   "getFlowInputs",
   "forgeProductionPrompt",
@@ -63,6 +64,10 @@ export const PHASE_B_TOOLS = [
   "getPublicacionDestacada", "explainPublicacionDestacada",
   "describirPublicacion",
   "getMaterialDeCodigos", "getMaterialDeEmpaque",
+  // Cosecha de comentarios: Apify cobra POR COMENTARIO, por eso no tiene cron
+  // y la dispara ella. Cuatro skills se la mandaban usar y no estaba expuesta
+  // en ninguna fase — el hilo completo de un post nunca fue alcanzable.
+  "harvestPostComments", "getHarvestedComments",
   "registrarMedicionDeCodigos", "getSerieDeCodigos",
   ...PHASE_A_TOOLS,
   "getCatalogDiagnosis", "getLiveProducts", "getLivePosts", "getLiveAdsMetrics",

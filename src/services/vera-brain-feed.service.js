@@ -778,10 +778,13 @@ const AUTONOMOUS_TOOLS = new Set([
   // penetracion (ley #1), ocasiones de compra (CEPs), demanda creada vs cosechada
   // (no matar burners que construyen marca) y atribucion a negocio real (leads).
   "getPenetrationDiagnosis", "getCEPGaps", "getDemandDiagnosis", "getConversionOutcomes",
-  "scoreContentCitability", "getUseCaseExpansion",
-  // NOTA: getDistinctiveAssetsAudit / getPackagingAnalysis / getAuthorityClusterPlan
-  // (vision/LLM, cuestan creditos) NO se listan aqui a proposito — solo on-demand en
-  // chat, para que el ciclo autonomo no queme tokens sin que un humano lo pida.
+  "getUseCaseExpansion",
+  // NOTA: aqui vivian cuatro tools que juzgaban por ella con gpt-4o —el blink test
+  // de codigos, el analisis de empaque, el plan de autoridad y la rubrica de
+  // citabilidad—. Ya no existen: esa doctrina la tiene ella como skills
+  // (the-codes-that-make-me-recognizable, how-machines-recommend-me) y ai-engine
+  // le pasa el MATERIAL, no el veredicto. Lo que mide, lo anota con
+  // registrarMedicionDeCodigos.
   // "Que funciona" — rendimiento por tono/tema/plataforma (post_patterns).
   // Alimenta la Capa 6 (Aprendizaje): Vera consulta que performa antes de decidir.
   "getEstrategiaPlatforms",

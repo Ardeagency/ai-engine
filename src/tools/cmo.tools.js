@@ -10,7 +10,6 @@
  */
 import { supabase } from "../lib/supabase.js";
 import { resolveBrandContainer } from "../lib/brand-resolver.js";
-import { scoreCitability } from "../services/content-citability.service.js";
 import { expandUseCases } from "../services/expand-use-cases.service.js";
 
 // ventana en días → ISO de p_date_from (p_date_to queda null = now en el RPC).
@@ -73,19 +72,14 @@ export async function getConversionOutcomes(brandContainerId, organizationId, wi
   return data;
 }
 
-// scoreContentCitability — ¿este texto es citable por una IA? Rubrica reglada (GEO),
-// sin LLM. Vera puntua un borrador ANTES de publicarlo y ve que falta para subir citas.
-export function scoreContentCitability(text) {
-  return scoreCitability(text);
-}
-
 // getUseCaseExpansion — casos de uso NUEVOS (ocasiones sin cubrir) para subir frecuencia. Reglado.
 export function getUseCaseExpansion(brandContainerId, organizationId, opts) {
   return expandUseCases(brandContainerId, organizationId, opts || {});
 }
 
-// Las tres tools que vivian aqui —getDistinctiveAssetsAudit, getPackagingAnalysis
-// y getAuthorityClusterPlan— llamaban a gpt-4o (VISION las dos primeras) desde
+// Las cuatro tools que vivian aqui —getDistinctiveAssetsAudit, getPackagingAnalysis,
+// getAuthorityClusterPlan y scoreContentCitability— juzgaban en lugar de Vera: las
+// tres primeras llamando a gpt-4o (VISION las dos primeras) desde
 // ai-engine para juzgar en lugar de Vera. Ella tiene esa doctrina como skills:
 // the-codes-that-make-me-recognizable, brand-fidelity-check,
 // how-machines-recommend-me. Ahora recibe el MATERIAL (getMaterialDeCodigos,

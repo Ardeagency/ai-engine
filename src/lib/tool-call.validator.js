@@ -76,6 +76,8 @@ export const TOOL_SCHEMAS = {
   getRetailPrices:         { brandContainerId: "uuid" },
   getCampaigns:            { brandContainerId: "uuid" },
   getCampaignDetail:       { campaignId: "uuid", brandContainerId: "uuid" },
+  harvestPostComments:     { brand_post_id: "uuid", cap: "string", reason: "string" },
+  getHarvestedComments:    { job_id: "string", limit: "string" },
   getAvailableFlows:       {},
   getUpcomingDates:        {},
   getFlowSchedules:        { brandContainerId: "uuid" },

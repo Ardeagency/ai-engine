@@ -327,50 +327,6 @@ export async function getCompetitorAnalysis(entityName, brandContainerId, organi
   };
 }
 
-/**
- * Análisis de contenido y pilares narrativos.
- * Vera usa esto para entender qué estrategias de contenido dominan en el mercado.
- */
-export async function getContentAnalysisSummary(brandContainerId, organizationId) {
-  const bc = await resolveBrandContainer(brandContainerId, organizationId);
-
-  const [pillarsRes, analysisRes] = await Promise.all([
-    supabase
-      .from("brand_narrative_pillars")
-      .select("pillar_name, post_count, avg_engagement, avg_reach, pillar_type, last_post_at")
-      .eq("brand_container_id", bc.id)
-      .order("post_count", { ascending: false }),
-    supabase
-      .from("brand_content_analysis")
-      .select("tone_detected, dominant_emotion, narrative_pillar, clarity_score, fatigue_risk, analyzed_at")
-      .eq("brand_container_id", bc.id)
-      .order("analyzed_at", { ascending: false })
-      .limit(50),
-  ]);
-
-  const pillars  = pillarsRes.data || [];
-  const analyses = analysisRes.data || [];
-
-  const toneFreq    = analyses.reduce((a, x) => { a[x.tone_detected]    = (a[x.tone_detected]    || 0) + 1; return a; }, {});
-  const emotionFreq = analyses.reduce((a, x) => { a[x.dominant_emotion] = (a[x.dominant_emotion] || 0) + 1; return a; }, {});
-  const avgClarity  = analyses.reduce((s, x) => s + (x.clarity_score || 0), 0) / (analyses.length || 1);
-  const fatigueRate = analyses.length > 0 ? analyses.filter(x => x.fatigue_risk).length / analyses.length : 0;
-
-  return {
-    posts_analyzed: analyses.length,
-    narrative_pillars: pillars,
-    top_tones:      Object.entries(toneFreq).sort((a,b) => b[1]-a[1]).slice(0, 5),
-    top_emotions:   Object.entries(emotionFreq).sort((a,b) => b[1]-a[1]).slice(0, 5),
-    avg_clarity_score: parseFloat(avgClarity.toFixed(2)),
-    fatigue_risk_rate: parseFloat((fatigueRate * 100).toFixed(1)),
-    insight: fatigueRate > 0.4
-      ? "⚠️ Más del 40% del contenido de competidores muestra fatiga creativa — oportunidad diferenciadora."
-      : avgClarity < 0.5
-      ? "📝 El contenido promedio tiene claridad baja — hay espacio para destacar con mensajes más directos."
-      : "✅ El panorama competitivo de contenido es diverso y activo.",
-  };
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // WRITE TOOLS — Vera edita su propio sistema de monitoreo
 // ─────────────────────────────────────────────────────────────────────────────

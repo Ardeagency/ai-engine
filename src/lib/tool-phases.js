@@ -63,6 +63,7 @@ export const PHASE_B_TOOLS = [
   "getPublicacionDestacada", "explainPublicacionDestacada",
   "describirPublicacion",
   "getMaterialDeCodigos", "getMaterialDeEmpaque",
+  "registrarMedicionDeCodigos", "getSerieDeCodigos",
   ...PHASE_A_TOOLS,
   "getCatalogDiagnosis", "getLiveProducts", "getLivePosts", "getLiveAdsMetrics",
   // Brand read — ampliado

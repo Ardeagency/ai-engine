@@ -149,6 +149,58 @@ export class BasePopulator {
    *   - integration: row de brand_integrations
    * @returns {object} { product_id, decision, similarity_score, images_stored, ... }
    */
+  /**
+   * Enlaza un listado externo con un producto interno. Un producto puede tener
+   * VARIOS listados (presentaciones, packs, promos, re-publicaciones): esa es la
+   * relacion N:1 que habilita el indice parcial de external_resource_map.
+   */
+  async linkExternalResource({ brandContainerId, organizationId, integration, normalized, externalId, productId, extraMetadata }) {
+    const { error } = await supabase.from("external_resource_map").upsert({
+      brand_container_id:    brandContainerId,
+      organization_id:       organizationId,
+      brand_integration_id:  integration.id,
+      internal_table:        "products",
+      internal_id:           productId,
+      external_platform:     this.platform,
+      external_id:           externalId,
+      external_handle:       normalized.handle || null,
+      external_url:          normalized.url || null,
+      sync_direction:        "bidirectional",
+      metadata:              { ...(normalized.metadata || {}), ...(extraMetadata || {}) },
+      last_synced_at:        new Date().toISOString(),
+      last_pulled_at:        new Date().toISOString(),
+    }, { onConflict: "brand_container_id,external_platform,external_id,internal_table" });
+    if (error) {
+      console.error(`[populator/${this.platform}] ERM upsert error for product ${productId}:`, error.message, error.details || "");
+    }
+  }
+
+  /** Registra un tamano nuevo del mismo producto como presentacion. Idempotente. */
+  async upsertPresentation({ productId, organizationId, presentation, normalized }) {
+    const { data: yaEsta } = await supabase
+      .from("product_variants")
+      .select("id")
+      .eq("product_id", productId)
+      .eq("variant_name", presentation.label)
+      .maybeSingle();
+    if (yaEsta) return;
+
+    const { error } = await supabase.from("product_variants").insert({
+      product_id:      productId,
+      organization_id: organizationId,
+      variant_name:    presentation.label,
+      precio:          normalized.price ?? null,
+      moneda:          normalized.currency || null,
+      peso:            presentation.size?.value ?? null,
+      peso_unidad:     presentation.size?.unit || null,
+      sku:             normalized.identifiers?.sku || null,
+      barcode:         normalized.identifiers?.barcode || normalized.identifiers?.gtin || null,
+      notas_contenido: `presentacion detectada en ${this.platform}: ${normalized.name}`,
+      is_active:       true,
+    });
+    if (error) console.error(`[populator/${this.platform}] variant insert error:`, error.message);
+  }
+
   async upsertCanonicalProduct({ normalized, integration, rawProduct }) {
     const brandContainerId = integration.brand_container_id;
     const organizationId = await this.getOrgIdFromContainer(brandContainerId);
@@ -169,6 +221,7 @@ export class BasePopulator {
     let decision = productId ? "linked_existing" : null;
     let similarityScore = productId ? 1.0 : null;
     let matchReason = productId ? "exact_external_id_resync" : null;
+    let presentation = null;
 
     // 2) Si no había map, intenta dedupe por nombre / cross-platform
     if (!productId) {
@@ -177,13 +230,47 @@ export class BasePopulator {
         name:        normalized.name,
         externalId:  externalId,
         platform:    this.platform,
+        identifiers: normalized.identifiers || null,
       });
       decision = match.decision;
       similarityScore = match.similarity_score;
       matchReason = match.match_reason;
+      presentation = match.presentation || null;
 
-      if (match.decision === "linked_existing" && match.matched_product_id) {
+      if ((match.decision === "linked_existing" || match.decision === "manual_review") && match.matched_product_id) {
+        // manual_review tambien enlaza: mejor un producto marcado para revisar
+        // que una fila duplicada suelta en el catalogo de la marca.
         productId = match.matched_product_id;
+      }
+
+      // 2b) El listado NO es un producto (pack, promo, kit) o el equipo ya lo
+      //     descarto. No se crea fila, no se bajan imagenes. Si se le reconoce
+      //     el producto base, se deja el enlace para saber que ese listado le
+      //     pertenece; si no, se descarta y queda el registro en el audit.
+      if (match.decision === "blocked" || match.decision === "skipped_pack" || match.decision === "skipped_bundle") {
+        if (match.matched_product_id) {
+          await this.linkExternalResource({
+            brandContainerId, organizationId, integration, normalized, externalId,
+            productId: match.matched_product_id,
+            extraMetadata: { listing_kind: match.listing_kind, no_es_producto: true, match_reason: match.match_reason },
+          });
+        }
+        await logDedupeDecision({
+          brandContainerId, organizationId,
+          productId:               match.matched_product_id,
+          externalPlatform:        this.platform,
+          externalId,
+          externalName:            normalized.name,
+          decision:                match.decision,
+          matchedAgainstProductId: match.matched_product_id,
+          similarityScore:         match.similarity_score,
+          matchReason:             match.match_reason,
+          rawPayload:              { handle: normalized.handle || null, url: normalized.url || null },
+        });
+        return {
+          product_id: match.matched_product_id, decision: match.decision,
+          similarity_score: match.similarity_score, images_stored: 0, skipped: true,
+        };
       }
     }
 
@@ -212,23 +299,12 @@ export class BasePopulator {
     }
 
     // 4) Persistir / refrescar el link en external_resource_map
-    const { error: ermErr } = await supabase.from("external_resource_map").upsert({
-      brand_container_id:    brandContainerId,
-      organization_id:       organizationId,
-      brand_integration_id:  integration.id,
-      internal_table:        "products",
-      internal_id:           productId,
-      external_platform:     this.platform,
-      external_id:           externalId,
-      external_handle:       normalized.handle || null,
-      external_url:          normalized.url || null,
-      sync_direction:        "bidirectional",
-      metadata:              normalized.metadata || {},
-      last_synced_at:        new Date().toISOString(),
-      last_pulled_at:        new Date().toISOString(),
-    }, { onConflict: "brand_container_id,external_platform,external_id,internal_table" });
-    if (ermErr) {
-      console.error(`[populator/${this.platform}] ERM upsert error for product ${productId}:`, ermErr.message, ermErr.details || "");
+    await this.linkExternalResource({ brandContainerId, organizationId, integration, normalized, externalId, productId });
+
+    // 4b) Si el listado es el MISMO producto en otro tamano, entra como
+    //     presentacion (product_variants), no como producto nuevo.
+    if (presentation) {
+      await this.upsertPresentation({ productId, organizationId, presentation, normalized });
     }
 
     // 5) Imágenes: descargar a bucket y registrar en product_images

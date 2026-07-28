@@ -33,7 +33,15 @@ export async function executeAction(actionId, executedByUserId, opts = {}) {
   if (loadErr) throw new Error(`Failed to load action ${actionId}: ${loadErr.message}`);
   if (!action) throw new Error(`Action ${actionId} not found`);
 
-  // 2. Validar status
+  // 2a. CANCELABLE: si el humano la canceló, NO se ejecuta (abort graceful).
+  //     El lock de abajo (.in status approved/pending) tapa la carrera load↔lock.
+  if (action.status === "cancelled") {
+    return { status: "cancelled", skipped: true, reason: "cancelled_by_human" };
+  }
+
+  // 2. Validar status. Con autoApproved (auto-exec sin aprobación humana, el modelo
+  //    por defecto salvo autonomy=restringido) el chequeo se salta. En restringido
+  //    la tarea nace 'pending' y solo un humano la aprueba (approveVeraAction).
   if (!opts.autoApproved && action.status !== "approved") {
     throw new Error(
       `Action ${actionId} status="${action.status}" — must be 'approved' to execute`

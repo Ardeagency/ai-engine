@@ -34,8 +34,6 @@ export const TOOL_SCHEMAS = {
   getPublicacionDestacada:     { brandContainerId: "uuid", periodo: "string" },
   explainPublicacionDestacada: { brandContainerId: "uuid", postId: "uuid", analisis: "string" },
   verPublicacion:              { postId: "uuid" },
-  getPackagingAnalysis:        { brandContainerId: "uuid" },
-  getAuthorityClusterPlan:     { brandContainerId: "uuid" },
   // ── Esquemas que faltaban ─────────────────────────────────────────────
   // Sin entrada aqui, el MCP le expone la tool con properties vacio: Vera la
   // ve, la llama, y no tiene por donde pasarle nada. Lo detecto ella sola dos
@@ -63,6 +61,8 @@ export const TOOL_SCHEMAS = {
   describirPublicacion:        { postId: "uuid", descripcion: "string" },
   getMaterialDeCodigos:        { brandContainerId: "uuid", maxPiezas: "string" },
   getMaterialDeEmpaque:        { brandContainerId: "uuid", maxImagenes: "string" },
+  registrarMedicionDeCodigos:  { brandContainerId: "uuid", mediciones: "object" },
+  getSerieDeCodigos:           { brandContainerId: "uuid", desde: "string" },
   getBrandContainers:      {},
   getBrandProfile:         { brandContainerId: "uuid" },
   getAudiences:            { brandContainerId: "uuid" },

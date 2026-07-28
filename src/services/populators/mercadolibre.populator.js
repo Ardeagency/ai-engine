@@ -101,7 +101,8 @@ export class MercadoLibrePopulator extends BasePopulator {
 
     const stats = {
       items_listed: ids.length, total_reported: total, products_created: 0,
-      products_linked: 0, manual_review: 0, images_stored: 0, enrichment_enqueued: 0, errors: 0,
+      products_linked: 0, manual_review: 0, listados_descartados: 0,
+      images_stored: 0, enrichment_enqueued: 0, errors: 0,
     };
     const enrichmentJobs = [];
     const orgId = await this.getOrgIdFromContainer(integ.brand_container_id);
@@ -132,6 +133,13 @@ export class MercadoLibrePopulator extends BasePopulator {
             handle:        null,
             url:           item.permalink || null,
             tipo_producto: mapMeliTipoProducto(item.title, item.category_id),
+            // GTIN/EAN y SKU del vendedor: identificadores que atraviesan
+            // plataformas y evitan duplicar el producto al conectar otro canal.
+            identifiers: {
+              gtin:    attrValue(item, "GTIN") || attrValue(item, "EAN"),
+              sku:     attrValue(item, "SELLER_SKU") || item.seller_custom_field || null,
+              barcode: attrValue(item, "GTIN") || null,
+            },
             images: pics.map((p) => ({
               url:         p.secure_url || p.url,
               alt:         item.title || null,
@@ -153,6 +161,7 @@ export class MercadoLibrePopulator extends BasePopulator {
           if (result.decision === "created")               stats.products_created++;
           else if (result.decision === "linked_existing")  stats.products_linked++;
           else if (result.decision === "manual_review")    stats.manual_review++;
+          else if (result.skipped)                        stats.listados_descartados++;
           stats.images_stored += result.images_stored || 0;
 
           // Enrichment AI por producto (idempotente), espaciado 2s.
@@ -223,6 +232,13 @@ export class MercadoLibrePopulator extends BasePopulator {
 // Heurística leve título/categoría → tipo_producto_enum. Default 'otro' (Vera
 // refina después). ML category_id es un código (MLMxxxx) no legible, así que
 // nos apoyamos en el título.
+/** Lee un atributo del item de Mercado Libre por id (GTIN, EAN, SELLER_SKU…). */
+function attrValue(item, id) {
+  const a = (item?.attributes || []).find((x) => x?.id === id);
+  const v = a?.value_name ?? a?.values?.[0]?.name ?? null;
+  return v && String(v).trim() ? String(v).trim() : null;
+}
+
 function mapMeliTipoProducto(title, categoryId) {
   const txt = `${title || ""} ${categoryId || ""}`.toLowerCase();
   const rules = [

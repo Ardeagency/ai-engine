@@ -12,9 +12,6 @@ import { supabase } from "../lib/supabase.js";
 import { resolveBrandContainer } from "../lib/brand-resolver.js";
 import { scoreCitability } from "../services/content-citability.service.js";
 import { expandUseCases } from "../services/expand-use-cases.service.js";
-import { auditDistinctiveAssets } from "../services/audit-distinctive-assets.service.js";
-import { analyzePackagingAsAsset } from "../services/analyze-packaging.service.js";
-import { generateAuthorityCluster } from "../services/generate-authority-cluster.service.js";
 
 // ventana en días → ISO de p_date_from (p_date_to queda null = now en el RPC).
 function _windowFromISO(windowDays, def) {
@@ -87,18 +84,10 @@ export function getUseCaseExpansion(brandContainerId, organizationId, opts) {
   return expandUseCases(brandContainerId, organizationId, opts || {});
 }
 
-// getDistinctiveAssetsAudit — blink test con VISION (gpt-4o): consistencia/reconocimiento
-// de color/logo/tipografia en outputs vs activos definidos. Persiste asset_equity. Cuesta tokens.
-export function getDistinctiveAssetsAudit(brandContainerId, organizationId, opts) {
-  return auditDistinctiveAssets(brandContainerId, organizationId, opts || {});
-}
-
-// getPackagingAnalysis — VISION sobre packaging: medio (activo) + producto (ocasion) + disponibilidad. Cuesta tokens.
-export function getPackagingAnalysis(brandContainerId, organizationId, opts) {
-  return analyzePackagingAsAsset(brandContainerId, organizationId, opts || {});
-}
-
-// getAuthorityClusterPlan — plan de cluster de autoridad (pilar + articulos citables + enlaces) via LLM. Cuesta tokens.
-export function getAuthorityClusterPlan(brandContainerId, organizationId, opts) {
-  return generateAuthorityCluster(brandContainerId, organizationId, opts || {});
-}
+// Las tres tools que vivian aqui —getDistinctiveAssetsAudit, getPackagingAnalysis
+// y getAuthorityClusterPlan— llamaban a gpt-4o (VISION las dos primeras) desde
+// ai-engine para juzgar en lugar de Vera. Ella tiene esa doctrina como skills:
+// the-codes-that-make-me-recognizable, brand-fidelity-check,
+// how-machines-recommend-me. Ahora recibe el MATERIAL (getMaterialDeCodigos,
+// getMaterialDeEmpaque) y el juicio es suyo; lo que MIDE lo anota con
+// registrarMedicionDeCodigos.

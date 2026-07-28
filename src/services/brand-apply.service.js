@@ -118,6 +118,12 @@ export async function applyBrandPayloadToOrg(organizationId, payload, seedUrl = 
     pilares: payload.pilares || [],
     verbos_inspiracion: payload.verbos_inspiracion || [],
     como_comunica: payload.como_comunica || null,
+    // Como habla de verdad: frases suyas y los dos limites del tono.
+    frases_propias: payload.frases_propias || [],
+    ejemplos_si: payload.ejemplos_si || [],
+    ejemplos_no: payload.ejemplos_no || [],
+    diferenciadores: payload.diferenciadores || [],
+    momentos_de_uso: payload.momentos_de_uso || [],
   };
   const visual_dna = {
     estetica: payload.estetica || null,
@@ -139,6 +145,10 @@ export async function applyBrandPayloadToOrg(organizationId, payload, seedUrl = 
     palabras_clave: payload.palabras_clave || [],
     palabras_prohibidas: payload.palabras_prohibidas || [],
     verbal_dna, visual_dna,
+    // Trazabilidad: con que motores se construyo, que tan confiable es cada
+    // bloque y sobre cuanto material se leyo. Lo inferido y lo verificado no
+    // pueden entrar a la marca como si valieran lo mismo.
+    metadata: payload._meta ? { auto_builder: payload._meta } : undefined,
     updated_at: new Date().toISOString(),
   }).eq("id", containerId);
 
@@ -166,11 +176,74 @@ export async function applyBrandPayloadToOrg(organizationId, payload, seedUrl = 
   if (payload.typography_secondary) fonts.push({ organization_id: organizationId, font_family: payload.typography_secondary, font_usage: "secondary" });
   if (fonts.length) await supabase.from("brand_fonts").insert(fonts);
 
-  // 5. Pilares narrativos
+  // 5. Pilares narrativos DECLARADOS. Van marcados como tales: la misma tabla
+  //    recibe los pilares que el analyzer DETECTA de los posts reales, y
+  //    mezclarlos dejaba filas con post_count 0 que ensucian los dashboards.
   const pillars = (payload.pilares || []).filter(Boolean).map((p) => ({
-    brand_container_id: containerId, organization_id: organizationId, pillar_name: p,
+    brand_container_id: containerId, organization_id: organizationId,
+    pillar_name: p, pillar_type: "declarado",
+    description: "Pilar declarado por la marca (leido del sitio al crear la org), no detectado de publicaciones",
   }));
   if (pillars.length) await supabase.from("brand_narrative_pillars").insert(pillars);
+
+  // 5b. AUDIENCIAS. Es la tabla mas rica del esquema y hasta 2026-07 el creador
+  //     de orgs no la llenaba nunca; sin ella quedaban muertos el fusionador de
+  //     demografia real del social-scraper (que escribe en real_*), el generador
+  //     de ancla de ADN y el alineamiento de audiencia.
+  let personas = 0;
+  const audiencias = Array.isArray(payload.audiencias) ? payload.audiencias : [];
+  if (audiencias.length) {
+    const rows = audiencias.filter((a) => a && a.name).map((a) => ({
+      organization_id:     organizationId,
+      brand_container_id:  containerId,
+      name:                String(a.name).slice(0, 120),
+      description:         a.description || null,
+      awareness_level:     a.awareness_level || null,
+      dolores:             a.dolores || [],
+      deseos:              a.deseos || [],
+      objeciones:          a.objeciones || [],
+      gatillos_compra:     a.gatillos_compra || [],
+      estilo_lenguaje:     a.estilo_lenguaje || [],
+      datos_demograficos:  a.datos_demograficos || [],
+      datos_psicograficos: a.datos_psicograficos || [],
+      target_age_min:      Number.isFinite(a.target_age_min) ? a.target_age_min : null,
+      target_age_max:      Number.isFinite(a.target_age_max) ? a.target_age_max : null,
+      target_genders:      a.target_genders || [],
+      is_featured:         a.es_principal === true,
+      is_active:           true,
+      created_via:         "auto_builder",
+      real_interests:      { por_que_existe: a.por_que_existe || null, confianza: payload?._meta?.confianza?.audiencias || null },
+    }));
+    if (rows.length) {
+      const { error } = await supabase.from("audience_personas").insert(rows);
+      if (error) console.warn("[apply] audiencias:", error.message);
+      else personas = rows.length;
+    }
+  }
+
+  // 5c. REGLAS DE NEGOCIO (envios, pagos, mayoristas…). Extraidas literal del
+  //     sitio, con su cita, para que el agente pueda responderlas sin inventar.
+  let reglas = 0;
+  const reglasNegocio = Array.isArray(payload.reglas_negocio) ? payload.reglas_negocio : [];
+  if (reglasNegocio.length) {
+    const rows = reglasNegocio.filter((r) => r && r.tipo && r.resumen).map((r) => ({
+      brand_container_id: containerId,
+      rule_type:  r.tipo,
+      rule_value: {
+        resumen:    r.resumen,
+        detalle:    r.detalle || null,
+        cita:       r.cita || null,
+        fuente_url: r.fuente_url || null,
+        origen:     "auto_builder",
+        confianza:  payload?._meta?.confianza?.reglas || null,
+      },
+    }));
+    if (rows.length) {
+      const { error } = await supabase.from("brand_rules").insert(rows);
+      if (error) console.warn("[apply] reglas de negocio:", error.message);
+      else reglas = rows.length;
+    }
+  }
 
   // 6. Logo (best-effort — nunca rompe el apply)
   let logo = null;
@@ -179,5 +252,9 @@ export async function applyBrandPayloadToOrg(organizationId, payload, seedUrl = 
     catch (e) { console.warn("[logo] failed:", e.message); }
   }
 
-  return { applied: true, container_id: containerId, colors: colors.length, fonts: fonts.length, pillars: pillars.length, logo: logo?.url || null };
+  return {
+    applied: true, container_id: containerId,
+    colors: colors.length, fonts: fonts.length, pillars: pillars.length,
+    personas, reglas, logo: logo?.url || null,
+  };
 }

@@ -25,6 +25,7 @@ import * as dashboardTools from "../tools/dashboard.tools.js";
 import * as dashboardWriteTools from "../tools/dashboard-write.tools.js";
 import * as destacadaTools from "../tools/destacada.tools.js";
 import * as materialesTools from "../tools/materiales.tools.js";
+import * as medicionTools from "../tools/medicion.tools.js";
 import * as strategyTools from "../tools/strategy.tools.js";
 import * as cmoTools from "../tools/cmo.tools.js";
 import * as veraFeedTools from "../tools/vera-feed.tools.js";
@@ -299,6 +300,20 @@ const TOOL_REGISTRY = {
   getBrandContent: {
     fn: ({ organizationId, brandContainerId, daysWindow }) =>
       socialTools.getBrandContent({ brandContainerId: brandContainerId || null, organizationId, daysWindow: daysWindow || 90 }),
+    requiresConsent: false,
+  },
+
+  // ── Medicion: ella mide, aqui se anota ───────────────────────────────────
+  // Lo que queda de audit-distinctive-assets, con la topologia al derecho. El
+  // blink test lo hace ella (getMaterialDeCodigos + su doctrina); ai-engine
+  // guarda la serie, que es lo unico que dice si la marca MEJORA y no solo como
+  // esta hoy.
+  registrarMedicionDeCodigos: {
+    fn: (params) => medicionTools.registrarMedicionDeCodigos(params),
+    requiresConsent: false,
+  },
+  getSerieDeCodigos: {
+    fn: (params) => medicionTools.getSerieDeCodigos(params),
     requiresConsent: false,
   },
 
@@ -806,21 +821,6 @@ const TOOL_REGISTRY = {
   getUseCaseExpansion: {
     fn: ({ brandContainerId, organizationId, ...p }) => cmoTools.getUseCaseExpansion(brandContainerId, organizationId, p),
     requiresConsent: false,
-  },
-  getDistinctiveAssetsAudit: {
-    fn: ({ brandContainerId, organizationId, ...p }) => cmoTools.getDistinctiveAssetsAudit(brandContainerId, organizationId, p),
-    requiresConsent: false,
-    timeout: 40000,
-  },
-  getPackagingAnalysis: {
-    fn: ({ brandContainerId, organizationId, ...p }) => cmoTools.getPackagingAnalysis(brandContainerId, organizationId, p),
-    requiresConsent: false,
-    timeout: 40000,
-  },
-  getAuthorityClusterPlan: {
-    fn: ({ brandContainerId, organizationId, ...p }) => cmoTools.getAuthorityClusterPlan(brandContainerId, organizationId, p),
-    requiresConsent: false,
-    timeout: 40000,
   },
   searchIntelligence: {
     fn: ({ params, brandContainerId, organizationId, ...rest }) =>

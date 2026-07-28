@@ -73,6 +73,7 @@ const DASHBOARD_READING_TOOLS_RAW = [
   "getPublicacionDestacada", "explainPublicacionDestacada",
   "describirPublicacion",
   "getMaterialDeCodigos", "getMaterialDeEmpaque",
+  "registrarMedicionDeCodigos", "getSerieDeCodigos",
   // Identidad y contexto de la marca
   "getBrandDNA", "getBrandProfile", "getBrandContainers", "getOrgOverview",
   "getProducts", "getAudiences", "getAudienceAlignment", "getIntegrations",

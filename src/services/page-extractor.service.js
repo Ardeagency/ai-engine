@@ -416,6 +416,7 @@ export function extractCorpus(pages, seedHostname) {
       langs: new Map(),
       all_h1: [],
       all_h2: [],
+      paragraphs: [],        // [{ url, text }] — la prosa del sitio, con su fuente
       paragraph_chars: 0,
     },
   };
@@ -428,7 +429,20 @@ export function extractCorpus(pages, seedHostname) {
       lang: ex.lang,
       title: ex.title,
       meta: ex.meta,
-      text: { h1: ex.text.h1, h2: ex.text.h2, paragraphs_count: ex.text.paragraphs.length, total_chars: ex.text.total_chars },
+      // Los PARRAFOS se conservan (acotados). Antes solo se guardaba
+      // paragraphs_count y el consolidador nunca veia la prosa real del sitio:
+      // leia titulares y meta descriptions, y de ahi salia una marca superficial.
+      // La prosa es donde viven el origen, el publico, las politicas de envio y
+      // pago, y el argumentario — justo lo que alimenta los batches de
+      // audiencias y reglas de negocio.
+      text: {
+        h1: ex.text.h1,
+        h2: ex.text.h2,
+        h3: ex.text.h3.slice(0, 20),
+        paragraphs: ex.text.paragraphs.filter((p) => p.length >= 40).slice(0, 40),
+        paragraphs_count: ex.text.paragraphs.length,
+        total_chars: ex.text.total_chars,
+      },
       products_count: ex.products.length,
       services_count: ex.services.length,
       social_count: ex.social.length,
@@ -464,6 +478,11 @@ export function extractCorpus(pages, seedHostname) {
     corpus.aggregated.all_h1.push(...ex.text.h1);
     corpus.aggregated.all_h2.push(...ex.text.h2);
     corpus.aggregated.paragraph_chars += ex.text.total_chars;
+
+    // Prosa agregada, con la URL de origen para poder citar la fuente de un dato.
+    for (const p of ex.text.paragraphs) {
+      if (p.length >= 40) corpus.aggregated.paragraphs.push({ url: ex.url, text: p.slice(0, 600) });
+    }
   }
 
   // Materializar Maps/Sets en arrays
@@ -486,6 +505,10 @@ export function extractCorpus(pages, seedHostname) {
       langs: [...agg.langs.entries()].map(([lang, count]) => ({ lang, count })),
       all_h1: agg.all_h1.slice(0, 80),
       all_h2: agg.all_h2.slice(0, 150),
+      // La prosa del sitio, acotada. Es el material del que salen la estrategia,
+      // las audiencias y las reglas de negocio; sin esto el consolidador solo
+      // veia titulares y meta descriptions.
+      paragraphs: agg.paragraphs.slice(0, 400),
       paragraph_chars: agg.paragraph_chars,
     },
   };

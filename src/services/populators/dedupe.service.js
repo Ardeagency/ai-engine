@@ -1,128 +1,216 @@
 /**
  * dedupe.service.js
  *
- * Detecta si un producto que llega de una plataforma externa ya existe en
- * `products` para el mismo brand_container, evitando duplicar. Si lo encuentra,
- * registra el match en `external_resource_map` y deja audit en `products_dedupe_log`.
+ * Decide que hacer con un listado que llega de una plataforma externa
+ * (Mercado Libre, Shopify, Woo, Amazon…): crear producto, enlazarlo a uno que ya
+ * existe, sumarlo como presentacion, mandarlo a revision o descartarlo.
  *
- * Estrategia de match (en orden):
- *   1. external_resource_map exact (mismo (platform, external_id)) → no es dup, es re-sync.
- *   2. Otra plataforma + mismo external_id (raro pero posible: SKU compartido) → match fuerte.
- *   3. Nombre normalizado idéntico dentro del brand_container → match fuerte.
- *   4. Levenshtein normalizado >= 0.88 sobre nombre normalizado → match medio (manual_review si <0.95).
+ * Un marketplace no publica productos, publica LISTADOS. El mismo producto
+ * aparece como "Crema De Almendras 240g", "Crema De Almendra Wakeup", "Caja
+ * Energy Water 600ml X 12" y "Kit Proteina + Shaker". Comparar titulos completos
+ * con Levenshtein no distingue nada de eso: por eso el catalogo de WAKEUP llego a
+ * 77 filas para 16 productos reales (limpieza 2026-07-22).
  *
- * No usa LLM en background (regla del usuario).
+ * Orden de decision:
+ *   1. external_resource_map exacto (misma plataforma + external_id) -> re-sync.
+ *   2. product_ingest_blocklist -> el equipo ya dijo que ese listado no es
+ *      producto: se descarta sin recrearlo.
+ *   3. Identificadores duros (GTIN/EAN/barcode, SKU) -> match fuerte y
+ *      ATRAVIESA PLATAFORMAS: es lo que hace que conectar Shopify enlace con lo
+ *      que ya trajo Mercado Libre en vez de duplicar.
+ *   4. Clasificacion del titulo: pack o bundle -> no es producto. Se enlaza al
+ *      producto base si se puede identificar, y se descarta como fila propia.
+ *   5. Nucleo del nombre (sin marca, sin tamano, sin cantidades, sin reclamos):
+ *      igual -> mismo producto. Si cambia el tamano, es una PRESENTACION nueva.
+ *   6. Nucleo parecido (0.8-1) -> revision manual.
+ *
+ * Todo el match es por brand_container, nunca por plataforma: un producto es de
+ * la marca, no del canal donde se publica.
+ *
+ * Sin LLM (regla del usuario): analisis lexico determinista y auditable.
  */
 import { supabase } from "../../lib/supabase.js";
+import {
+  parseListing, normalizeName, coreSimilarity, claimsOnlyContainment,
+} from "./product-classifier.service.js";
 
-function normalizeName(s) {
-  return String(s || "")
-    .toLowerCase()
-    .normalize("NFD").replace(/[̀-ͯ]/g, "")
-    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+const UMBRAL_ENLACE   = 0.80;   // nucleos casi iguales -> mismo producto
+const UMBRAL_REVISION = 0.62;   // parecidos -> que lo mire una persona
+
+/** Nombre de la marca, para poder sacarlo de los titulos. Cacheado por contenedor. */
+const cacheMarca = new Map();
+async function nombreDeMarca(brandContainerId) {
+  if (cacheMarca.has(brandContainerId)) return cacheMarca.get(brandContainerId);
+  const { data } = await supabase
+    .from("brand_containers")
+    .select("nombre_marca")
+    .eq("id", brandContainerId)
+    .maybeSingle();
+  const nombre = data?.nombre_marca || "";
+  cacheMarca.set(brandContainerId, nombre);
+  return nombre;
 }
 
-// Levenshtein normalizado (1.0 = idéntico, 0 = totalmente distinto).
-function similarity(a, b) {
-  if (a === b) return 1;
-  if (!a || !b) return 0;
-  const m = a.length, n = b.length;
-  if (Math.abs(m - n) > Math.max(m, n) * 0.5) return 0;
-  const dp = new Uint16Array((n + 1) * 2);
-  let prev = 0, curr = 1;
-  for (let j = 0; j <= n; j++) dp[prev * (n + 1) + j] = j;
-  for (let i = 1; i <= m; i++) {
-    dp[curr * (n + 1)] = i;
-    for (let j = 1; j <= n; j++) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[curr * (n + 1) + j] = Math.min(
-        dp[prev * (n + 1) + j] + 1,
-        dp[curr * (n + 1) + (j - 1)] + 1,
-        dp[prev * (n + 1) + (j - 1)] + cost
-      );
-    }
-    [prev, curr] = [curr, prev];
+/** Reglas de bloqueo del contenedor: listados que el equipo ya descarto. */
+async function reglasDeBloqueo(brandContainerId) {
+  const { data } = await supabase
+    .from("product_ingest_blocklist")
+    .select("external_platform, external_id, nombre_normalizado, motivo, nota")
+    .eq("brand_container_id", brandContainerId);
+  return data || [];
+}
+
+function coincideBloqueo(reglas, { platform, externalId, name }) {
+  const norm = normalizeName(name);
+  for (const r of reglas) {
+    if (r.external_id && String(r.external_id) === String(externalId) &&
+        (!r.external_platform || r.external_platform === platform)) return r;
+    if (r.nombre_normalizado && r.nombre_normalizado === norm) return r;
   }
-  const dist = dp[prev * (n + 1) + n];
-  const maxLen = Math.max(m, n);
-  return maxLen === 0 ? 1 : 1 - dist / maxLen;
+  return null;
 }
 
 /**
- * Busca match candidato. Devuelve:
- *   { decision: 'created' | 'linked_existing' | 'manual_review',
- *     matched_product_id, similarity_score, match_reason }
+ * Match por identificador duro. Es el camino ideal cuando existe: dos canales
+ * que venden el mismo SKU comparten codigo de barras aunque los titulos no se
+ * parezcan en nada.
  */
-export async function findMatchingProduct({ brandContainerId, name, externalId, platform }) {
-  // 1. Mismo external_id en otra plataforma (caso raro pero posible)
-  if (externalId) {
-    const { data: byExt } = await supabase
-      .from("external_resource_map")
-      .select("internal_id, external_platform")
-      .eq("brand_container_id", brandContainerId)
-      .eq("internal_table",     "products")
-      .eq("external_id",        String(externalId))
-      .neq("external_platform", platform)
-      .not("internal_id",       "is", null)
-      .limit(1);
-    if (byExt && byExt.length > 0) {
-      return {
-        decision:         "linked_existing",
-        matched_product_id: byExt[0].internal_id,
-        similarity_score:  1.0,
-        match_reason:      `same external_id on ${byExt[0].external_platform}`,
-      };
-    }
-  }
+async function matchPorIdentificador({ brandContainerId, identifiers }) {
+  const valores = [identifiers?.barcode, identifiers?.gtin, identifiers?.sku]
+    .filter((v) => v && String(v).trim().length >= 6)
+    .map((v) => String(v).trim());
+  if (!valores.length) return null;
 
-  // 2/3. Match por nombre dentro del brand_container
-  const normalized = normalizeName(name);
-  if (!normalized) {
-    return { decision: "created", matched_product_id: null, similarity_score: 0, match_reason: "no_name_to_match" };
+  const { data: variantes } = await supabase
+    .from("product_variants")
+    .select("product_id, sku, barcode, products!inner(brand_container_id)")
+    .eq("products.brand_container_id", brandContainerId)
+    .or(valores.map((v) => `sku.eq.${v},barcode.eq.${v}`).join(","))
+    .limit(1);
+  if (variantes && variantes.length) {
+    return { product_id: variantes[0].product_id, valor: variantes[0].barcode || variantes[0].sku };
   }
+  return null;
+}
 
-  const { data: candidates } = await supabase
+/** Candidatos del contenedor con su nucleo analizado y sus presentaciones actuales. */
+async function candidatos(brandContainerId, marca) {
+  const { data } = await supabase
     .from("products")
-    .select("id, nombre_producto")
+    .select("id, nombre_producto, product_variants(variant_name, peso, peso_unidad)")
     .eq("brand_container_id", brandContainerId)
-    .limit(500);
+    .limit(1000);
+  return (data || []).map((p) => ({
+    id: p.id,
+    nombre: p.nombre_producto,
+    parsed: parseListing(p.nombre_producto, { brand: marca }),
+    presentaciones: p.product_variants || [],
+  }));
+}
 
-  let best = { product_id: null, score: 0, name: null };
-  for (const c of candidates || []) {
-    const sim = similarity(normalized, normalizeName(c.nombre_producto));
-    if (sim > best.score) best = { product_id: c.id, score: sim, name: c.nombre_producto };
-  }
+/** ¿El producto ya tiene esta presentacion? Compara por peso normalizado y por etiqueta. */
+function yaTienePresentacion(cand, size) {
+  if (!size) return true;   // sin tamano no hay presentacion que agregar
+  const etiqueta = normalizeName(size.label);
+  return (cand.presentaciones || []).some((v) => {
+    if (v.peso != null && v.peso_unidad === size.unit && Math.abs(Number(v.peso) - size.value) < 1) return true;
+    return normalizeName(v.variant_name || "").includes(etiqueta);
+  }) || (cand.parsed.size && cand.parsed.size.unit === size.unit && Math.abs(cand.parsed.size.value - size.value) < 1);
+}
 
-  if (best.score >= 0.95) {
-    return {
-      decision:         "linked_existing",
-      matched_product_id: best.product_id,
-      similarity_score:  Number(best.score.toFixed(3)),
-      match_reason:      `name match >=0.95 against "${best.name}"`,
-    };
+function mejorCandidato(cands, parsed) {
+  let mejor = { cand: null, score: 0, porReclamos: false };
+  for (const c of cands) {
+    const s = coreSimilarity(c.parsed.coreTokens, parsed.coreTokens);
+    const reclamos = claimsOnlyContainment(c.parsed.coreTokens, parsed.coreTokens);
+    const efectivo = reclamos ? Math.max(s, UMBRAL_ENLACE) : s;
+    if (efectivo > mejor.score) mejor = { cand: c, score: efectivo, porReclamos: reclamos, crudo: s };
   }
-  if (best.score >= 0.88) {
-    return {
-      decision:         "manual_review",
-      matched_product_id: best.product_id,
-      similarity_score:  Number(best.score.toFixed(3)),
-      match_reason:      `name match 0.88-0.95 against "${best.name}"`,
-    };
-  }
-
-  return {
-    decision:         "created",
-    matched_product_id: null,
-    similarity_score:  Number(best.score.toFixed(3)),
-    match_reason:      "no_strong_match",
-  };
+  return mejor;
 }
 
 /**
- * Registra el resultado en products_dedupe_log para audit.
+ * @returns {{
+ *   decision: 'created'|'linked_existing'|'manual_review'|'skipped_pack'|'skipped_bundle'|'blocked',
+ *   matched_product_id: string|null,
+ *   similarity_score: number,
+ *   match_reason: string,
+ *   presentation: {label:string, size:object|null}|null,   // presentacion nueva del mismo producto
+ *   listing_kind: 'producto'|'pack'|'bundle'
+ * }}
  */
+export async function findMatchingProduct({ brandContainerId, name, externalId, platform, identifiers }) {
+  const base = { matched_product_id: null, similarity_score: 0, presentation: null, listing_kind: "producto" };
+
+  // 2. Bloqueado por el equipo
+  const reglas = await reglasDeBloqueo(brandContainerId);
+  const bloqueo = coincideBloqueo(reglas, { platform, externalId, name });
+  if (bloqueo) {
+    return { ...base, decision: "blocked", similarity_score: 1,
+             match_reason: `bloqueado (${bloqueo.motivo})${bloqueo.nota ? `: ${bloqueo.nota}` : ""}` };
+  }
+
+  const marca  = await nombreDeMarca(brandContainerId);
+  const parsed = parseListing(name, { brand: marca });
+  base.listing_kind = parsed.kind;
+
+  // 3. Identificador duro (atraviesa plataformas)
+  const porId = await matchPorIdentificador({ brandContainerId, identifiers });
+  if (porId) {
+    return { ...base, decision: "linked_existing", matched_product_id: porId.product_id,
+             similarity_score: 1, match_reason: `mismo identificador (${porId.valor})` };
+  }
+
+  const cands = await candidatos(brandContainerId, marca);
+
+  // 4. Pack o bundle: no es un producto. Se intenta apuntar al producto base.
+  if (parsed.kind !== "producto") {
+    const m = mejorCandidato(cands, parsed);
+    const conBase = m.cand && m.score >= UMBRAL_ENLACE;
+    return {
+      ...base,
+      decision: parsed.kind === "pack" ? "skipped_pack" : "skipped_bundle",
+      matched_product_id: conBase ? m.cand.id : null,
+      similarity_score:   Number((m.score || 0).toFixed(3)),
+      match_reason: `${parsed.kind} (${parsed.reasons.join(", ")})` +
+        (conBase ? ` — presentacion de "${m.cand.nombre}"` : " — sin producto base identificable"),
+    };
+  }
+
+  if (!parsed.coreTokens.length) {
+    return { ...base, decision: "created", match_reason: "titulo sin nucleo aprovechable" };
+  }
+
+  // 5/6. Match por nucleo
+  const m = mejorCandidato(cands, parsed);
+  if (m.cand && m.score >= UMBRAL_ENLACE) {
+    const tamNuevo = parsed.size;
+    const esNueva  = tamNuevo && !yaTienePresentacion(m.cand, tamNuevo);
+
+    return {
+      ...base,
+      decision: "linked_existing",
+      matched_product_id: m.cand.id,
+      similarity_score:   Number(m.score.toFixed(3)),
+      presentation: esNueva ? { label: tamNuevo.label, size: tamNuevo } : null,
+      match_reason: m.porReclamos
+        ? `mismo producto que "${m.cand.nombre}" (solo cambian reclamos de etiqueta)`
+        : `mismo nucleo que "${m.cand.nombre}"` +
+          (esNueva ? ` — presentacion nueva ${tamNuevo.label}` : ""),
+    };
+  }
+
+  if (m.cand && m.score >= UMBRAL_REVISION) {
+    return { ...base, decision: "manual_review", matched_product_id: m.cand.id,
+             similarity_score: Number(m.score.toFixed(3)),
+             match_reason: `parecido a "${m.cand.nombre}" (${m.score.toFixed(2)}), decidelo una persona` };
+  }
+
+  return { ...base, decision: "created", similarity_score: Number((m.score || 0).toFixed(3)),
+           match_reason: "sin coincidencia en el catalogo de la marca" };
+}
+
+/** Registra el resultado en products_dedupe_log para audit. */
 export async function logDedupeDecision({
   brandContainerId, organizationId, productId, externalPlatform, externalId,
   externalName, decision, matchedAgainstProductId, similarityScore, matchReason, rawPayload,

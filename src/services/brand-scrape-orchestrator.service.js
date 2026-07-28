@@ -17,6 +17,7 @@ import { extractCorpus } from "./page-extractor.service.js";
 import { consolidate } from "./brand-consolidator.service.js";
 import { applyBrandPayloadToOrg } from "./brand-apply.service.js";
 import { discoverAndSeedCompetitors } from "./brand-competitors.service.js";
+import { generateBrandDna } from "./brand-dna-generator.service.js";
 
 /** Crea el job y retorna { job_id }. No corre nada. */
 export async function createJob({ seedUrl, organizationId = null, createdBy = null }) {
@@ -159,6 +160,26 @@ export async function runPipeline(jobId, opts = {}) {
       } catch (compErr) {
         console.error("brand-scrape: competitors failed:", compErr.message);
         await setProgress(jobId, { phase: "competitors_failed", competitors_error: compErr.message });
+      }
+    }
+
+    // ── 3.7 ANCLA DE ADN: el texto que Vera lee como identidad de la marca.
+    //     Depende de que existan audiencias (las lee del snapshot), por eso solo
+    //     ahora es posible: hasta 2026-07 el creador de orgs nunca las creaba y
+    //     brand_dna_generations estaba vacia en TODA la plataforma.
+    if (job.organization_id && applyResult && applyResult.container_id) {
+      try {
+        await updateJob(jobId, { stage: "Escribiendo el ancla de ADN" });
+        const dna = await generateBrandDna({
+          organizationId:   job.organization_id,
+          brandContainerId: applyResult.container_id,
+          trigger:          "auto",
+        });
+        await setProgress(jobId, { phase: "dna_generated", dna_lines: dna.lines_count, dna_chars: dna.chars_count });
+        console.log(`brand-scrape: ADN generado (${dna.lines_count} lineas) para ${applyResult.container_id}`);
+      } catch (dnaErr) {
+        console.error("brand-scrape: generacion de ADN fallo:", dnaErr.message);
+        await setProgress(jobId, { phase: "dna_failed", dna_error: dnaErr.message });
       }
     }
 

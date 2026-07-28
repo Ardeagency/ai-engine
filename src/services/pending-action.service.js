@@ -235,19 +235,21 @@ export async function proposeAction({
     }
   }
 
-  // 4. Auto-ejecucion: BAJO auto-elegible (cualquier org) o autonomy=total (todo).
-  //    MEDIO/ALTO siempre esperan aprobacion humana. CRITICO ni llega aqui.
-  const _isBajoAuto = proposedPayload?._auto_eligible === true;
-  const _isFullAutonomy = org?.level_of_autonomy === "total";
-  if (org?.owner_user_id && (_isBajoAuto || _isFullAutonomy)) {
+  // 4. Auto-ejecución (JC+Shenoa 2026-07-17): las tareas NO dependen de aprobación
+  //    humana. Auto-ejecutan salvo autonomy=restringido (modo supervisado read-only).
+  //    Son CANCELABLES: el humano puede cancelarlas (fn_vpa_cancel) antes/durante.
+  //    Sin gate de impacto: SPEND_PUBLISH_TOOLS está vacío (nada gasta ni publica).
+  const _isSupervised = org?.level_of_autonomy === "restringido";
+  if (org?.owner_user_id && !_isSupervised) {
     try {
-      // Auto-aprobacion del SISTEMA (BAJO/autonomy=total) via service-role.
-      // La RPC fn_vpa_approve exige permisos de USUARIO que el auto-exec del sistema no necesita.
+      // Auto-aprobación del SISTEMA vía service-role (fn_vpa_approve exige permisos
+      // de USUARIO que el auto-exec del sistema no necesita). El humano no aprueba;
+      // solo puede CANCELAR.
       await supabase.from("vera_pending_actions")
         .update({ status: "approved", approved_at: new Date().toISOString(), approved_by: org.owner_user_id })
         .eq("id", action.id);
 
-      console.log(`[pending-action] auto-exec ${_isBajoAuto ? "BAJO" : "autonomy=total"} → ejecutando action ${action.id} (${actionType})`);
+      console.log(`[pending-action] auto-exec (autonomy=${org?.level_of_autonomy || "?"}) → ejecutando action ${action.id} (${actionType})`);
       const { executeAction } = await import("./action-executor.service.js");
       return await executeAction(action.id, org.owner_user_id, { autoApproved: true });
     } catch (e) {
@@ -256,6 +258,6 @@ export async function proposeAction({
     }
   }
 
-  // 5. Autonomy parcial → return pending
+  // 5. Autonomy restringido (supervisado) → return pending (espera aprobación humana)
   return action;
 }

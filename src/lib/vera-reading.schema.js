@@ -140,7 +140,9 @@ const evidenceEntry = z.discriminatedUnion("kind", [
 
 // ── Lectura de UNA sección ──────────────────────────────────────────────────
 export const scopeReadingSchema = z.object({
-  headline: SHORT,
+  // Headline con más aire que SHORT: con libertad Vera escribe titulares más
+  // ricos. 220 chars cabe en 2 líneas del dashboard sin romper el layout.
+  headline: z.string().min(1).max(220),
   narrative: z.array(blockSchema).min(1).max(12),
   evidence: z.record(EV_KEY, evidenceEntry).refine(
     (m) => Object.keys(m).length <= 24,

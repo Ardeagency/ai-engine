@@ -64,7 +64,6 @@ export async function getOrgJwt(organizationId) {
     role: "authenticated",
   })
     .setProtectedHeader({ alg: "HS256" })
-    .setSubject(`vera_org_${organizationId}`)
     .setIssuedAt()
     .setIssuer("supabase")
     .setAudience("authenticated")

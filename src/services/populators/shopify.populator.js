@@ -107,7 +107,7 @@ export class ShopifyPopulator extends BasePopulator {
       { limit: 250, maxPages: 50 }
     );
 
-    const stats = { products_pulled: products.length, products_created: 0, products_linked: 0, manual_review: 0, images_stored: 0, enrichment_enqueued: 0, errors: 0 };
+    const stats = { products_pulled: products.length, products_created: 0, products_linked: 0, manual_review: 0, listados_descartados: 0, images_stored: 0, enrichment_enqueued: 0, errors: 0 };
     const enrichmentJobs = [];
     const orgId = await this.getOrgIdFromContainer(integ.brand_container_id);
 
@@ -122,6 +122,13 @@ export class ShopifyPopulator extends BasePopulator {
           handle:        p.handle || null,
           url:           (useShop && p.handle) ? `https://${useShop}/products/${p.handle}` : null,
           tipo_producto: mapShopifyProductType(p.product_type, p.tags),
+          // Identificadores duros de la primera variante. Es lo que permite
+          // enlazar con lo que ya trajo otro canal (mismo codigo de barras =
+          // mismo producto) en vez de crear una fila nueva.
+          identifiers: {
+            sku:     p.variants?.[0]?.sku     || null,
+            barcode: p.variants?.[0]?.barcode || null,
+          },
           images: (p.images || []).map((img) => ({
             url: img.src, alt: img.alt || null, external_id: img.id != null ? String(img.id) : null,
           })),
@@ -138,6 +145,7 @@ export class ShopifyPopulator extends BasePopulator {
         if (result.decision === "created") stats.products_created++;
         else if (result.decision === "linked_existing") stats.products_linked++;
         else if (result.decision === "manual_review") stats.manual_review++;
+        else if (result.skipped) stats.listados_descartados++;
         stats.images_stored += result.images_stored || 0;
 
         // Encolar enrichment AI por cada producto (idempotente — el populator

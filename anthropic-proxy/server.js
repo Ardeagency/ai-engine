@@ -262,6 +262,15 @@ const server = http.createServer(async (req, res) => {
   upstream.end();
 });
 
+// Node 18+ trae server.requestTimeout = 300000 por defecto: mata CUALQUIER
+// peticion a los 5 minutos. Una generacion larga de Vera es UNA peticion que
+// dura mas que eso, asi que el proxy la cortaba aunque el puente aguantara.
+// Medido en WAKEUP el 2026-07-27: corte a los 301s exactos, con el puente ya
+// arreglado. 0 = sin limite; el limite real lo pone el puente.
+server.requestTimeout   = 0;
+server.headersTimeout   = 60000;
+server.keepAliveTimeout = 65000;
+
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`[anthropic-proxy] org=${ORG_ID} listening on 127.0.0.1:${PORT} → https://${UPSTREAM_HOST}`);
 });

@@ -625,6 +625,25 @@ chmod 600 /opt/openclaw-bridge/.env
 systemctl restart openclaw-bridge
 sleep 3
 
+# ── anthropic-proxy refresh on wake ────────────────────────────────────────
+# El despertar restaura un DISCO: el proxy que hay ahi es el del dia en que se
+# aprovisiono. Sin esto, un arreglo en anthropic-proxy/server.js solo llegaba a
+# servidores creados desde cero — y el proxy es el segundo servidor HTTP del
+# camino, con el mismo requestTimeout de Node que estrangulaba las sesiones.
+if curl -sf --max-time 30 -H "x-webhook-secret: ${webhookSecret}" \\
+     "${callbackUrl}/internal/anthropic-proxy.js" -o /tmp/anthropic-proxy.js; then
+  if node --check /tmp/anthropic-proxy.js 2>/dev/null; then
+    mv /tmp/anthropic-proxy.js /opt/anthropic-proxy/server.js
+    systemctl restart anthropic-proxy
+    echo "[wake] anthropic-proxy actualizado"
+  else
+    echo "[wake] anthropic-proxy descargado NO compila — se conserva el anterior"
+  fi
+else
+  echo "[wake] no se pudo descargar anthropic-proxy — se conserva el anterior"
+fi
+sleep 2
+
 # ── MCP server install/refresh on wake ─────────────────────────────────────
 # Idempotente: descarga la versión actual del MCP server del control plane
 # y lo registra en OpenClaw. Si falla, los markers [[TOOL:...]] siguen como fallback.

@@ -59,6 +59,10 @@ export async function getBrandPosts(brandContainerId, organizationId, isCompetit
     .from("brand_posts")
     .select(
       "id, network, profile_handle, content, metrics, post_source, is_competitor, " +
+      // engagement_total y reach_total son columnas REALES y no se pedian: sin
+      // ellas cada post llegaba sin su resultado y sin su alcance, y habia que
+      // deducirlos del blob `metrics`, que no es igual en todas las redes.
+      "engagement_total, reach_total, engagement_rate, followers_snapshot, " +
       "captured_at, unpublished_at, media_assets, permalink"
     )
     .eq("brand_container_id", bc.id);
@@ -77,14 +81,34 @@ export async function getBrandPosts(brandContainerId, organizationId, isCompetit
   // Se entrega la DESCRIPCION VISUAL (lo que se ve en la imagen o el video), no el
   // blob de URLs. Vera venia juzgando el contenido leyendo solo el copy: sin esto
   // no puede saber si un post mostraba el producto, a una persona o un estadio.
-  return (Array.isArray(data) ? data : []).map((p) => {
+  const filas = Array.isArray(data) ? data : [];
+
+  // Un alcance en 0 puede ser "nadie lo vio" o "no lo medimos", y son cosas
+  // OPUESTAS. En WAKEUP el alcance por pieza esta en 0 en los 103 posts de
+  // Facebook y en los 103 de Instagram, mientras TikTok lo trae en los 58 — un
+  // post con 6 likes evidentemente alcanzo a alguien. Si la red no reporta
+  // alcance en NINGUNA pieza, es hueco de datos y se dice asi, no se entrega un
+  // cero que se lee como resultado.
+  const alcancePorRed = {};
+  for (const p of filas) {
+    const r = Number(p.reach_total) || 0;
+    alcancePorRed[p.network] = (alcancePorRed[p.network] || 0) + (r > 0 ? 1 : 0);
+  }
+
+  return filas.map((p) => {
     const desc = p.media_assets?.description || null;
     const { media_assets, ...resto } = p;
+    const redMideAlcance = (alcancePorRed[p.network] || 0) > 0;
     return {
       ...resto,
       media_type: media_assets?.media_type || null,
       que_se_ve: desc,           // PRODUCTOS / TEMA / ESCENA / PERSONAS / ACCION
       sin_analisis_visual: !desc,
+      alcance: redMideAlcance ? (Number(p.reach_total) || 0) : null,
+      alcance_sin_dato: !redMideAlcance,
+      nota_alcance: redMideAlcance
+        ? undefined
+        : `no capturamos alcance por pieza en ${p.network} — 0 aqui significa SIN DATO, no que nadie lo viera`,
     };
   });
 }

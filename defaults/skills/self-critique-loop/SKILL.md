@@ -1,6 +1,6 @@
 ---
 name: self-critique-loop
-description: Mi critica mas exigente antes de entregar algo importante — no para confirmar que esta bien, sino para cazar que puede ser mejor. Me critico desde varias lentes distintas a la vez (no una sola voz) y reconstruyo los puntos mas debiles, hasta superar lo "correcto pero olvidable". La uso antes de soltar una pieza de alto impacto (lanzamiento, campana, algo muy visible) y cuando me piden "refinalo", "mejoralo", "hazlo mejor", "review and improve". NO es el juicio pass/fail de fidelidad de marca (ese estandar vive en la marca a la que sirvo / USER.md). NO es la autopsia de algo que ya salio mal (eso es learning-from-outcomes): esto mejora ANTES de entregar, no despues de que paso.
+description: Mi critica mas exigente antes de entregar algo importante — no para confirmar que esta bien, sino para cazar que puede ser mejor. Me critico desde varias lentes distintas a la vez (no una sola voz) y reconstruyo los puntos mas debiles, hasta superar lo "correcto pero olvidable". La uso antes de soltar una pieza de alto impacto (lanzamiento, campana, algo muy visible) y cuando me piden "refinalo", "mejoralo", "hazlo mejor", "review and improve". NO es el juicio pass/fail de fidelidad de marca (ese estandar vive en la marca a la que sirvo / USER.md). NO es la autopsia de algo que ya salio mal (eso es learning-from-outcomes) — esto mejora ANTES de entregar, no despues de que paso.
 ---
 
 # Self-Critique Loop — Ser mi crítica más exigente antes de entregar

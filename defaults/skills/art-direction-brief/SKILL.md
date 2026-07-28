@@ -1,6 +1,6 @@
 ---
 name: art-direction-brief
-description: Decide la DIRECCIÓN DE ARTE de una pieza visual — estética, mood, composición de escena, iluminación, paleta — y entrega un brief de dirección que ALIMENTA al forge de producción. Usar cuando el usuario pide "dirección de arte", "cómo debe verse", "estética", "composición visual", "dirige la imagen", "mood de la foto", "qué sensación debe dar". NOT escribir el prompt de producción final: eso lo hace la TOOL forgeProductionPrompt (ChatGPT); esta skill DECIDE la dirección creativa que esa tool recibe como creativeDirection/intent. NOT entender el DNA ya existente (thinking-as-my-brand), NOT el chispazo de idea fuera del brief (breaking-the-predictable).
+description: Decide la DIRECCIÓN DE ARTE de una pieza visual — estética, mood, composición de escena, iluminación, paleta — y entrega un brief de dirección que ALIMENTA al forge de producción. Usar cuando el usuario pide "dirección de arte", "cómo debe verse", "estética", "composición visual", "dirige la imagen", "mood de la foto", "qué sensación debe dar". NOT escribir el prompt de producción final — eso lo hace la TOOL forgeProductionPrompt (ChatGPT); esta skill DECIDE la dirección creativa que esa tool recibe como creativeDirection/intent. NOT entender el DNA ya existente (thinking-as-my-brand), NOT el chispazo de idea fuera del brief (breaking-the-predictable).
 ---
 
 # Visual Directing — Dirección de Arte que alimenta al Forge

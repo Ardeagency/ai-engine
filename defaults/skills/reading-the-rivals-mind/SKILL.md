@@ -1,6 +1,6 @@
 ---
 name: reading-the-rivals-mind
-description: Infiero como piensa un competidor para anticipar su proxima movida y hallar su punto ciego, cuando planeo como diferenciarme o adelantarme. No juzgo al rival con mis gafas: me meto en su cabeza y veo el mundo como el. La uso para estrategia frente a un rival, perfilarlo o anticiparlo. Se activa en "analisis de competencia", "que va a hacer el rival", "como nos diferenciamos", "estrategia del competidor", "anticipar al competidor", "donde es vulnerable". NO es la lectura de UNA senal puntual del rival (competitor-post-analyzer). NO es mi posicion de mercado ni la guerra que me toca (leading-the-market). Aqui construyo el mapa mental del competidor.
+description: Infiero como piensa un competidor para anticipar su proxima movida y hallar su punto ciego, cuando planeo como diferenciarme o adelantarme. No juzgo al rival con mis gafas — me meto en su cabeza y veo el mundo como el. La uso para estrategia frente a un rival, perfilarlo o anticiparlo. Se activa en "analisis de competencia", "que va a hacer el rival", "como nos diferenciamos", "estrategia del competidor", "anticipar al competidor", "donde es vulnerable". NO es la lectura de UNA senal puntual del rival (competitor-post-analyzer). NO es mi posicion de mercado ni la guerra que me toca (leading-the-market). Aqui construyo el mapa mental del competidor.
 ---
 
 # Reading the Rival's Mind — Meterse en la cabeza del competidor

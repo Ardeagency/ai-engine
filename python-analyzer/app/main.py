@@ -167,6 +167,93 @@ async def analyze_media_pending(req: AnalyzeMediaReq):
 
 
 
+# ── VER UNA PUBLICACION CONCRETA ─────────────────────────────────────────────
+# Existe por dos razones. Primera: ai-engine YA llamaba a este endpoint
+# (triggerMediaAnalysis -> POST /analyze/media-post) y devolvia 404 en silencio,
+# atrapado por un try/catch — el disparo por post nunca hizo nada y por eso hay
+# publicaciones recientes sin descripcion. Segunda: Vera necesita poder decir
+# "esta publicacion merece que la mire" y verla AHORA, en vez de esperar al lote,
+# que va por engagement y puede tardar dias en llegar a la que le interesa.
+#
+# Imagen y carrusel se describen hoy; el video todavia no (extract_image_urls lo
+# devuelve como 'none'). Se responde diciendolo, no fingiendo que no habia nada.
+class VerPostReq(BaseModel):
+    post_id: str
+    force: bool = False   # volver a describir aunque ya tenga descripcion
+
+
+@app.post("/analyze/media-post")
+async def analyze_media_post(req: VerPostReq):
+    """Describe la media de UN post concreto y devuelve la descripcion."""
+    async with httpx.AsyncClient(timeout=20) as cli:
+        r = await cli.get(
+            f"{SUPABASE_URL}/rest/v1/brand_posts",
+            headers=H,
+            params={
+                "select": "id,network,content,media_assets,brand_container_id",
+                "id": f"eq.{req.post_id}",
+                "limit": "1",
+            },
+        )
+        r.raise_for_status()
+        rows = r.json()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="post no encontrado")
+
+    p = rows[0]
+    ma = p.get("media_assets")
+
+    if already_described(ma) and not req.force:
+        return {
+            "post_id": p["id"],
+            "kind": "ya_descrito",
+            "description": (ma or {}).get("description"),
+            "reused": True,
+        }
+
+    urls, kind = extract_image_urls(ma, p["network"])
+    if kind == "none":
+        await _mark_extraction_error(p["id"], ma, "no_image_urls")
+        return {
+            "post_id": p["id"],
+            "kind": "none",
+            "description": None,
+            "error": "sin imagen analizable en este post (el video aun no se describe)",
+        }
+
+    org_id = await _get_org_id_for_brand(p["brand_container_id"])
+    target = urls[0] if kind == "image" else "|||".join(urls)
+    res = describe_media(target, kind, org_id)
+
+    if "error" in res:
+        err_short = res["error"][:120]
+        await _mark_extraction_error(p["id"], ma, f"describe_failed:{err_short}")
+        return {"post_id": p["id"], "kind": kind, "description": None, "error": err_short}
+
+    await _persist_media_description(p["id"], ma or {}, [{
+        "kind": kind,
+        "model": res.get("model"),
+        "description": res.get("description"),
+        "url": urls[0] if kind == "image" else None,
+        "url_count": len(urls) if kind == "carousel" else 1,
+        "tokens_in": res.get("tokens_in"),
+        "tokens_out": res.get("tokens_out"),
+        "usd_cost": res.get("usd_cost", 0),
+        "cached": res.get("cached", False),
+    }])
+
+    return {
+        "post_id": p["id"],
+        "kind": kind,
+        "description": res.get("description"),
+        "model": res.get("model"),
+        "cached": res.get("cached", False),
+        "usd_cost": round(res.get("usd_cost", 0) or 0, 5),
+        "reused": False,
+    }
+
+
 # ── Comments analysis (pysentimiento sobre brand_post_comments) ──────────────
 class CommentsPendingReq(BaseModel):
     limit: int = 200

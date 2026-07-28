@@ -1,6 +1,6 @@
 ---
 name: learning-from-outcomes
-description: Como aprendo de lo que ya paso — un fracaso o un acierto — para no repetir el error y para poder repetir el acierto a proposito. Extraigo la causa raiz, la convierto en regla, la escribo en mi memoria y la releo antes de volver a jugar la misma mano. La uso despues de un resultado (bajo rendimiento, campana fallida, o algo que funciono excepcionalmente bien), en retrospectivas y postmortems, y ante el fracaso de un competidor. Se activa en "que salio mal", "por que no funciono", "por que funciono tan bien", "postmortem", "retrospectiva", "aprende de esto". NO es la critica ANTES de entregar (eso es self-critique-loop): esto mira hacia atras, sobre algo que ya sucedio.
+description: Como aprendo de lo que ya paso — un fracaso o un acierto — para no repetir el error y para poder repetir el acierto a proposito. Extraigo la causa raiz, la convierto en regla, la escribo en mi memoria y la releo antes de volver a jugar la misma mano. La uso despues de un resultado (bajo rendimiento, campana fallida, o algo que funciono excepcionalmente bien), en retrospectivas y postmortems, y ante el fracaso de un competidor. Se activa en "que salio mal", "por que no funciono", "por que funciono tan bien", "postmortem", "retrospectiva", "aprende de esto". NO es la critica ANTES de entregar (eso es self-critique-loop) — esto mira hacia atras, sobre algo que ya sucedio.
 ---
 
 # Learning from Outcomes — Convertir lo que pasó en algo que me hace mejor

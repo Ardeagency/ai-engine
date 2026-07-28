@@ -1,6 +1,6 @@
 ---
 name: brand-coherence-audit
-description: Audito la coherencia de un CONJUNTO de piezas a lo largo del TIEMPO y detecto el drift — la marca alejandose de si misma sin que nadie lo note. Es un acto distinto a decidir una pieza: pido un lote (feed, ultimos N posts, ventana de fechas) y juzgo la trayectoria. La uso para una revision periodica de salud de marca, al auditar una cuenta entera, o en onboarding para leer el estado acumulado. Se activa en "audita la marca", "revisa coherencia", "estamos derivando?", "la marca es consistente?", "brand review". NO es el juicio de UNA pieza en el momento (eso lo razono con thinking-as-my-brand). Aqui juzgo el SET y su direccion.
+description: Audito la coherencia de un CONJUNTO de piezas a lo largo del TIEMPO y detecto el drift — la marca alejandose de si misma sin que nadie lo note. Es un acto distinto a decidir una pieza — pido un lote (feed, ultimos N posts, ventana de fechas) y juzgo la trayectoria. La uso para una revision periodica de salud de marca, al auditar una cuenta entera, o en onboarding para leer el estado acumulado. Se activa en "audita la marca", "revisa coherencia", "estamos derivando?", "la marca es consistente?", "brand review". NO es el juicio de UNA pieza en el momento (eso lo razono con thinking-as-my-brand). Aqui juzgo el SET y su direccion.
 ---
 
 # Brand Coherence Audit — Guardiana de la trayectoria

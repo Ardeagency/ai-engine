@@ -1,6 +1,6 @@
 ---
 name: daily-intelligence-digest
-description: Produzco el digest diario de inteligencia de la marca — el reporte de 2 minutos que responde que paso en las ultimas 24h, que significa y que hacemos hoy. Convierto el ruido crudo (senales del scraper, movimientos de competencia, tendencias, alertas) en algo accionable. La uso al arrancar el ciclo de trabajo o cuando piden el pulso del dia. Se activa en "brief diario", "que paso hoy", "daily", "pulso del dia", "resumen del dia". NO analiza un post puntual (competitor-post-analyzer), NO da metricas de APIs conectadas (live-social-metrics), NO interpreta hacia donde VA el mercado (reading-beneath-the-surface): este agrega lo que PASO hoy.
+description: Produzco el digest diario de inteligencia de la marca — el reporte de 2 minutos que responde que paso en las ultimas 24h, que significa y que hacemos hoy. Convierto el ruido crudo (senales del scraper, movimientos de competencia, tendencias, alertas) en algo accionable. La uso al arrancar el ciclo de trabajo o cuando piden el pulso del dia. Se activa en "brief diario", "que paso hoy", "daily", "pulso del dia", "resumen del dia". NO analiza un post puntual (competitor-post-analyzer), NO da metricas de APIs conectadas (live-social-metrics), NO interpreta hacia donde VA el mercado (reading-beneath-the-surface) — este agrega lo que PASO hoy.
 ---
 
 # Daily Intelligence Digest — El pulso del día

@@ -1,6 +1,6 @@
 ---
 name: leading-the-market
-description: El razonamiento de CMO para pensar mi posicion comercial y como liderarla o defenderla. La pregunta madre es "en que lugar estoy en el mercado" (lider, retador, seguidor, nicher), porque mi posicion dicta mi jugada — el peor error es pelear la guerra equivocada para mi posicion. La uso cuando analizo la competencia, decido una jugada de mercado, o me pregunto como gano/conservo terreno. La astucia va al competidor y al terreno, NUNCA a la persona. Se activa en "como competimos", "como lidero el mercado", "en que posicion estamos", "como gano terreno", "que hacemos contra este rival", "como defendemos la posicion". NO es entender al humano para engancharlo (human-conversion-psychology). NO es pensar como mi marca (thinking-as-my-brand): esto es el tablero del mercado y el rival.
+description: El razonamiento de CMO para pensar mi posicion comercial y como liderarla o defenderla. La pregunta madre es "en que lugar estoy en el mercado" (lider, retador, seguidor, nicher), porque mi posicion dicta mi jugada — el peor error es pelear la guerra equivocada para mi posicion. La uso cuando analizo la competencia, decido una jugada de mercado, o me pregunto como gano/conservo terreno. La astucia va al competidor y al terreno, NUNCA a la persona. Se activa en "como competimos", "como lidero el mercado", "en que posicion estamos", "como gano terreno", "que hacemos contra este rival", "como defendemos la posicion". NO es entender al humano para engancharlo (human-conversion-psychology). NO es pensar como mi marca (thinking-as-my-brand) — esto es el tablero del mercado y el rival.
 ---
 
 # Leading the Market — Conservar una posición comercial poderosa
@@ -38,7 +38,10 @@ Las mecánicas, no los eslóganes:
 - ¿Gano **penetración** —compradores nuevos— o solo exprimo a los de siempre? El
   crecimiento real es penetración, no lealtad reciclada.
 - ¿Estoy en su cabeza el día que decide (**disponibilidad mental**) y disponible donde
-  compra (**física**)? De nada sirve ser deseada si no estoy cuando me buscan.
+  compra (**física**)? De nada sirve ser deseada si no estoy cuando me buscan. En qué
+  momentos exactos tengo que estar en su cabeza lo trabajo con
+  **the-moments-they-buy-in**; que me reconozca cuando aparezco, con
+  **the-codes-that-make-me-recognizable**.
 - ¿Mi **voz sostiene mi posición**, o me callé y el rival ocupó el espacio? Quedarse en
   silencio en el mercado es ceder terreno.
 
@@ -61,6 +64,9 @@ Para leer el tablero no razono en el vacío:
 - **reading-beneath-the-surface** → leer el terreno, sus debilidades y la demanda no
   cubierta.
 - **the-receptive-moment** → cuándo es la ocasión de mover ficha.
+- **building-versus-harvesting** → si la jugada que dicta mi posición es sembrar demanda
+  nueva o cerrar la que ya existe; y **paid-campaign-architecting** cuando esa jugada se
+  arma como pauta.
 - **thinking-as-my-brand** → cómo gano terreno siendo más yo, no una copia del líder.
 - **brand-data-gateway** → dónde estoy hoy: mi posición, mis campañas, mi mercado.
 

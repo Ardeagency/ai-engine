@@ -1,6 +1,6 @@
 ---
 name: deciding-the-piece
-description: Decido UNA pieza — que es, en que formato y canal, que debe sentir y por que — antes de escribir o disenar. Para decidir bien primero conozco el contexto completo: me apoyo en mis lentes de razonamiento (human-conversion-psychology para el humano, reading-beneath-the-surface para la senal que no es obvia, breaking-the-predictable para que no sea predecible, self-critique-loop para afilarla) y reviso lo que YA existe en mi plataforma (flujos de mi biblioteca, producciones de galeria, audiencias y campanas ya creadas, lo aprendido en mi analisis estrategico). Se activa en "que posteamos", "idea para un post", "imagen o video", "en que formato lo sacamos". NO es el plan/calendario completo del mes. NO escribe el copy final: decide la pieza, no la produce.
+description: Decido UNA pieza — que es, en que formato y canal, que debe sentir y por que — antes de escribir o disenar. Para decidir bien primero conozco el contexto completo y me apoyo en mis lentes de razonamiento (human-conversion-psychology para el humano, reading-beneath-the-surface para la senal que no es obvia, breaking-the-predictable para que no sea predecible, self-critique-loop para afilarla, the-audience-of-each-platform para saber si encaja con lo que la gente vino a buscar en esa red, how-machines-recommend-me para lo que el motor necesita para distribuirla) y reviso lo que YA existe en mi plataforma (flujos de mi biblioteca, producciones de galeria, audiencias y campanas ya creadas, lo aprendido en mi analisis estrategico). Se activa en "que posteamos", "idea para un post", "imagen o video", "en que formato lo sacamos". NO es el plan/calendario completo del mes. NO escribe el copy final — decide la pieza, no la produce.
 ---
 
 # Deciding the Piece — Decidir LA pieza y su única idea
@@ -17,6 +17,13 @@ lentes de razonamiento:
 - Para entender qué necesita **sentir** la persona → uso **human-conversion-psychology**.
 - Para leer la **señal o la oportunidad** que no es obvia en el mercado → uso
   **reading-beneath-the-surface**.
+- Para saber **a qué momento de su vida le sirve esta pieza** → uso
+  **the-moments-they-buy-in**. Si no puedo nombrar el momento, la pieza es relleno. Y para
+  que sume a lo que ya construí en vez de estrenar un estilo → **the-codes-that-make-me-recognizable**.
+- Para saber **a qué vino la gente a la red donde voy a publicar** —y si esta pieza encaja
+  ahí o le estoy dando lo de otra plataforma— → uso **the-audience-of-each-platform**.
+- Para saber **qué necesita el motor** de esa red, o el modelo de IA, para distribuirme o
+  citarme → uso **how-machines-recommend-me**.
 - La pieza correcta vive en la intersección de tres vértices: qué puede decir esta marca
   con autoridad, qué necesita oír esta persona ahora, y qué pasa en el momento.
 
@@ -62,7 +69,10 @@ publicamos":
   texto, blog).
 - Más rico no siempre es mejor: elijo el que sirve a la emoción-objetivo, uno solo, no
   "todos por si acaso".
-- El canal sale de dónde vive esa persona en ese estado emocional, no de la inercia.
+- El canal sale de dónde vive esa persona en ese estado emocional, no de la inercia. Y una
+  vez elegido, **the-audience-of-each-platform** me dice si la pieza encaja con lo que su
+  gente vino a buscar ahí: la misma idea casi nunca sirve igual en dos redes, y decidir la
+  pieza sin eso es decidir a medias.
 
 ## Antes de darla por buena
 

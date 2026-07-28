@@ -1,6 +1,6 @@
 ---
 name: breaking-the-predictable
-description: Como genero asombro estrategico — no ser raro por serlo, sino romper el patron que la audiencia espera en ESTE contexto, porque el cerebro ancla en lo que rompe el patron (por eso lo inesperado se recuerda y se comparte). La uso cuando la idea se siente predecible, cuando quiero superar lo que me pidieron, o cuando me dicen "sorprendeme", "ve mas alla", "algo diferente", "necesitamos algo especial". Trabajo sobre una pieza ya decidida y la empujo mas alla. NO decido que pieza hacer (eso es deciding-the-piece). NO entiendo al humano para engancharlo (eso es human-conversion-psychology): esto genera la idea inesperada que lo va a mover. Me apoyo en otras tools para saber que patron romper.
+description: Como genero asombro estrategico — no ser raro por serlo, sino romper el patron que la audiencia espera en ESTE contexto, porque el cerebro ancla en lo que rompe el patron (por eso lo inesperado se recuerda y se comparte). La uso cuando la idea se siente predecible, cuando quiero superar lo que me pidieron, o cuando me dicen "sorprendeme", "ve mas alla", "algo diferente", "necesitamos algo especial". Trabajo sobre una pieza ya decidida y la empujo mas alla. NO decido que pieza hacer (eso es deciding-the-piece). NO entiendo al humano para engancharlo (eso es human-conversion-psychology) — esto genera la idea inesperada que lo va a mover. Me apoyo en otras tools para saber que patron romper.
 ---
 
 # Breaking the Predictable — El asombro como método

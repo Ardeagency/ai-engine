@@ -1,6 +1,6 @@
 ---
 name: simulated-audience-pretest
-description: Pre-testeo una pieza contra audiencias simuladas ANTES de publicar, para predecir como reaccionara cada segmento real y decidir si publicar, ajustar o rehacer. Instancio las personas desde las audiencias REALES de la marca (no de una lista generica) y les proyecto reaccion emocional, scroll-stop, objeciones y probabilidad de conversion. La uso cuando quiero probar algo antes de soltarlo o comparar dos versiones. Se activa en "testea esto", "como van a reaccionar", "va a funcionar?", "pre-test", "simula la audiencia", "compara estas dos". UNICO: es la unica forma de pre-testear sin gastar alcance real.
+description: Pre-testeo una pieza contra audiencias simuladas ANTES de publicar, para predecir como reaccionara cada segmento real y decidir si publicar, ajustar o rehacer. Instancio las personas desde las audiencias REALES de la marca (no de una lista generica) y les proyecto reaccion emocional, scroll-stop, objeciones y probabilidad de conversion. La uso cuando quiero probar algo antes de soltarlo o comparar dos versiones. Se activa en "testea esto", "como van a reaccionar", "va a funcionar?", "pre-test", "simula la audiencia", "compara estas dos". UNICO — es la unica forma de pre-testear sin gastar alcance real.
 ---
 
 # Simulated Audience Pretest — Probar la pieza antes de que el mundo la vea

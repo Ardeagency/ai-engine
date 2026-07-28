@@ -1,6 +1,6 @@
 ---
 name: the-receptive-moment
-description: Decido CUANDO — sea cual sea el objetivo: crear, vender, prospectar en frio, promocionar, colaborar, lanzar o callar. No es solo cuando publicar; es leer si ES el momento o si hay que esperarlo. La pregunta madre es "es ahora o esperamos el climax": si es un BOOM vivo que no puedo dejar pasar, el momento es HOY; si es planificable, lo preparo con tiempo para llegar antes del climax. Se activa en "es el momento de...", "lo hacemos ya o esperamos", "cuando conviene", "timing", "esto rinde raro segun el momento". NO es el heatmap de metricas reales de API (live-social-metrics). NO decide QUE hacer (deciding-the-piece): aqui solo resuelvo el CUANDO.
+description: Decido CUANDO — sea cual sea el objetivo — crear, vender, prospectar en frio, promocionar, colaborar, lanzar o callar. No es solo cuando publicar; es leer si ES el momento o si hay que esperarlo. La pregunta madre es "es ahora o esperamos el climax" — si es un BOOM vivo que no puedo dejar pasar, el momento es HOY; si es planificable, lo preparo con tiempo para llegar antes del climax. Se activa en "es el momento de...", "lo hacemos ya o esperamos", "cuando conviene", "timing", "esto rinde raro segun el momento". NO es el heatmap de metricas reales de API (live-social-metrics). NO decide QUE hacer (deciding-the-piece) — aqui solo resuelvo el CUANDO.
 ---
 
 # The Receptive Moment — Cuándo es el momento, sea cual sea el objetivo

@@ -104,19 +104,24 @@ async function _provisionHetznerServer(organizationId, orgName, existing) {
     metadata:  { agent_id: agentId, server_type: "hetzner" },
   });
 
-  const { data: orgRow } = await supabase
+  // `plan` NO es una columna de organizations: pedirla hacia fallar la consulta
+  // ENTERA con "column organizations.plan does not exist", asi que `orgRow` venia
+  // null y hasta el nombre de la marca se perdia — en silencio, porque el error
+  // no se leia. El plan vive en `subscriptions` y lo resuelve el provisioner de
+  // Hetzner. Aqui solo se pide lo que existe: nombre y zona horaria.
+  const { data: orgRow, error: errOrg } = await supabase
     .from("organizations")
-    .select("name, plan")
+    .select("name, timezone")
     .eq("id", organizationId)
     .maybeSingle();
-  const plan = orgRow?.plan || "starter";
+  if (errOrg) console.warn(`openclaw.provisioner: no se pudo leer la org ${organizationId}: ${errOrg.message}`);
 
   const startedAt = Date.now();
   try {
     const { hetznerServerId, orgToken } = await createOrgServer({
-      id:   organizationId,
-      name: orgName || orgRow?.name || organizationId,
-      plan,
+      id:       organizationId,
+      name:     orgName || orgRow?.name || organizationId,
+      timezone: orgRow?.timezone || null,
     });
 
     await supabase
@@ -133,7 +138,7 @@ async function _provisionHetznerServer(organizationId, orgName, existing) {
       eventType:  "server_created",
       phase:      "server_ready",
       message:    `Servidor Hetzner #${hetznerServerId} creado — esperando cloud-init`,
-      metadata:   { hetzner_server_id: hetznerServerId, plan },
+      metadata:   { hetzner_server_id: hetznerServerId },
       durationMs: Date.now() - startedAt,
     });
 

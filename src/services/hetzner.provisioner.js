@@ -41,11 +41,62 @@ const PROVISION_TIMEOUT_MS = 10 * 60 * 1000; // 10 min
 // medicion en credit_usage para TODAS las orgs, y los topes de gasto inertes.
 const ANTHROPIC_PROXY_PORT_DEFAULT = 8788;
 
+// Zona horaria de respaldo cuando la organizacion no declara la suya. Vera vive
+// en la hora de su marca —cuando despierta y cuando corre sus trabajos—, no en
+// la del servidor. Los crons llevaban America/New_York a fuego, que no es la
+// hora de nadie de esta casa.
+const ZONA_HORARIA_POR_DEFECTO = "America/Bogota";
+
 const SERVER_TYPES = {
   starter: "cx23",   // 2 vCPU / 4 GB — ~5€/mes (Intel/AMD shared, EU locations)
   growth:  "cx33",   // 4 vCPU / 8 GB — ~8€/mes
   pro:     "cx43",   // 8 vCPU / 16 GB — ~14€/mes
 };
+
+/**
+ * Tamano de la VM segun lo que paga la organizacion.
+ *
+ * POR QUE NO ES UN MAPA DE NOMBRES: lo era, con las claves `starter/growth/pro`,
+ * y los planes que de verdad existen se llaman trial, creator, starter, team,
+ * pro, agency y business. Ninguno menos `starter` y `pro` casaba, asi que todos
+ * caian al respaldo — y el respaldo es el servidor mas pequeno. Sumado a que el
+ * plan se leia de una columna inexistente (ver `_planDeLaOrg`), TODA VM nacia
+ * cx23 con 4 GB: WAKEUP, que paga Team, se quedaba sin memoria en cada turno
+ * pesado y hubo que subirla a mano a cx33 el 2026-07-14. Por precio no hay
+ * nombres que mantener sincronizados: un plan nuevo se coloca solo.
+ */
+function tipoDeServidorPorPrecio(precioUsdMes) {
+  const p = Number(precioUsdMes) || 0;
+  if (p >= 299) return SERVER_TYPES.pro;      // 8 vCPU / 16 GB
+  if (p >= 100) return SERVER_TYPES.growth;   // 4 vCPU / 8 GB
+  return SERVER_TYPES.starter;                // 2 vCPU / 4 GB
+}
+
+/**
+ * El plan vigente de una organizacion, con su precio.
+ *
+ * Se leia de `organizations.plan`, que NO EXISTE: PostgREST devolvia
+ * "column organizations.plan does not exist", la fila entera venia null y el
+ * codigo caia al respaldo sin enterarse. El plan vive en `subscriptions`
+ * (plan_id + status) y su precio en `plans`.
+ */
+export async function _planDeLaOrg(organizationId) {
+  const { data: sub } = await supabase
+    .from("subscriptions")
+    .select("plan_id, status")
+    .eq("organization_id", organizationId)
+    .in("status", ["active", "trialing"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!sub?.plan_id) return { planId: "starter", precio: 0 };
+  const { data: plan } = await supabase
+    .from("plans")
+    .select("id, price_usd_month")
+    .eq("id", sub.plan_id)
+    .maybeSingle();
+  return { planId: sub.plan_id, precio: plan?.price_usd_month ?? 0 };
+}
 
 // Modelos de Anthropic por plan
 const MODELS_BY_PLAN = {
@@ -282,7 +333,7 @@ function _generateCloudInitScript({
   anthropicApiKey, openaiApiKey, openclawGatewayToken,
   callbackUrl, webhookSecret, model,
   supabaseUrl, supabaseServiceKey, anthropicProxyPort = ANTHROPIC_PROXY_PORT_DEFAULT,
-  userMdContent = null,
+  userMdContent = null, zonaHoraria = ZONA_HORARIA_POR_DEFECTO,
 }) {
   const safeName = String(orgName || orgId)
     .replace(/[<>"'`\\]/g, "")
@@ -353,7 +404,15 @@ ORG_ID=${orgId}
     },
     agents: {
       defaults: {
-        heartbeat: { every: "30m", target: "none", lightContext: true, isolatedSession: true, activeHours: { start: "08:00", end: "22:00" } },
+        // La ventana va en la hora de LA MARCA, no en la del gateway. Sin
+        // `timezone` OpenClaw la interpreta en UTC: WAKEUP —marca colombiana—
+        // despertaba de 03:00 a 17:00 hora local, dormida justo en la franja en
+        // que su gente esta despierta, y llevaba asi desde que se aprovisiono.
+        // La columna `organizations.timezone` ya lo decia; nadie la leia.
+        heartbeat: {
+          every: "30m", target: "none", lightContext: true, isolatedSession: true,
+          activeHours: { start: "08:00", end: "22:00", timezone: zonaHoraria },
+        },
       },
     },
     // maxTokens 16000 — sube el cap default de OpenClaw (4096) para Anthropic
@@ -599,9 +658,9 @@ else
   echo "[setup] ERROR: el gateway NO levanto en 60s — los crons de abajo van a fallar"
   systemctl status openclaw-gateway --no-pager 2>&1 | tail -20
 fi
-openclaw cron add --agent ${agentId} --cron '0 8 * * *' --tz America/New_York --name daily-brief --message 'Daily briefing' --light-context --session isolated --timeout-seconds 120 2>/dev/null || true
-openclaw cron add --agent ${agentId} --cron '0 */6 * * *' --tz America/New_York --name engagement-monitor --message 'Engagement check' --light-context --session isolated --timeout-seconds 90 2>/dev/null || true
-openclaw cron add --agent ${agentId} --cron '0 10 * * 1' --tz America/New_York --name weekly-scan --message 'Competitor scan' --light-context --session isolated --timeout-seconds 180 2>/dev/null || true
+openclaw cron add --agent ${agentId} --cron '0 8 * * *' --tz ${zonaHoraria} --name daily-brief --message 'Daily briefing' --light-context --session isolated --timeout-seconds 120 2>/dev/null || true
+openclaw cron add --agent ${agentId} --cron '0 */6 * * *' --tz ${zonaHoraria} --name engagement-monitor --message 'Engagement check' --light-context --session isolated --timeout-seconds 90 2>/dev/null || true
+openclaw cron add --agent ${agentId} --cron '0 10 * * 1' --tz ${zonaHoraria} --name weekly-scan --message 'Competitor scan' --light-context --session isolated --timeout-seconds 180 2>/dev/null || true
 
 echo "[setup] Systemd service..."
 systemctl daemon-reload
@@ -783,12 +842,17 @@ curl -sf --max-time 15 -X POST ${callbackUrl}/internal/server-ready \\
 // ── CRUD de servidores ────────────────────────────────────────────────────────
 
 export async function createOrgServer(org) {
-  const { id: orgId, name: orgName, plan = "starter" } = org;
+  const { id: orgId, name: orgName } = org;
+  // La hora de la marca, que ya vive en `organizations.timezone`.
+  const zonaHoraria = org.timezone || ZONA_HORARIA_POR_DEFECTO;
+  // El plan y su precio salen de la suscripcion, no de una columna inventada.
+  const { planId: plan, precio } = await _planDeLaOrg(orgId);
   const orgToken    = generateOrgToken();
   const agentId     = deriveAgentId(orgId);
   const serverName  = buildServerName(orgId, orgName);
-  const serverType  = SERVER_TYPES[plan] || SERVER_TYPES.starter;
+  const serverType  = tipoDeServidorPorPrecio(precio);
   const model       = MODELS_BY_PLAN[plan] || MODELS_BY_PLAN.starter;
+  console.log(`hetzner: org ${String(orgId).slice(0, 8)} plan=${plan} ($${precio}/mes) → ${serverType}, tz=${zonaHoraria}`);
   const location    = process.env.HETZNER_LOCATION || "nbg1";
   const snapshotId  = process.env.HETZNER_SNAPSHOT_ID || null;
   // AI_ENGINE_PUBLIC_URL = URL externa (Cloudflare Tunnel) que los org-servers
@@ -825,7 +889,7 @@ export async function createOrgServer(org) {
 
   const userData = _generateCloudInitScript({
     orgId, orgName, orgToken, agentId, serverName,
-    userMdContent,
+    userMdContent, zonaHoraria,
     anthropicApiKey: anthropicKey,
     openaiApiKey: openaiKey,
     openclawGatewayToken: openclawToken,
@@ -917,11 +981,16 @@ export async function sleepOrgServer(hetznerServerId, orgId) {
 }
 
 export async function wakeOrgServer(org, snapshotId) {
-  const { id: orgId, name: orgName, plan = "starter" } = org;
+  const { id: orgId, name: orgName } = org;
+  // Mismo criterio que al crear: si el plan cambio mientras dormia, despierta en
+  // el tamano que le toca. Antes despertaba SIEMPRE en el mas pequeno, asi que un
+  // resize hecho a mano se perdia en el primer ciclo de dormir/despertar.
+  const { planId: plan, precio } = await _planDeLaOrg(orgId);
   const orgToken    = generateOrgToken();
   const agentId     = deriveAgentId(orgId);
   const serverName  = buildServerName(orgId, orgName);
-  const serverType  = SERVER_TYPES[plan] || SERVER_TYPES.starter;
+  const serverType  = tipoDeServidorPorPrecio(precio);
+  console.log(`hetzner: despertando ${String(orgId).slice(0, 8)} plan=${plan} ($${precio}/mes) → ${serverType}`);
   const location    = process.env.HETZNER_LOCATION || "nbg1";
   const callbackUrl = process.env.AI_ENGINE_PUBLIC_URL || process.env.AI_ENGINE_URL || "http://5.161.243.1:3000";
   const anthropicKey = process.env.ANTHROPIC_API_KEY || "";

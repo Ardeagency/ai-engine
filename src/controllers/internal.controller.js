@@ -390,10 +390,13 @@ export const wakeOrg = async (req, res) => {
   if (!instance.sleeping) return res.status(409).json({ error: "Org no está en sleep" });
   if (!instance.snapshot_id) return res.status(400).json({ error: "No hay snapshot disponible para esta org" });
 
-  // Leer plan de la org para seleccionar el tipo de servidor
+  // El tipo de servidor lo decide `wakeOrgServer` leyendo la suscripcion. Aqui se
+  // pedia `organizations.plan`, que no existe: la consulta fallaba entera, la
+  // fila venia null y la VM despertaba siempre en el tamano mas pequeno —
+  // deshaciendo cualquier resize hecho a mano.
   const { data: orgRow } = await supabase
     .from("organizations")
-    .select("name, plan")
+    .select("name, timezone")
     .eq("id", orgId)
     .maybeSingle();
 
@@ -402,7 +405,7 @@ export const wakeOrg = async (req, res) => {
   setImmediate(async () => {
     try {
       const { hetznerServerId, orgToken } = await wakeOrgServer(
-        { id: orgId, name: orgRow?.name, plan: orgRow?.plan || "starter" },
+        { id: orgId, name: orgRow?.name, timezone: orgRow?.timezone || null },
         Number(instance.snapshot_id)
       );
 

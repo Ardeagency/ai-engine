@@ -21,7 +21,12 @@ const KIE_BASE     = (process.env.KIE_API_BASE_URL || "https://api.kie.ai").repl
 const CREATE_PATH  = "/api/v1/jobs/createTask";
 const RECORD_PATH  = "/api/v1/jobs/recordInfo";
 const IMAGE_MODEL  = process.env.KIE_IMAGE_MODEL || "nano-banana-pro";
-const VIDEO_MODEL  = process.env.KIE_VIDEO_MODEL || "bytedance/seedance-v1-pro"; // TODO verificar string exacto (kie.ai/market) antes de habilitar video
+// El unico nombre de video que /jobs/createTask reconoce hoy. Sondeados y rechazados:
+// veo3*, kling-*, seedance-* (incluido "seedance-2", que es vocabulario del dispatcher
+// externo del flow runner, no de KIE), wan, hailuo, runway. Veo3 existe pero en otra
+// ruta (/veo3-api/...) que _createTask no habla. OJO: KIE tiene la interfaz de Sora
+// PAUSADA de su lado — el nombre es correcto y aun asi devuelve 500 "temporarily paused".
+const VIDEO_MODEL  = process.env.KIE_VIDEO_MODEL || "sora-2-text-to-video";
 const R2_INGEST_URL = process.env.R2_INGEST_URL;
 const R2_INGEST_KEY = process.env.R2_INGEST_KEY;
 
@@ -54,8 +59,15 @@ async function _createTask(model, input) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || (data.code && data.code !== 200)) {
-    const msg = data?.msg || data?.message || data?.error ||
-      (res.status === 401 ? "KIE_API_KEY invalida" : res.status === 402 ? "Saldo KIE insuficiente" : `KIE createTask ${res.status}`);
+    const crudo = String(data?.msg || data?.message || data?.error || "");
+    // Un mensaje de proveedor no le sirve a nadie: se traduce a lo que hay que
+    // hacer. "paused" es KIE apagando ese modelo de su lado, no un fallo nuestro.
+    const msg = /temporarily paused/i.test(crudo)
+        ? `${model}: el proveedor tiene ese modelo pausado ahora mismo. No es un fallo de la marca ni del prompt; no hay nada que reintentar hasta que KIE lo reactive.`
+      : /not supported/i.test(crudo)
+        ? `${model}: KIE no reconoce ese nombre de modelo (revisa KIE_VIDEO_MODEL / KIE_IMAGE_MODEL).`
+      : crudo ||
+        (res.status === 401 ? "KIE_API_KEY invalida" : res.status === 402 ? "Saldo KIE insuficiente" : `KIE createTask ${res.status}`);
     throw new Error(msg);
   }
   const taskId = data?.data?.taskId || data?.taskId;

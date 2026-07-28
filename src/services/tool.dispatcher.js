@@ -195,14 +195,20 @@ const TOOL_REGISTRY = {
     requiresConsent: false,
   },
   generateImageDirect: {
-    fn: ({ params, brandContainerId, organizationId, conversationId }) =>
-      directGen.generateImageDirect(params || {}, brandContainerId, organizationId, conversationId),
+    // ...rest recoge las claves PLANAS: dispatchTool no manda un sobre `params`.
+    // Sin esto el intent nunca llegaba y toda generacion moria en
+    // "Falta la descripcion de que generar".
+    fn: ({ params, brandContainerId, organizationId, conversationId, ...rest }) =>
+      directGen.generateImageDirect({ ...(params || {}), ...rest }, brandContainerId, organizationId, conversationId),
     requiresConsent: false,
     timeout: 30_000,
   },
   generateVideoDirect: {
-    fn: ({ params, brandContainerId, organizationId, conversationId }) =>
-      directGen.generateVideoDirect(params || {}, brandContainerId, organizationId, conversationId),
+    // ...rest recoge las claves PLANAS: dispatchTool no manda un sobre `params`.
+    // Sin esto el intent nunca llegaba y toda generacion moria en
+    // "Falta la descripcion de que generar".
+    fn: ({ params, brandContainerId, organizationId, conversationId, ...rest }) =>
+      directGen.generateVideoDirect({ ...(params || {}), ...rest }, brandContainerId, organizationId, conversationId),
     requiresConsent: false,
     timeout: 30_000,
   },
@@ -589,8 +595,9 @@ const TOOL_REGISTRY = {
   // POR COMENTARIO, asi que no tienen cron: los dispara Vera cuando el hilo
   // completo de un post concreto vale lo que cuesta.
   harvestPostComments: {
-    fn: async ({ params }) => {
-      const p = params || {};
+    // ...rest: las claves llegan planas, no dentro de un sobre `params`.
+    fn: async ({ params, ...rest }) => {
+      const p = { ...(params || {}), ...rest };
       const started = await commentHarvest.requestHarvest({
         brandPostId: p.brand_post_id,
         cap: p.cap,
@@ -616,10 +623,10 @@ const TOOL_REGISTRY = {
     requiresConsent: true,
   },
   getHarvestedComments: {
-    fn: ({ params }) => commentHarvest.getHarvest({
-      jobId: (params || {}).job_id,
-      limit: (params || {}).limit,
-    }),
+    fn: ({ params, ...rest }) => {
+      const p = { ...(params || {}), ...rest };   // claves planas, no un sobre
+      return commentHarvest.getHarvest({ jobId: p.job_id, limit: p.limit });
+    },
     requiresConsent: false,
   },
   getCompetenciaRisk:       { fn: ({ params, organizationId }) => dashboardTools.getCompetenciaRisk({ ...(params || {}), organizationId }), requiresConsent: false },

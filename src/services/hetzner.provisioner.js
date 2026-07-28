@@ -214,24 +214,45 @@ const server = http.createServer(async (req, res) => {
     const chunks = [];
     req.on('data', (c) => chunks.push(c));
     req.on('end', async () => {
-      const tmp = '/tmp/skills-refresh';
+      // Directorio propio por peticion. Con una ruta fija, dos refrescos
+      // solapados se pisaban: el segundo encontraba el rm -rf del primero y
+      // moria con "tar: Cannot open: No such file or directory".
+      let tmp = null;
       try {
         const buf = Buffer.concat(chunks);
         if (!buf.length) return send(400, { error: 'tarball vacio' });
-        await execFileAsync('rm', ['-rf', tmp]);
-        await execFileAsync('mkdir', ['-p', tmp]);
+        const { stdout: mk } = await execFileAsync('mktemp', ['-d', '/tmp/skills-refresh.XXXXXX']);
+        tmp = mk.trim();
         await writeFile(tmp + '/d.tar.gz', buf);
         await execFileAsync('tar', ['-xzf', tmp + '/d.tar.gz', '-C', tmp]);
         const destino = '/root/workspaces/' + AGENT_ID + '/skills';
         await execFileAsync('mkdir', ['-p', destino]);
-        // cp -r del contenido: agrega las nuevas y sobreescribe las cambiadas.
+
+        // ESPEJO, no acumulacion. cp -r agrega y sobreescribe pero nunca borra:
+        // toda doctrina retirada del control plane seguia viva aqui para siempre,
+        // compitiendo con la que la reemplazo. Lo que no viene en el tarball, se va.
+        const listar = async (d) => {
+          try {
+            const { stdout } = await execFileAsync('bash', ['-lc', 'ls -1 ' + d + ' 2>/dev/null']);
+            return stdout.split(String.fromCharCode(10)).map((x) => x.trim()).filter(Boolean);
+          } catch { return []; }
+        };
+        const entrantes = new Set(await listar(tmp + '/skills'));
+        const retiradas = [];
+        for (const vieja of await listar(destino)) {
+          if (entrantes.has(vieja)) continue;
+          if (!/^[A-Za-z0-9._-]+$/.test(vieja)) continue;   // nada raro al rm -rf
+          await execFileAsync('rm', ['-rf', destino + '/' + vieja]);
+          retiradas.push(vieja);
+        }
+
         await execFileAsync('bash', ['-lc', 'cp -r ' + tmp + '/skills/* ' + destino + '/']);
-        const { stdout } = await execFileAsync('bash', ['-lc', 'ls -1 ' + destino]);
-        const instaladas = stdout.split(String.fromCharCode(10)).map((x) => x.trim()).filter(Boolean);
-        await execFileAsync('rm', ['-rf', tmp]);
-        return send(200, { ok: true, skills: instaladas, total: instaladas.length });
+        const instaladas = await listar(destino);
+        return send(200, { ok: true, skills: instaladas, total: instaladas.length, retiradas: retiradas });
       } catch (e) {
         return send(500, { error: String(e.message).slice(0, 300) });
+      } finally {
+        if (tmp) { try { await execFileAsync('rm', ['-rf', tmp]); } catch {} }
       }
     });
     return;

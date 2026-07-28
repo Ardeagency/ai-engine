@@ -233,7 +233,16 @@ const server = http.createServer(async (req, res) => {
   send(404, { error: 'Not found' });
 });
 
-server.listen(PORT, () => console.log(\`[openclaw-bridge] org=\${ORG_ID} port=\${PORT}\`));
+// Node 18+ trae server.requestTimeout = 300000 por defecto: mata CUALQUIER
+// peticion HTTP a los 5 minutos, sin importar lo que diga OPENCLAW_TIMEOUT_MS.
+// Esa —y no el timeout de execFile— era la que estrangulaba las sesiones de
+// dashboard: la investigacion cabia en 5 min, escribir las tarjetas no.
+// Medido el 2026-07-27 en WAKEUP: corte a los 301s exactos, puente vivo.
+server.requestTimeout   = TIMEOUT + 60000;
+server.headersTimeout   = 60000;
+server.keepAliveTimeout = 65000;
+
+server.listen(PORT, () => console.log(\`[openclaw-bridge] org=\${ORG_ID} port=\${PORT} reqTimeout=\${server.requestTimeout}ms\`));
 `;
 }
 
@@ -597,7 +606,14 @@ runcmd:
 
 function _generateWakeScript({ orgId, orgToken, anthropicApiKey, openclawGatewayToken, callbackUrl, webhookSecret }) {
   const agentId = deriveAgentId(orgId);
+  // El despertar restaura un DISCO de snapshot: el server.js del puente que hay
+  // ahi es el del dia en que se aprovisiono. Reescribir solo el .env dejaba
+  // cualquier arreglo de buildBridgeCode() sin poder llegar NUNCA a un servidor
+  // existente — asi se perdieron dos ciclos completos el 2026-07-27 intentando
+  // levantar un timeout. Va en base64 para no pelear con comillas ni backticks.
+  const bridgeB64Wake = Buffer.from(buildBridgeCode(), "utf8").toString("base64");
   return `#!/bin/bash
+echo '${bridgeB64Wake}' | base64 -d > /opt/openclaw-bridge/server.js
 cat > /opt/openclaw-bridge/.env << 'ENV_EOF'
 ORG_ID=${orgId}
 ORG_TOKEN=${orgToken}

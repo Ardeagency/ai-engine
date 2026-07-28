@@ -235,7 +235,11 @@ export async function getRunsAwaitingApproval(brandContainerId, organizationId) 
   for (const r of runs) {
     const { data: outputs } = await supabase
       .from("runs_outputs")
-      .select("id, output_type, storage_path, text_content, generated_copy, creative_rationale, flow_module_id, created_at")
+      // Sin prompt_used ni reference_image_url, Vera aprobaba o rechazaba una
+      // etapa viendo la pieza pero sin saber CON QUE se hizo — y entonces solo
+      // puede decir si le gusta, no que cambiar. Mismo defecto que tenia su
+      // hermana getFlowRunOutputs.
+      .select("id, output_type, status, storage_path, reference_image_url, text_content, generated_copy, prompt_used, creative_rationale, technical_params, flow_module_id, created_at")
       .eq("run_id", r.id)
       .order("created_at", { ascending: false })
       .limit(6);

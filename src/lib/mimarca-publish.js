@@ -229,7 +229,7 @@ export async function depositarCard({
 
   const { data: borradores, error: errSel } = await supabase
     .from("vera_mimarca_card_drafts")
-    .select("card_type, card")
+    .select("card_type, card, updated_at")
     .eq("brand_container_id", brandContainerId)
     .eq("periodo", periodo.k)
     .order("created_at", { ascending: true });
@@ -238,10 +238,22 @@ export async function depositarCard({
   const presentes = borradores.map((b) => b.card_type);
   const faltan = REQUIRED_TYPES.filter((t) => !presentes.includes(t));
 
+  /* Cada card viaja con la hora en que Vera la escribio.
+     Va SELLADA aqui y no en el contrato que ella llena: la lectura cambia por
+     partes —cinco cards de ayer y una de hace un minuto conviven en la misma
+     fila—, asi que la fecha de la FILA no dice cuando se escribio cada una. Y
+     no es un campo suyo a proposito: es un hecho del sistema, no un juicio; si
+     estuviera en su esquema podria declarar una hora que no ocurrio.
+     Se sella DESPUES de validar por lo mismo que .strict() existe. */
+  const selloPorTipo = new Map(borradores.map((b) => [b.card_type, b.updated_at]));
+  const sellar = (cards) => (cards || []).map((c) => (
+    selloPorTipo.has(c && c.type) ? { ...c, updated_at: selloPorTipo.get(c.type) } : c
+  ));
+
   // La tarjeta se ve YA, sin esperar a las seis.
   await _refrescarLecturaViva({
     organizationId, brandContainerId, periodo,
-    cards: borradores.map((b) => b.card), sessionId, trigger: "vera_autonoma",
+    cards: sellar(borradores.map((b) => b.card)), sessionId, trigger: "vera_autonoma",
   });
 
   if (faltan.length) {
@@ -268,7 +280,7 @@ export async function depositarCard({
   // inserta otra — la lectura lleva visible desde la primera tarjeta.
   await _refrescarLecturaViva({
     organizationId, brandContainerId, periodo,
-    cards: full.data.cards, sessionId, trigger: "vera_autonoma",
+    cards: sellar(full.data.cards), sessionId, trigger: "vera_autonoma",
   });
   const { windowStart, windowEnd } = await ventanaPeriodo(brandContainerId, periodo);
 

@@ -129,7 +129,10 @@ export const mcpDispatch = async (req, res) => {
 };
 
 const _AUTO_RESOLVED = new Set(["brandContainerId", "brand_container_id", "organizationId"]);
-const _TYPE_MAP = { uuid: "string", object: "object", boolean: "boolean", string: "string" };
+// `array` faltaba: un parametro declarado array se le exponia a Vera como
+// string (el `|| "string"` de abajo), asi que la unica forma de llamarla era
+// mal. Mismo fallo mudo que el dia que las tools nuevas salieron sin properties.
+const _TYPE_MAP = { uuid: "string", object: "object", boolean: "boolean", string: "string", array: "array" };
 // Convierte el spec de TOOL_SCHEMAS (param->tipo) a un JSON Schema que el MCP
 // server expone a Vera. brandContainerId/organizationId se auto-resuelven del
 // token, asi que NUNCA son required. Los selectores uuid (entityId, feed_id,
@@ -152,7 +155,12 @@ function _buildInputSchema(toolName) {
       if (!_AUTO_RESOLVED.has(param) && (param === "params" || __required)) required.push(param);
       continue;
     }
-    properties[param] = { type: _TYPE_MAP[t] || "string", description: `${param} (${t})` };
+    const tipo = _TYPE_MAP[t] || "string";
+    properties[param] = tipo === "array"
+      // `items` va aunque sea abierto: un array sin `items` lo rechazan los
+      // clientes MCP estrictos y la tool queda inservible sin decir por que.
+      ? { type: "array", items: {}, description: `${param} (${t})` }
+      : { type: tipo, description: `${param} (${t})` };
     if (!_AUTO_RESOLVED.has(param) && (t === "uuid" || param === "params")) required.push(param);
   }
   const schema = { type: "object", properties, additionalProperties: true };

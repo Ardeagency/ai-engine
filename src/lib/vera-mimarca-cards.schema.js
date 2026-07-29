@@ -149,15 +149,19 @@ const textCard = (t) => z.object({
    interpreta, nunca como tabla suelta — esa fue exactamente la card que hubo
    que rehacer. Los limites son mas anchos que los que pide el prompt: unos
    caracteres de mas no pueden costar la lectura entera. */
+// Suelto y exportado: la card se edita por item (añadir/quitar) y hay que poder
+// validar UNO sin exigir la card entera.
+export const observacionItemSchema = z.object({
+  donde: z.string().max(40).optional().nullable(),
+  titulo: z.string().min(3).max(110),
+  observacion: z.string().min(30).max(360),
+  severidad: z.enum(["opportunity", "threat", "warning", "neutral"]).optional().nullable(),
+  prioridad: z.enum(["alta", "media", "baja"]).optional().nullable(),
+}).strict();
+
 const observacionCard = z.object({
   type: z.literal("observacion"),
-  items: z.array(z.object({
-    donde: z.string().max(40).optional().nullable(),
-    titulo: z.string().min(3).max(110),
-    observacion: z.string().min(30).max(360),
-    severidad: z.enum(["opportunity", "threat", "warning", "neutral"]).optional().nullable(),
-    prioridad: z.enum(["alta", "media", "baja"]).optional().nullable(),
-  }).strict()).min(2).max(6),
+  items: z.array(observacionItemSchema).min(2).max(6),
 }).strict();
 const virtudesCard = textCard("virtudes");
 const desventajasCard = textCard("desventajas");
@@ -177,16 +181,18 @@ const audienciaCard = z.object({
    Fichas accionables: a quién debería hablarle la marca. `id` es la clave que
    el frontend usa para descartar/deduplicar (un slug tuyo, ej. "aud_reposteros").
    Se nombran como un GRUPO DE GENTE, no por demografía. */
+export const audienciaRecomendadaItemSchema = z.object({
+  id: z.string().min(2).max(48),
+  name: z.string().min(2).max(60),
+  priority: z.enum(["alta", "media", "baja"]),
+  rationale: z.string().max(160).optional().nullable(),
+  interests: z.array(z.string().max(40)).max(6).optional().nullable(),
+}).strict();
+
 const audienciasRecomendadasCard = z.object({
   type: z.literal("audiencias_recomendadas"),
   title: TITLE.optional().nullable(),
-  items: z.array(z.object({
-    id: z.string().min(2).max(48),
-    name: z.string().min(2).max(60),
-    priority: z.enum(["alta", "media", "baja"]),
-    rationale: z.string().max(160).optional().nullable(),
-    interests: z.array(z.string().max(40)).max(6).optional().nullable(),
-  }).strict()).min(2).max(8),
+  items: z.array(audienciaRecomendadaItemSchema).min(2).max(8),
 }).strict();
 
 /* ── INTUICION ──────────────────────────────────────────────────────────────
@@ -203,27 +209,34 @@ export const cardSchema = z.discriminatedUnion("type", [
   audienciaCard, audienciasRecomendadasCard, intuicionCard,
 ]);
 
-// Los moldes que el tab exige llenar. `audiencia` (viz) queda fuera: depende de
-// datos demográficos que no toda marca tiene, y un mapa inventado envenena.
-export const REQUIRED_TYPES = ["observacion", "intuicion", "virtudes", "desventajas", "algoritmo", "audiencias_recomendadas"];
+/* Los moldes que el tab sabe pintar. NINGUNO es obligatorio (2026-07-29).
+   Antes seis lo eran y el periodo no se publicaba sin ellas; eso forzaba a Vera
+   a reescribir seis análisis para cambiar uno, y dejaba fuera `audiencia`
+   —opcional, luego invisible en "lo que falta", luego nunca escrita— teniendo
+   demografía real delante. Ahora el tablero muestra lo último que se le insertó
+   de cada molde y ella decide cuál merece otra pasada. */
+export const MIMARCA_CARD_TYPES = [
+  "observacion", "intuicion", "virtudes", "desventajas",
+  "algoritmo", "audiencias_recomendadas", "audiencia",
+];
 
-/* ── LA LECTURA COMPLETA ────────────────────────────────────────────────────
-   Libertad controlada como regla de código: la lectura DEBE traer las 5 cards
-   obligatorias. Si falta alguna, el molde queda vacío en el dashboard — por eso
-   se rechaza y se le devuelve a Vera exactamente cuál faltó. */
+/* Las cards que son una LISTA, no un texto. Se editan por item —añadir o
+   quitar— en vez de rehacerse enteras: reescribir seis observaciones para
+   corregir una es caro y además borra lo que seguía siendo cierto.
+   `clave` es lo que identifica a un item dentro de su card. Las audiencias
+   traen `id` propio; las observaciones no, y se reconocen por su título — el
+   mismo criterio que usa el frontend para saber cuál es nueva. */
+export const MIMARCA_ITEM_CARDS = {
+  observacion: { clave: "titulo", min: 2, max: 6, itemSchema: observacionItemSchema },
+  audiencias_recomendadas: { clave: "id", min: 2, max: 8, itemSchema: audienciaRecomendadaItemSchema },
+};
+
+/* ── LA LECTURA ─────────────────────────────────────────────────────────────
+   Una card basta para que el periodo exista y se vea. El límite alto sigue: el
+   tablero tiene sitio para doce, no para un volcado. */
 export const mimarcaCardsSchema = z.object({
   schema: z.literal(MIMARCA_SCHEMA),
-  cards: z.array(cardSchema).min(6).max(12).superRefine((cs, ctx) => {
-    const present = new Set(cs.map((c) => c.type));
-    for (const t of REQUIRED_TYPES) {
-      if (!present.has(t)) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: `falta la card obligatoria '${t}' — el molde de Mi Marca la exige`,
-        });
-      }
-    }
-  }),
+  cards: z.array(cardSchema).min(1).max(12),
 }).strict();
 
 /**

@@ -60,7 +60,7 @@ export const PHASE_B_TOOLS = [
   // Escritura del tablero: Vera publica sus propias cards, una por una. Sin
   // esto ai-engine seguiria siendo el unico escritor y tendria que sostener la
   // conversacion entera para persistir lo que ella ya habia escrito.
-  "publishMiMarcaCard", "getMiMarcaProgress",
+  "publishMiMarcaCard", "getMiMarcaProgress", "updateMiMarcaCardItems",
   "getPublicacionDestacada", "explainPublicacionDestacada",
   "describirPublicacion",
   "getMaterialDeCodigos", "getMaterialDeEmpaque",

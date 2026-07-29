@@ -363,6 +363,14 @@ const TOOL_REGISTRY = {
     fn: (params) => dashboardWriteTools.getMiMarcaProgress(params),
     requiresConsent: false,
   },
+  // Editar una card de lista por item, en vez de rehacerla: quitar la
+  // observacion que ya no aplica y sumar la nueva sin tocar las que siguen
+  // siendo ciertas. Sin consentimiento, como sus hermanas: es contenido que
+  // ella misma produjo, no la identidad de la marca.
+  updateMiMarcaCardItems: {
+    fn: (params) => dashboardWriteTools.updateMiMarcaCardItems(params),
+    requiresConsent: false,
+  },
 
   // ── Brand write ───────────────────────────────────────────────────────────
   // Disponible en fase B (parcial) y C (total).

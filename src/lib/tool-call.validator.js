@@ -31,6 +31,7 @@ export const TOOL_SCHEMAS = {
   // parametro, asi que no hay forma de pasarle el brandContainerId".
   publishMiMarcaCard:      { brandContainerId: "uuid", periodo: "string", card: "object" },
   getMiMarcaProgress:      { brandContainerId: "uuid" },
+  updateMiMarcaCardItems:  { brandContainerId: "uuid", periodo: "string", cardType: "string", agregar: "array", eliminar: "array" },
   getPublicacionDestacada:     { brandContainerId: "uuid", periodo: "string" },
   explainPublicacionDestacada: { brandContainerId: "uuid", postId: "uuid", analisis: "string" },
   verPublicacion:              { postId: "uuid" },
@@ -353,6 +354,13 @@ export function validateToolCall(toolCall) {
         return {
           valid: false,
           reason: `Parámetro "${field}" en tool "${name}" debe ser string`,
+        };
+      }
+    } else if (expectedType === "array") {
+      if (!Array.isArray(val)) {
+        return {
+          valid: false,
+          reason: `Parámetro "${field}" en tool "${name}" debe ser un array`,
         };
       }
     }

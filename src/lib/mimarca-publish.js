@@ -6,10 +6,17 @@
  * sobre [[DIAGNOSIS]] del texto de Vera. De esa topologia invertida salieron los
  * timeouts, los bucles y las sesiones de 45 minutos sin publicar nada.
  *
- * Aqui vive lo que necesita la tool `publishMiMarcaCard` para que sea VERA quien
+ * Aqui vive lo que necesitan las tools de Mi Marca para que sea VERA quien
  * escriba: ella se programa sus propios trabajos aislados (`openclaw cron --at
- * --session isolated --light-context`) y cada uno deposita SU card. Cuando estan
- * las seis obligatorias, la lectura se publica sola.
+ * --session isolated --light-context`) y cada uno deposita SU card.
+ *
+ * NINGUNA CARD ES OBLIGATORIA (2026-07-29). Antes seis lo eran y el periodo no
+ * se publicaba sin ellas: para cambiar una habia que reescribir las seis, y la
+ * septima —`audiencia`, la de mapa y piramide— al no contar para "lo que falta"
+ * no se escribia NUNCA; desaparecio del tablero el 27 de julio con la demografia
+ * real de la marca delante. Ahora el tablero muestra lo ultimo que se le inserto
+ * a cada molde, no se oculta nada por no haberse actualizado, y Vera decide que
+ * merece otra pasada.
  *
  * ai-engine deja de ser el cerebro y vuelve a ser el medio.
  */
@@ -18,7 +25,8 @@ import {
   MIMARCA_SCHEMA,
   MIMARCA_SCHEMA_VERSION,
   cardSchema,
-  REQUIRED_TYPES,
+  MIMARCA_CARD_TYPES,
+  MIMARCA_ITEM_CARDS,
   mimarcaCardsSchema,
 } from "./vera-mimarca-cards.schema.js";
 
@@ -191,9 +199,10 @@ async function _refrescarLecturaViva({
 }
 
 /**
- * Deposita UNA card en el borrador del periodo y publica en cuanto estan las
- * seis obligatorias. Devuelve SIEMPRE que falta: ese retorno es el lazo de
- * realimentacion con el que Vera se orquesta a si misma.
+ * Deposita UNA card en el periodo. La lectura se refresca SIEMPRE: no hay
+ * conjunto minimo que esperar, una card basta para que el periodo exista y se
+ * vea. Devuelve el estado del tablero — ese retorno es el lazo con el que Vera
+ * decide su siguiente paso sin que nadie se lo dicte.
  */
 export async function depositarCard({
   organizationId, brandContainerId, periodoKey, card, sessionId,
@@ -236,7 +245,6 @@ export async function depositarCard({
   if (errSel) throw new Error(`leer borradores: ${errSel.message}`);
 
   const presentes = borradores.map((b) => b.card_type);
-  const faltan = REQUIRED_TYPES.filter((t) => !presentes.includes(t));
 
   /* Cada card viaja con la hora en que Vera la escribio.
      Va SELLADA aqui y no en el contrato que ella llena: la lectura cambia por
@@ -250,37 +258,10 @@ export async function depositarCard({
     selloPorTipo.has(c && c.type) ? { ...c, updated_at: selloPorTipo.get(c.type) } : c
   ));
 
-  // La tarjeta se ve YA, sin esperar a las seis.
+  // La tarjeta se ve YA. Una sola basta: no hay conjunto que esperar.
   await _refrescarLecturaViva({
     organizationId, brandContainerId, periodo,
     cards: sellar(borradores.map((b) => b.card)), sessionId, trigger: "vera_autonoma",
-  });
-
-  if (faltan.length) {
-    return {
-      ok: true, publicado: false, visible: true, periodo: periodo.k, guardada: valida.type,
-      presentes, faltan,
-      siguiente: `Guardada y YA VISIBLE en el tablero. Faltan ${faltan.length}: ${faltan.join(", ")}.`,
-    };
-  }
-
-  // Estan las seis: se valida el conjunto antes de publicar, porque el contrato
-  // completo pide cosas que una card suelta no puede saber (minimo 6, maximo 12).
-  const lectura = { schema: MIMARCA_SCHEMA, cards: borradores.map((b) => b.card) };
-  const full = mimarcaCardsSchema.safeParse(lectura);
-  if (!full.success) {
-    return {
-      ok: true, publicado: false, periodo: periodo.k, guardada: valida.type, presentes, faltan: [],
-      motivo: "estan las seis pero el conjunto no valida",
-      errores: full.error.issues.map((i) => `${i.path.join(".") || "(raiz)"}: ${i.message}`),
-    };
-  }
-
-  // Completo: se refresca la MISMA fila viva con el conjunto ya validado. No se
-  // inserta otra — la lectura lleva visible desde la primera tarjeta.
-  await _refrescarLecturaViva({
-    organizationId, brandContainerId, periodo,
-    cards: sellar(full.data.cards), sessionId, trigger: "vera_autonoma",
   });
   const { windowStart, windowEnd } = await ventanaPeriodo(brandContainerId, periodo);
 
@@ -288,27 +269,168 @@ export async function depositarCard({
   // hacia que la sesion siguiente abriera con "faltan las 6" y Vera reescribiera
   // seis analisis caros para cambiar, quiza, uno solo.
 
+  const sinEscribir = MIMARCA_CARD_TYPES.filter((t) => !presentes.includes(t));
   return {
-    ok: true, publicado: true, periodo: periodo.k, guardada: valida.type,
-    cards: full.data.cards.length, windowStart, windowEnd,
-    siguiente: `Periodo ${periodo.k} PUBLICADO y visible en el tablero.`,
+    ok: true, visible: true, periodo: periodo.k, guardada: valida.type,
+    en_el_tablero: presentes,
+    sin_escribir: sinEscribir,
+    windowStart, windowEnd,
+    siguiente: `Guardada y VISIBLE en '${periodo.k}'. El tablero tiene ${presentes.length} tarjeta(s); ` +
+      (sinEscribir.length
+        ? `nunca se ha escrito: ${sinEscribir.join(", ")} — ninguna es obligatoria, escribe la que aporte.`
+        : "los siete moldes tienen contenido.") +
+      " Lo que no toques se queda como esta.",
   };
 }
 
 /**
- * Que falta en cada periodo — para que Vera sepa por donde seguir.
+ * Anade o quita items de una card que es LISTA (observaciones, audiencias
+ * recomendadas) sin rehacerla.
  *
- * Mira los borradores Y lo ya PUBLICADO. Sin lo segundo hay bucle de retrabajo:
- * al publicar se borran los borradores del periodo, asi que un periodo terminado
- * volvia como "faltan las 6" y Vera lo rehacia entero. Paso en la primera
- * corrida real (2026-07-28): week se publico 04:24:21 y a las 04:34:06 estaba
- * escribiendola otra vez.
+ * POR QUE: reescribir seis observaciones para corregir una es caro y ademas
+ * borra las cinco que seguian siendo ciertas. Vera lee lo que hay y decide por
+ * item: esta ya no aplica (fuera), esto es nuevo (dentro), el resto se queda
+ * intacto — con su texto original, no con una parafrasis.
+ *
+ * El resultado se valida como card ENTERA antes de guardar: los limites de la
+ * lista (minimo 2, maximo 6/8) son del molde, no del item, y quitar de mas
+ * dejaria el tablero con una card invalida.
+ */
+export async function mutarItemsCard({
+  organizationId, brandContainerId, periodoKey, cardType, agregar, eliminar, sessionId,
+}) {
+  const periodo = periodoPorClave(periodoKey);
+  if (!periodo) {
+    throw new Error(
+      `periodo '${periodoKey}' no existe. Validos: ${MIMARCA_PERIODOS.map((p) => p.k).join(", ")}`
+    );
+  }
+  const molde = MIMARCA_ITEM_CARDS[cardType];
+  if (!molde) {
+    return {
+      ok: false,
+      motivo: `'${cardType}' no es una card de lista`,
+      detalle: `Se editan por item: ${Object.keys(MIMARCA_ITEM_CARDS).join(", ")}. ` +
+        "Las demas son un texto entero: para cambiarlas, publishMiMarcaCard.",
+    };
+  }
+
+  const { data: fila, error: errSel } = await supabase
+    .from("vera_mimarca_card_drafts")
+    .select("card")
+    .eq("brand_container_id", brandContainerId)
+    .eq("periodo", periodo.k)
+    .eq("card_type", cardType)
+    .maybeSingle();
+  if (errSel) throw new Error(`leer la card: ${errSel.message}`);
+  if (!fila?.card) {
+    return {
+      ok: false,
+      motivo: `'${cardType}' todavia no existe en '${periodo.k}'`,
+      detalle: "No hay nada que editar: creala entera la primera vez con publishMiMarcaCard.",
+    };
+  }
+
+  const actuales = Array.isArray(fila.card.items) ? fila.card.items : [];
+  const clave = molde.clave;
+  const idDe = (it) => String((it && it[clave]) || "").trim().toLowerCase();
+
+  // Quitar primero: si en la misma llamada se quita uno y se anade otro con la
+  // misma clave, gana el nuevo (es una sustitucion, no un duplicado).
+  const fuera = new Set((eliminar || []).map((x) => String(x || "").trim().toLowerCase()));
+  const noEncontrados = [...fuera].filter((x) => !actuales.some((it) => idDe(it) === x));
+  const items = actuales.filter((it) => !fuera.has(idDe(it)));
+  const quitados = actuales.length - items.length;
+  let reemplazados = 0;
+
+  const nuevos = [];
+  for (const bruto of (agregar || [])) {
+    const v = molde.itemSchema.safeParse(bruto);
+    if (!v.success) {
+      return {
+        ok: false,
+        motivo: "un item nuevo no cumple el contrato",
+        errores: v.error.issues.map((i) => `${i.path.join(".") || "(raiz)"}: ${i.message}`),
+        detalle: "No se guardo nada: la card sigue como estaba.",
+      };
+    }
+    nuevos.push(v.data);
+  }
+  // Un item nuevo con la clave de uno que ya estaba lo REEMPLAZA en su sitio:
+  // asi se corrige una observacion sin que aparezca dos veces.
+  for (const n of nuevos) {
+    const i = items.findIndex((it) => idDe(it) === idDe(n));
+    if (i >= 0) { items[i] = n; reemplazados++; } else items.push(n);
+  }
+
+  const cardNueva = { ...fila.card, items };
+  const v = cardSchema.safeParse(cardNueva);
+  if (!v.success) {
+    return {
+      ok: false,
+      motivo: `la card quedaria invalida (${items.length} items; el molde admite ${molde.min}-${molde.max})`,
+      errores: v.error.issues.map((i) => `${i.path.join(".") || "(raiz)"}: ${i.message}`),
+      detalle: "No se guardo nada: la card sigue como estaba.",
+    };
+  }
+
+  const { error: errUp } = await supabase
+    .from("vera_mimarca_card_drafts")
+    .upsert({
+      organization_id: organizationId,
+      brand_container_id: brandContainerId,
+      periodo: periodo.k,
+      card_type: cardType,
+      card: v.data,
+      session_id: sessionId,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "brand_container_id,periodo,card_type" });
+  if (errUp) throw new Error(`guardar la card: ${errUp.message}`);
+
+  const { data: borradores } = await supabase
+    .from("vera_mimarca_card_drafts")
+    .select("card_type, card, updated_at")
+    .eq("brand_container_id", brandContainerId)
+    .eq("periodo", periodo.k)
+    .order("created_at", { ascending: true });
+  const sello = new Map((borradores || []).map((b) => [b.card_type, b.updated_at]));
+  await _refrescarLecturaViva({
+    organizationId, brandContainerId, periodo,
+    cards: (borradores || []).map((b) => ({ ...b.card, updated_at: sello.get(b.card_type) })),
+    sessionId, trigger: "vera_autonoma",
+  });
+
+  return {
+    ok: true,
+    periodo: periodo.k,
+    card: cardType,
+    quitados,
+    anadidos: nuevos.length - reemplazados,
+    reemplazados,
+    no_encontrados: noEncontrados,
+    items_ahora: items.map((it) => it[clave]),
+    siguiente: `'${cardType}' de '${periodo.k}' quedo con ${items.length} items y ya se ve en el tablero.` +
+      (noEncontrados.length ? ` No estaban y no se quitaron: ${noEncontrados.join(", ")}.` : ""),
+  };
+}
+
+/**
+ * QUE HAY en cada periodo — no que falta.
+ *
+ * El cambio de pregunta es el cambio de doctrina: ninguna card es obligatoria,
+ * asi que "faltan cuatro" era una orden disfrazada de dato. Lo que Vera necesita
+ * para decidir es lo que YA esta puesto, de cuando es, y —en las cards que son
+ * lista— QUE items contiene, para poder quitar uno y anadir otro en vez de
+ * reescribir las seis observaciones cada vez que despierta.
+ *
+ * Mira los borradores Y lo ya publicado: lo que esta en el tablero sin borrador
+ * (lecturas viejas del productor anterior) existe igual y se lista sin edad.
  */
 export async function estadoBorradores(brandContainerId) {
   const [{ data: borradores }, { data: publicadas }] = await Promise.all([
     supabase
       .from("vera_mimarca_card_drafts")
-      .select("periodo, card_type, updated_at")
+      .select("periodo, card_type, updated_at, card")
       .eq("brand_container_id", brandContainerId),
     supabase
       .from("vera_dashboard_readings")
@@ -331,30 +453,43 @@ export async function estadoBorradores(brandContainerId) {
     // su edad. Lo que esta en el tablero pero ya no tiene borrador se lista
     // igual, sin edad: existe, pero no se sabe de cuando.
     const tarjetas = mias
-      .map((d) => ({ tipo: d.card_type, edad_horas: edadH(d.updated_at) }))
+      .map((d) => {
+        const molde = MIMARCA_ITEM_CARDS[d.card_type];
+        const items = molde && Array.isArray(d.card?.items)
+          // Solo la CLAVE de cada item, no su texto: con esto Vera decide a cual
+          // quitar sin arrastrar la card entera a su contexto en cada latido.
+          ? d.card.items.map((it) => it && it[molde.clave]).filter(Boolean)
+          : null;
+        return {
+          tipo: d.card_type,
+          edad_horas: edadH(d.updated_at),
+          ...(items ? { items, se_edita_por_item: true } : {}),
+        };
+      })
       .sort((a, b) => b.edad_horas - a.edad_horas);
     for (const t of tiposEnTablero) {
       if (!tarjetas.some((x) => x.tipo === t)) tarjetas.push({ tipo: t, edad_horas: null });
     }
 
     const presentes = tarjetas.map((t) => t.tipo);
-    const faltan = REQUIRED_TYPES.filter((t) => !presentes.includes(t));
+    const sinEscribir = MIMARCA_CARD_TYPES.filter((t) => !presentes.includes(t));
     const conEdad = tarjetas.filter((t) => t.edad_horas != null);
     const masVieja = conEdad.length ? conEdad[0] : null;
 
     porPeriodo[p.k] = {
-      completo: faltan.length === 0,
       visible_en_tablero: tiposEnTablero.length > 0,
       tarjetas,
-      faltan,
+      sin_escribir: sinEscribir,
       mas_vieja: masVieja,
-      nota: faltan.length
-        ? `faltan ${faltan.length}: ${faltan.join(", ")}. Escribe SOLO esas.`
-        : masVieja
-          ? `las ${tarjetas.length} estan puestas; la mas vieja es '${masVieja.tipo}' (${masVieja.edad_horas}h). ` +
-            "Refresca SOLO las que creas caducadas: las que no toques se quedan como estan. " +
-            "Lo que envejece en dias para 'week' puede aguantar semanas en 'year'."
-          : "las tarjetas estan en el tablero pero sin fecha conocida; refresca la que dudes.",
+      nota: [
+        tarjetas.length
+          ? `hay ${tarjetas.length} tarjeta(s) puestas` +
+            (masVieja ? `; la mas vieja es '${masVieja.tipo}' (${masVieja.edad_horas}h)` : "")
+          : "este periodo no tiene ni una tarjeta todavia",
+        sinEscribir.length ? `nunca escritas: ${sinEscribir.join(", ")}` : null,
+        "NINGUNA es obligatoria. Lo que no toques se queda tal cual, y el tablero lo sigue mostrando.",
+        "Lo que envejece en dias para 'week' puede aguantar semanas en 'year'.",
+      ].filter(Boolean).join(". "),
     };
   }
 

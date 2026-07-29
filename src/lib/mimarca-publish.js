@@ -133,8 +133,6 @@ export async function publicarLecturaPeriodo({
 async function _refrescarLecturaViva({
   organizationId, brandContainerId, periodo, cards, sessionId, trigger,
 }) {
-  const lectura = { schema: MIMARCA_SCHEMA, cards };
-
   // La fila viva se elige por VENTANA, no por session_id ni por estar incompleta.
   //
   // Por session_id insertaba una fila por tarjeta (cada llamada trae su propio id).
@@ -157,6 +155,19 @@ async function _refrescarLecturaViva({
   const ultima = ultimas?.[0] || null;
   const mismaVentana = ultima && String(ultima.window_start) === String(winIni);
   const viva = mismaVentana ? ultima : null;
+
+  /* NADA SE CAE DEL TABLERO.
+     La lectura se arma con los borradores, pero lo que ya estaba publicado y NO
+     tiene borrador se conserva. Sin esto, depositar una sola tarjeta borra del
+     tablero todo lo que venga de una corrida antigua: paso el 2026-07-29 con
+     'year' de WAKEUP —Vera publico `audiencia` y las otras seis, que eran del
+     productor viejo y no tenian borrador, desaparecieron de golpe. Es el MISMO
+     mecanismo que habia hecho desaparecer a `audiencia` el 27 de julio.
+     Manda el borrador cuando los dos existen: es lo mas nuevo. */
+  const previas = (ultima?.reading?.cards || []).filter(Boolean);
+  const tiposNuevos = new Set((cards || []).map((c) => c && c.type));
+  const heredadas = previas.filter((c) => c.type && !tiposNuevos.has(c.type));
+  const lectura = { schema: MIMARCA_SCHEMA, cards: [...(cards || []), ...heredadas] };
 
   if (viva?.id) {
     const { error } = await supabase

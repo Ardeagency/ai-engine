@@ -213,19 +213,19 @@ const error_ajeno = fichas(z.object({
 const pulso_nicho = z.object({
   type: z.literal("pulso_nicho"),
   estado: z.enum(["caliente", "tibio", "frio", "girando"]),
-  titular: txt(10, 130),
+  titular: txt(10, 180),
   numero: opt(txt(1, 40)),
-  delta: opt(txt(1, 80)),
+  delta: opt(txt(1, 160)),
   markdown: opt(txt(10, 500)),
   evidence: EVIDENCE,
 }).strip();
 
 const senal_debil = fichas(z.object({
   titulo: txt(3, 110),
-  que_vi: txt(10, 300),
+  que_vi: txt(10, 460),
   por_que_nadie_lo_ve: opt(txt(5, 220)),
   si_es_real: opt(txt(5, 260)),
-  ventana: opt(txt(2, 80)),          // el reloj: una señal sin tiempo no se acciona
+  ventana: opt(txt(2, 160)),         // el reloj: una señal sin tiempo no se acciona
   fuerza: opt(z.enum(["fuerte", "media", "tenue"])),
   evidence: EVIDENCE,
 }).strip(), { max: 6 });
@@ -235,8 +235,8 @@ const triangulacion = z.object({
   nombre_oportunidad: txt(3, 110),
   // Tres señales o no hay triangulacion: con dos es una corazonada con adorno.
   senales: z.array(z.object({
-    observacion: txt(5, 240),
-    fuente: opt(txt(2, 40)),
+    observacion: txt(5, 360),
+    fuente: opt(txt(2, 90)),
     evidence: EVIDENCE,
   }).strip()).min(2).max(6),
   conclusion: txt(15, 500),
@@ -488,6 +488,61 @@ export const NOMBRE_TAB_V4 = {
   tendencias: "Tendencias", estrategia: "Estrategia",
 };
 
+/* ── Saneo de forma ──────────────────────────────────────────────────────────
+   La leccion que cards.v2 ya pago: una entrega murio por un campo de 161
+   caracteres. Un texto unos caracteres mas largo de la cuenta es un defecto de
+   FORMA y se recorta; lo que NO se toca es el contenido — si falta un campo
+   obligatorio o el valor no es del tipo esperado, la card se rechaza igual y
+   Vera la corrige. Medido en el estreno de Tendencias: 3 de 3 rechazos eran
+   recortes de una linea, y cada uno le costaba una vuelta de conversacion. */
+function _recortar(txtLargo, max) {
+  let corte = String(txtLargo).slice(0, max).trimEnd();
+  const ultimoEspacio = corte.lastIndexOf(" ");
+  // Se corta en palabra, pero solo si no mutila la frase a menos del 60%.
+  if (ultimoEspacio > max * 0.6) corte = corte.slice(0, ultimoEspacio).trimEnd();
+  return corte.replace(/[,;:\u2014-]$/, "").trimEnd();
+}
+
+function _enRuta(raiz, ruta) {
+  let n = raiz;
+  for (const k of ruta) { if (n == null || typeof n !== "object") return undefined; n = n[k]; }
+  return n;
+}
+
+function _ponerEnRuta(raiz, ruta, valor) {
+  if (!ruta.length) return false;
+  let n = raiz;
+  for (const k of ruta.slice(0, -1)) { if (n == null || typeof n !== "object") return false; n = n[k]; }
+  if (n == null || typeof n !== "object") return false;
+  n[ruta[ruta.length - 1]] = valor;
+  return true;
+}
+
+/** Intenta arreglar SOLO defectos de forma (largo). Devuelve el valor saneado. */
+function _sanearForma(molde, valor, pasadas = 3) {
+  let v = valor;
+  for (let i = 0; i < pasadas; i++) {
+    const r = molde.safeParse(v);
+    if (r.success) return { ok: true, valor: r.data, saneados: i > 0 };
+    let toco = false;
+    if (i === 0) v = JSON.parse(JSON.stringify(v));   // copia: el saneo muta
+    for (const issue of r.error.issues) {
+      if (issue.code !== "too_big") continue;
+      const actual = _enRuta(v, issue.path || []);
+      const max = Number(issue.maximum);
+      if (!Number.isFinite(max) || max <= 0) continue;
+      if (typeof actual === "string") {
+        toco = _ponerEnRuta(v, issue.path, _recortar(actual, max)) || toco;
+      } else if (Array.isArray(actual)) {
+        // El orden es suyo: lo que puso primero es lo que mas le importa.
+        toco = _ponerEnRuta(v, issue.path, actual.slice(0, max)) || toco;
+      }
+    }
+    if (!toco) break;
+  }
+  return { ok: false, valor: v };
+}
+
 /**
  * Valida UNA card contra su molde. Devuelve {ok, card} o {ok:false, errores}.
  * Se valida de a una a proposito: una card mala no puede tumbar a sus hermanas
@@ -505,7 +560,11 @@ export function validarCardV4(card) {
       errores: [`type: '${tipo || "(vacio)"}' no existe. Validos: ${VERA4_TYPES.join(", ")}`],
     };
   }
-  const r = molde.safeParse(card);
+  const sano = _sanearForma(molde, card);
+  if (sano.ok) {
+    return { ok: true, card: { ...sano.valor, type: tipo }, saneada: sano.saneados };
+  }
+  const r = molde.safeParse(sano.valor);
   if (!r.success) {
     return {
       ok: false,

@@ -206,6 +206,105 @@ const error_ajeno = fichas(z.object({
   evidence: EVIDENCE,
 }).strip(), { max: 6 });
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMPETENCIA · INSTRUMENTOS — la forma la fija el tablero, Vera alimenta la
+   serie. Las escalas son FIJAS a proposito: sin escala fija no se puede
+   comparar ni entre perfiles ni entre meses, y el instrumento deja de acumular
+   historia (se vuelve una foto distinta cada ciclo en vez de un movimiento).
+   ══════════════════════════════════════════════════════════════════════════ */
+
+// La nota de metodo es OBLIGATORIA en todo instrumento de juicio: un grafico
+// parece una medicion aunque no lo sea, y esa es la forma mas facil de que el
+// tablero mienta con cara de rigor.
+const NOTA_METODO = txt(5, 200);
+
+const territorio_tematico = z.object({
+  type: z.literal("territorio_tematico"),
+  temas: z.array(txt(2, 40)).min(2).max(8),      // >8 y el ojo deja de distinguir
+  perfiles: z.array(txt(1, 90)).min(1).max(6),
+  // celdas[perfil][tema] = 0-100. El 0 es un HALLAZGO (nadie lo cubre), no un hueco.
+  celdas: z.array(z.array(z.number().min(0).max(100))).min(1).max(6),
+  nota_metodo: NOTA_METODO,
+  evidence: EVIDENCE,
+}).strip().refine((c) => c.celdas.length === c.perfiles.length
+  && c.celdas.every((f) => f.length === c.temas.length), {
+  message: "celdas tiene que ser una fila por perfil y una columna por tema, en el mismo orden",
+});
+
+const registro_de_voz = z.object({
+  type: z.literal("registro_de_voz"),
+  tonos: z.array(txt(2, 24)).min(3).max(6),
+  perfiles: z.array(z.object({
+    perfil: txt(1, 90),
+    mezcla: z.array(z.number().min(0).max(100)).min(3).max(6),
+  }).strip()).min(1).max(8),
+  nota_metodo: NOTA_METODO,
+  evidence: EVIDENCE,
+}).strip().refine((c) => c.perfiles.every((p) => p.mezcla.length === c.tonos.length), {
+  message: "cada perfil reparte sus puntos entre EXACTAMENTE los mismos tonos, en el mismo orden",
+});
+
+const emocion_competencia = z.object({
+  type: z.literal("emocion_competencia"),
+  // Escala con polaridad y un neutro en medio: de eso vive la divergente.
+  escala: z.array(txt(2, 24)).min(3).max(7),
+  perfiles: z.array(z.object({
+    perfil: txt(1, 90),
+    valores: z.array(z.number().min(0)).min(3).max(7),
+  }).strip()).min(1).max(8),
+  nota_metodo: NOTA_METODO,
+  evidence: EVIDENCE,
+}).strip()
+  .refine((c) => c.escala.some((e) => /neutr/i.test(e)), {
+    message: "la escala necesita un punto neutro (llamalo 'neutro'): es donde se parte el eje",
+  })
+  .refine((c) => c.perfiles.every((p) => p.valores.length === c.escala.length), {
+    message: "cada perfil da un valor por cada punto de la escala, en el mismo orden",
+  });
+
+const busqueda_vs_voz = z.object({
+  type: z.literal("busqueda_vs_voz"),
+  meses: z.array(txt(2, 20)).min(3).max(24),
+  // Dos series INDEXADAS a 100 en el origen. Nunca dos ejes: la alineacion de
+  // dos escalas distintas inventa una correlacion que no esta en el dato.
+  series: z.array(z.object({
+    nombre: txt(2, 40),
+    valores: z.array(z.number().min(0)).min(3).max(24),
+  }).strip()).min(2).max(3),
+  base: opt(txt(5, 120)),
+  evidence: EVIDENCE,
+}).strip().refine((c) => c.series.every((s) => s.valores.length === c.meses.length), {
+  message: "cada serie necesita un valor por mes, en el mismo orden",
+});
+
+/* ══ COMPETENCIA · JUICIO (sin grafico a proposito) ═══════════════════════ */
+
+const supuesto_punto_ciego = fichas(z.object({
+  perfil: txt(1, 90),
+  rol: ROL,
+  que_cree: txt(10, 300),               // el supuesto en SUS palabras
+  en_que_se_equivoca: txt(10, 300),
+  evidencia_de_la_grieta: txt(10, 300),
+  como_se_explota: txt(10, 300),
+  confianza: CONFIANZA,                 // siempre hipotesis, nunca certeza
+  evidence: EVIDENCE,
+}).strip(), { max: 6 });
+
+const proxima_movida = fichas(z.object({
+  perfil: txt(1, 90),
+  movida_probable: txt(10, 240),
+  por_que_ahora: txt(10, 300),
+  senal_que_la_confirma: txt(5, 240),
+  // Sin la señal que la desmiente no es una hipotesis, es un deseo: buscar solo
+  // lo que te da la razon es la forma mas comun de equivocarse con confianza.
+  senal_que_la_desmiente: txt(5, 240),
+  revisar_el: FECHA,
+  confianza: CONFIANZA,
+  si_ocurre_que_hago: txt(10, 300),
+  evidence: EVIDENCE,
+}).strip(), { max: 5 });
+
 /* ══════════════════════════════════════════════════════════════════════════
    TENDENCIAS — el mercado (aqui no se audita la cuenta propia)
    ══════════════════════════════════════════════════════════════════════════ */
@@ -454,6 +553,8 @@ const CARD = {
   ritmo, autopsia, victoria_explicada, causalidad,
   // Competencia
   anomalia, error_ajeno,
+  territorio_tematico, registro_de_voz, emocion_competencia, busqueda_vs_voz,
+  supuesto_punto_ciego, proxima_movida,
   // Tendencias
   pulso_nicho, senal_debil, triangulacion, tension, timing, lo_que_falta,
   // Estrategia
@@ -468,6 +569,9 @@ export const VERA4_TAB = {
   emocion_objetivo: "mi_marca", viabilidad_comercial: "mi_marca", ritmo: "mi_marca",
   autopsia: "mi_marca", victoria_explicada: "mi_marca", causalidad: "mi_marca",
   anomalia: "monitoreo", error_ajeno: "monitoreo",
+  territorio_tematico: "monitoreo", registro_de_voz: "monitoreo",
+  emocion_competencia: "monitoreo", busqueda_vs_voz: "monitoreo",
+  supuesto_punto_ciego: "monitoreo", proxima_movida: "monitoreo",
   pulso_nicho: "tendencias", senal_debil: "tendencias", triangulacion: "tendencias",
   tension: "tendencias", timing: "tendencias", lo_que_falta: "tendencias",
   decision_del_dia: "estrategia", autoridad_adn: "estrategia", puerta_aprobacion: "estrategia",

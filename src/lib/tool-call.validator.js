@@ -17,7 +17,21 @@ const DANGEROUS_PATTERNS = ["__proto__", "constructor", "prototype", "<script", 
 // separadores markdown) produce falsos positivos. A estos campos se les exime
 // del escaneo SQL completo, pero igual se les aplica un escaneo ESTRICTO
 // (XSS/prototype) para que un <script> o __proto__ nunca pase al renderer.
-const FREETEXT_PARAMS = { createArtifact: ["content", "html"], webSearch: ["query"], initiateConversation: ["opening_message", "topic", "reason"], scoreContentCitability: ["text"] };
+// Un campo de texto libre puede ser un OBJETO entero, no solo un string: la card
+// de Mi Marca y la lectura de un tab son prosa dentro de una estructura. Antes
+// aqui solo cabian strings, asi que esas dos viajaban por el escaneo SQL completo
+// y un simple "--" en un titular las tumbaba con "patrones no permitidos" — un
+// error que no dice nada sobre lo que de verdad paso. Se les exime igual del
+// escaneo SQL y se les sigue aplicando el ESTRICTO sobre su contenido serializado.
+const FREETEXT_PARAMS = {
+  createArtifact: ["content", "html"],
+  webSearch: ["query"],
+  initiateConversation: ["opening_message", "topic", "reason"],
+  scoreContentCitability: ["text"],
+  publishMiMarcaCard: ["card"],
+  updateMiMarcaCardItems: ["agregar"],
+  publishDashboardReading: ["reading"],
+};
 const STRICT_PATTERNS = ["<script", "__proto__", "javascript:", "onerror="];
 
 const MAX_TOOL_CALLS_PER_ROUND = 5;
@@ -32,6 +46,43 @@ export const TOOL_SCHEMAS = {
   publishMiMarcaCard:      { brandContainerId: "uuid", periodo: "string", card: "object" },
   getMiMarcaProgress:      { brandContainerId: "uuid" },
   updateMiMarcaCardItems:  { brandContainerId: "uuid", periodo: "string", cardType: "string", agregar: "array", eliminar: "array" },
+  // Los otros tres tabs. El contrato narrative v1 va DECLARADO, no insinuado: es
+  // una lectura entera de bloques encadenados y sin ver su forma Vera la falla en
+  // el primer intento y aprende a base de rechazos caros.
+  publishDashboardReading: {
+    brandContainerId: "uuid",
+    scope: {
+      __required: true,
+      type: "string",
+      enum: ["monitoreo", "tendencias", "estrategia"],
+      description: "Que tab escribes: monitoreo=Competencia, tendencias=Tendencias, estrategia=Estrategia. Mi Marca NO se escribe aqui (es tarjeta a tarjeta con publishMiMarcaCard).",
+    },
+    reading: {
+      __required: true,
+      type: "object",
+      description: "La lectura COMPLETA del tab (contrato narrative v1). Reemplaza entera la anterior: media lectura no es la mitad, es otra cosa.",
+      properties: {
+        headline: {
+          type: "string",
+          description: "OBLIGATORIO. El titular de la lectura, maximo 220 caracteres. Lo que este tab dice hoy en una frase.",
+        },
+        narrative: {
+          type: "array",
+          description: "OBLIGATORIO. De 1 a 12 bloques tipados, en el orden en que se leen. Tipos: stat_tile {label,value,delta?,direction?,note?} (van PRIMERO, son la fila de KPIs) | insight {title,body,severity:opportunity|warning|threat|neutral,evidence:[evN]} | signal_triangulation {signals:[{observation,source_ref}],so_what} | hypothesis {statement,confidence:alta|media|exploratoria,how_to_verify,evidence:[evN]} | receipt {quote,author_handle?,platform?,engagement?,source_ref} | recommended_move {action,rationale,urgency:hoy|esta_semana|este_mes,evidence:[evN],brief?} | watchlist_item {what,why_watching,check_back?:YYYY-MM-DD} | delta {changed,direction:up|down|new|gone|flat}.",
+          items: { type: "object" },
+        },
+        evidence: {
+          type: "object",
+          description: "OBLIGATORIO. Mapa de evidencia: clave que empieza por 'ev' (ev1, ev_tosh) -> {kind:post,post_id} | {kind:comment,post_id} | {kind:trend,trend_topic_id} | {kind:signal,signal_id} | {kind:web,url} | {kind:metric,tool,note}. TODA referencia evN usada en un bloque tiene que existir aqui o la lectura se rechaza entera. Maximo 24.",
+        },
+        meta: {
+          type: "object",
+          description: "Opcional: {tone_of_reading, data_confidence:alta|media|baja, silence_ok}. data_confidence baja es una respuesta honesta, no un fracaso.",
+        },
+      },
+      required: ["headline", "narrative", "evidence"],
+    },
+  },
   getPublicacionDestacada:     { brandContainerId: "uuid", periodo: "string" },
   explainPublicacionDestacada: { brandContainerId: "uuid", postId: "uuid", analisis: "string" },
   verPublicacion:              { postId: "uuid" },
@@ -304,7 +355,13 @@ export function validateToolCall(toolCall) {
     scanTarget = JSON.parse(JSON.stringify(p));
     const inner = (scanTarget.params && typeof scanTarget.params === "object") ? scanTarget.params : scanTarget;
     for (const f of freetextFields) {
-      if (inner[f] !== undefined) { freetextBlob += " " + String(inner[f]); delete inner[f]; }
+      if (inner[f] === undefined) continue;
+      // Serializado, no String(): un objeto daria "[object Object]" y el escaneo
+      // estricto se quedaria ciego justo sobre el contenido que venia a mirar.
+      freetextBlob += " " + (
+        typeof inner[f] === "string" ? inner[f] : JSON.stringify(inner[f])
+      );
+      delete inner[f];
     }
   }
   if (hasDangerousContent(JSON.stringify(scanTarget))) {

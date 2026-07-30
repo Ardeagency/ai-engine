@@ -18,7 +18,13 @@
  * Herramientas:
  *   publishMiMarcaCard        — deposita UNA card entera (crea o reemplaza)
  *   updateMiMarcaCardItems    — anade/quita items de una card que es LISTA
- *   getMiMarcaProgress        — que hay en cada periodo, de cuando, y con que items
+ *   getMiMarcaProgress        — que hay en cada periodo, de cuando, QUE VENCIO
+ *   publishDashboardReading   — escribe entero Competencia / Tendencias / Estrategia
+ *
+ * CADUCIDAD, NO OBLIGACION (2026-07-30): "ninguna es obligatoria" nos dejo sin
+ * ningun criterio de vejez, y Vera encadeno 20 despertares sin escribir nada —
+ * correctamente, segun lo que se le decia. `getMiMarcaProgress` marca ahora que
+ * pieza esta mirando una ventana que ya paso. Ella sigue eligiendo cual toca.
  */
 import {
   depositarCard,
@@ -26,6 +32,11 @@ import {
   estadoBorradores,
   MIMARCA_PERIODOS,
 } from "../lib/mimarca-publish.js";
+import {
+  publicarLecturaScope,
+  SCOPES_ESCRIBIBLES,
+  NOMBRE_TAB,
+} from "../lib/dashboard-scope-publish.js";
 import { MIMARCA_CARD_TYPES, MIMARCA_ITEM_CARDS } from "../lib/vera-mimarca-cards.schema.js";
 import { supabase } from "../lib/supabase.js";
 import { resolveBrandContainer } from "../lib/brand-resolver.js";
@@ -182,15 +193,19 @@ export async function updateMiMarcaCardItems({
  */
 export async function getMiMarcaProgress({ brandContainerId, organizationId }) {
   const contenedor = await _contenedor(brandContainerId, organizationId);
-  const porPeriodo = await estadoBorradores(contenedor);
+  const { otros_tabs: otrosTabs, resumen: veredicto, ...porPeriodo } = await estadoBorradores(contenedor);
 
   const conCards = Object.entries(porPeriodo)
     .filter(([, v]) => v.tarjetas.length)
     .map(([k, v]) => `${k}: ${v.tarjetas.length} tarjeta(s)` +
-      (v.mas_vieja ? `, la mas vieja '${v.mas_vieja.tipo}' (${v.mas_vieja.edad_horas}h)` : ""));
+      (v.mas_vieja ? `, la mas vieja '${v.mas_vieja.tipo}' (${v.mas_vieja.edad_horas}h)` : "") +
+      (v.vencidas.length ? `, VENCIDAS: ${v.vencidas.join("/")}` : ", ninguna vencida"));
   const vacios = Object.entries(porPeriodo)
     .filter(([, v]) => !v.tarjetas.length)
     .map(([k]) => k);
+  const tabsVencidos = Object.entries(otrosTabs || {})
+    .filter(([, v]) => v.vencida)
+    .map(([k, v]) => `${k}${v.edad_horas == null ? " (nunca escrito)" : ` (${v.edad_horas}h)`}`);
 
   return {
     moldes: MIMARCA_CARD_TYPES,
@@ -199,12 +214,68 @@ export async function getMiMarcaProgress({ brandContainerId, organizationId }) {
       Object.entries(MIMARCA_ITEM_CARDS).map(([t, m]) => [t, `clave='${m.clave}', ${m.min}-${m.max} items`])
     ),
     periodos: porPeriodo,
+    otros_tabs: otrosTabs,
+    veredicto,
     resumen: [
       conCards.length ? `EN EL TABLERO — ${conCards.join(" | ")}` : "el tablero esta vacio en los cuatro periodos",
       vacios.length ? `SIN NADA todavia: ${vacios.join(", ")}` : null,
+      tabsVencidos.length
+        ? `OTROS TABS VENCIDOS: ${tabsVencidos.join(", ")} — se reescriben enteros con publishDashboardReading`
+        : "los otros tres tabs (monitoreo, tendencias, estrategia) estan vigentes",
+      veredicto.siguiente,
       "Ninguna tarjeta es obligatoria y ninguna se oculta: lo que no toques se sigue mostrando tal cual. " +
       "En observacion y audiencias_recomendadas NO rehagas la card: lee sus items y usa " +
       "updateMiMarcaCardItems para quitar lo que ya no aplica y sumar lo nuevo.",
     ].filter(Boolean).join(" || "),
   };
+}
+
+/**
+ * Escribe ENTERO uno de los otros tres tabs: Competencia (`monitoreo`),
+ * Tendencias (`tendencias`) o Estrategia (`estrategia`).
+ *
+ * POR QUE EXISTE: Mi Marca ya la escribia ella; estos tres seguian dependiendo
+ * del scheduler de ai-engine, que se apago tras encadenar fallos. Vera veia los
+ * tres tabs congelados —entre 8 y 14 dias en WAKEUP— y no tenia herramienta con
+ * que tocarlos. Una doctrina que dice "yo publico, nadie extrae mis lecturas de
+ * mi texto" con tres cuartas partes del tablero fuera de su alcance no es una
+ * doctrina, es una ilusion.
+ *
+ * @param {object} p
+ * @param {string} p.scope    monitoreo | tendencias | estrategia
+ * @param {object} p.reading  lectura narrative v1: headline + narrative[] + evidence{}
+ */
+export async function publishDashboardReading({
+  organizationId, brandContainerId, scope, reading, sessionId,
+}) {
+  const contenedor = await _contenedor(brandContainerId, organizationId);
+  if (!scope) {
+    throw new Error(
+      `El campo 'scope' es requerido. Validos: ${SCOPES_ESCRIBIBLES.join(", ")} ` +
+      `(${SCOPES_ESCRIBIBLES.map((s) => NOMBRE_TAB[s]).join(", ")}).`
+    );
+  }
+  if (!reading || typeof reading !== "object" || Array.isArray(reading)) {
+    throw new Error(
+      "El campo 'reading' es requerido y es UN objeto: {headline, narrative:[...bloques], evidence:{ev1:{...}}}. " +
+      "No es un array de bloques sueltos ni un texto."
+    );
+  }
+
+  // La org sale del contenedor cuando el dispatcher no la inyecta: publicar en
+  // el tablero de otra organizacion es peor que no publicar.
+  let org = organizationId;
+  if (!org) {
+    const { data } = await supabase
+      .from("brand_containers").select("organization_id").eq("id", contenedor).maybeSingle();
+    org = data?.organization_id || null;
+  }
+
+  return publicarLecturaScope({
+    organizationId: org,
+    brandContainerId: contenedor,
+    scope,
+    reading,
+    sessionId: sessionId || crypto.randomUUID(),
+  });
 }

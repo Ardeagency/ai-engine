@@ -426,19 +426,55 @@ export async function mutarItemsCard({
 }
 
 /**
- * QUE HAY en cada periodo — no que falta.
+ * CUANTO AGUANTA una tarjeta antes de estar mirando otra cosa.
  *
- * El cambio de pregunta es el cambio de doctrina: ninguna card es obligatoria,
- * asi que "faltan cuatro" era una orden disfrazada de dato. Lo que Vera necesita
- * para decidir es lo que YA esta puesto, de cuando es, y —en las cards que son
- * lista— QUE items contiene, para poder quitar uno y anadir otro en vez de
- * reescribir las seis observaciones cada vez que despierta.
+ * No es una cuota ni un calendario de reescritura: es el punto en que la
+ * VENTANA que la tarjeta analiza ya no es la que el cliente esta viendo. Una
+ * lectura de 'week' escrita hace 40 horas habla de una semana que ya corrio seis
+ * dias distintos; la de 'year' escrita hace una semana sigue siendo la misma
+ * historia. Por eso el umbral es del periodo, no de la tarjeta.
+ *
+ * POR QUE EXISTE (2026-07-30): al hacer opcional cada tarjeta —correcto— nos
+ * quedamos sin ningun criterio de vejez. `getMiMarcaProgress` devolvia edades y
+ * la frase "NINGUNA es obligatoria", y el guion del latido decia "refresco solo
+ * la que caduco" sin que nadie definiera caducar. WAKEUP encadeno 20 despertares
+ * seguidos sin escribir una sola tarjeta: le habiamos quitado el motor y dejado
+ * solo los frenos. Esto devuelve el criterio SIN devolver la obligacion — ella
+ * sigue eligiendo cual y sigue pudiendo dejar una quieta si la ve vigente; lo
+ * que ya no puede es no enterarse de que el tablero envejecio.
+ */
+export const CADUCIDAD_H = {
+  week: Number(process.env.VERA_MIMARCA_CADUCIDAD_WEEK_H || 24),
+  month: Number(process.env.VERA_MIMARCA_CADUCIDAD_MONTH_H || 72),
+  year: Number(process.env.VERA_MIMARCA_CADUCIDAD_YEAR_H || 336),
+  all: Number(process.env.VERA_MIMARCA_CADUCIDAD_ALL_H || 336),
+};
+
+/** Los otros tres tabs del tablero — narrative v1, una lectura entera por tab. */
+const OTROS_SCOPES = ["monitoreo", "tendencias", "estrategia"];
+const CADUCIDAD_SCOPE_H = Number(process.env.VERA_SCOPE_CADUCIDAD_H || 72);
+
+/**
+ * QUE HAY en cada periodo, y QUE DE ELLO YA ENVEJECIO.
+ *
+ * Ninguna card es obligatoria, asi que "faltan cuatro" seria una orden
+ * disfrazada de dato. Pero "todo esta puesto" tampoco era la verdad cuando lo
+ * puesto llevaba dos dias parado. Lo que Vera necesita para decidir es lo que YA
+ * esta, de cuando es, CUAL de ello caduco, y —en las cards que son lista— que
+ * items contiene, para poder quitar uno y anadir otro en vez de reescribir las
+ * seis observaciones cada vez que despierta.
  *
  * Mira los borradores Y lo ya publicado: lo que esta en el tablero sin borrador
- * (lecturas viejas del productor anterior) existe igual y se lista sin edad.
+ * (lecturas viejas del productor anterior) existe igual, y como no se sabe de
+ * cuando es, cuenta como vencido — es justo el material mas viejo que hay.
+ *
+ * Devuelve tambien `otros_tabs`: Competencia, Tendencias y Estrategia. Se
+ * incluyen aqui, aunque no sean Mi Marca, porque esta es la unica tool que el
+ * latido llama SIEMPRE — y esos tres tabs pasaron entre 8 y 14 dias congelados
+ * sin que nada en el sistema lo dijera en voz alta.
  */
 export async function estadoBorradores(brandContainerId) {
-  const [{ data: borradores }, { data: publicadas }] = await Promise.all([
+  const [{ data: borradores }, { data: publicadas }, { data: otras }] = await Promise.all([
     supabase
       .from("vera_mimarca_card_drafts")
       .select("periodo, card_type, updated_at, card")
@@ -449,13 +485,22 @@ export async function estadoBorradores(brandContainerId) {
       .eq("brand_container_id", brandContainerId)
       .eq("scope", MIMARCA_SCOPE)
       .eq("status", "published"),
+    supabase
+      .from("vera_dashboard_readings")
+      .select("scope, created_at")
+      .eq("brand_container_id", brandContainerId)
+      .in("scope", OTROS_SCOPES)
+      .eq("status", "published")
+      .order("created_at", { ascending: false }),
   ]);
 
   const ahora = Date.now();
   const edadH = (t) => Math.round(((ahora - new Date(t).getTime()) / 3600000) * 10) / 10;
 
   const porPeriodo = {};
+  const vencidasGlobal = [];
   for (const p of MIMARCA_PERIODOS) {
+    const umbral = CADUCIDAD_H[p.k] || 72;
     const mias = (borradores || []).filter((d) => d.periodo === p.k);
     const enTablero = (publicadas || []).find((r) => r.periodo === p.k);
     const tiposEnTablero = enTablero?.reading?.cards?.map((c) => c?.type) || [];
@@ -471,25 +516,35 @@ export async function estadoBorradores(brandContainerId) {
           // quitar sin arrastrar la card entera a su contexto en cada latido.
           ? d.card.items.map((it) => it && it[molde.clave]).filter(Boolean)
           : null;
+        const edad = edadH(d.updated_at);
         return {
           tipo: d.card_type,
-          edad_horas: edadH(d.updated_at),
+          edad_horas: edad,
+          vencida: edad > umbral,
           ...(items ? { items, se_edita_por_item: true } : {}),
         };
       })
       .sort((a, b) => b.edad_horas - a.edad_horas);
     for (const t of tiposEnTablero) {
-      if (!tarjetas.some((x) => x.tipo === t)) tarjetas.push({ tipo: t, edad_horas: null });
+      // Sin borrador no hay fecha, y sin fecha no se puede afirmar que siga
+      // vigente. Se cuenta como vencida: es el material mas viejo del tablero.
+      if (!tarjetas.some((x) => x.tipo === t)) {
+        tarjetas.push({ tipo: t, edad_horas: null, vencida: true, motivo: "sin fecha conocida" });
+      }
     }
 
     const presentes = tarjetas.map((t) => t.tipo);
     const sinEscribir = MIMARCA_CARD_TYPES.filter((t) => !presentes.includes(t));
     const conEdad = tarjetas.filter((t) => t.edad_horas != null);
     const masVieja = conEdad.length ? conEdad[0] : null;
+    const vencidas = tarjetas.filter((t) => t.vencida).map((t) => t.tipo);
+    for (const t of vencidas) vencidasGlobal.push(`${p.k}/${t}`);
 
     porPeriodo[p.k] = {
       visible_en_tablero: tiposEnTablero.length > 0,
+      caduca_a_las_horas: umbral,
       tarjetas,
+      vencidas,
       sin_escribir: sinEscribir,
       mas_vieja: masVieja,
       nota: [
@@ -497,12 +552,49 @@ export async function estadoBorradores(brandContainerId) {
           ? `hay ${tarjetas.length} tarjeta(s) puestas` +
             (masVieja ? `; la mas vieja es '${masVieja.tipo}' (${masVieja.edad_horas}h)` : "")
           : "este periodo no tiene ni una tarjeta todavia",
+        vencidas.length
+          ? `VENCIDAS (>${umbral}h): ${vencidas.join(", ")} — estan mirando una ventana que ya paso`
+          : `ninguna vencida: todas por debajo de ${umbral}h`,
         sinEscribir.length ? `nunca escritas: ${sinEscribir.join(", ")}` : null,
-        "NINGUNA es obligatoria. Lo que no toques se queda tal cual, y el tablero lo sigue mostrando.",
-        "Lo que envejece en dias para 'week' puede aguantar semanas en 'year'.",
+        "Ninguna es obligatoria y lo que no toques se queda tal cual. Pero una vencida no es una tarjeta que decidiste dejar: es una que nadie miro.",
       ].filter(Boolean).join(". "),
     };
   }
 
-  return porPeriodo;
+  // Los otros tres tabs. Aqui no hay tarjetas: cada tab es UNA lectura entera,
+  // y se reescribe con publishDashboardReading.
+  const otrosTabs = {};
+  for (const sc of OTROS_SCOPES) {
+    const ultima = (otras || []).find((r) => r.scope === sc);
+    const edad = ultima ? edadH(ultima.created_at) : null;
+    const vencida = edad == null || edad > CADUCIDAD_SCOPE_H;
+    otrosTabs[sc] = {
+      edad_horas: edad,
+      caduca_a_las_horas: CADUCIDAD_SCOPE_H,
+      vencida,
+      nota: edad == null
+        ? `'${sc}' no tiene ninguna lectura todavia. Se escribe con publishDashboardReading.`
+        : `'${sc}' se escribio hace ${edad}h` +
+          (vencida ? ` — VENCIDA. Se reescribe entera con publishDashboardReading.` : " — vigente."),
+    };
+    if (vencida) vencidasGlobal.push(`tab:${sc}`);
+  }
+
+  /* El resumen existe para que la decision no dependa de que Vera recorra cuatro
+     periodos y tres tabs en cada latido. Una linea: hay trabajo o no lo hay. */
+  const hayTrabajo = vencidasGlobal.length > 0;
+  return {
+    ...porPeriodo,
+    otros_tabs: otrosTabs,
+    resumen: {
+      hay_trabajo: hayTrabajo,
+      vencidas_total: vencidasGlobal.length,
+      vencidas: vencidasGlobal,
+      siguiente: hayTrabajo
+        ? `El tablero tiene ${vencidasGlobal.length} pieza(s) vencidas: ${vencidasGlobal.join(", ")}. ` +
+          "Este despertar SI tiene trabajo: refresca al menos la mas vieja antes de dormirte. " +
+          "No las hagas todas de golpe — una bien hecha vale mas que siete por encima."
+        : "Nada vencido: el tablero esta al dia. Este despertar no necesita tocarlo.",
+    },
+  };
 }

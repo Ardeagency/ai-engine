@@ -371,6 +371,14 @@ const TOOL_REGISTRY = {
     fn: (params) => dashboardWriteTools.updateMiMarcaCardItems(params),
     requiresConsent: false,
   },
+  // Los otros tres tabs (Competencia, Tendencias, Estrategia). Hasta hoy solo los
+  // escribia runDashboardSession, que lanzaba el scheduler apagado en .env: tres
+  // cuartas partes del tablero fuera del alcance de Vera. Sin consentimiento,
+  // como sus hermanas: es su lectura, no la identidad de la marca.
+  publishDashboardReading: {
+    fn: (params) => dashboardWriteTools.publishDashboardReading(params),
+    requiresConsent: false,
+  },
 
   // ── Brand write ───────────────────────────────────────────────────────────
   // Disponible en fase B (parcial) y C (total).

@@ -163,10 +163,29 @@ export async function syncSkillsToOrg(instancia, tarball = null) {
     // le dicta la lista exacta: es el unico paso que necesita sus manos.
     const retirada = aEliminar.length ? await pedirRetirada(instancia, aEliminar) : null;
 
+    /* UN RECHAZO DE DOCTRINA NO SE QUEDA EN EL INFORME.
+       La lista blanca de `/workspace/file` vive dentro del puente, y el puente
+       solo se regenera al despertar: un fichero de doctrina anadido despues del
+       ultimo despertar de una VM es rechazado con HTTP 400 PARA SIEMPRE. Paso
+       con HEARTBEAT.md —entro en la lista el 2026-07-28 20:34, WAKEUP habia
+       despertado a las 02:16— y el guion del latido se quedo dos dias en el
+       control plane mientras la sincronizacion reportaba ok:true con el rechazo
+       anotado al margen. Nadie lee el margen.
+       La salida existe y ya estaba escrita para otro caso: que ella misma
+       descargue el paquete y refresque su raiz por bash, que no pasa por la
+       lista blanca de nadie. Se le pide SOLO si hubo rechazo — un turno de
+       agente cuesta, y no se gasta cuando el empuje normal funciono. */
+    let raizPorSusManos = null;
+    if (raizRechazada.length) {
+      console.log(`skills-sync: ${String(orgId).slice(0, 8)} rechazo doctrina raiz (${raizRechazada.join(", ")}) — se le pide que la traiga ella`);
+      raizPorSusManos = await pedirAutoactualizacion(instancia);
+    }
+
     return {
       orgId, ok: retirada ? retirada.ok : true,
       skills: retirada?.skills ?? (body.total ?? (body.skills || []).length),
       ...raizInfo,
+      ...(raizPorSusManos ? { raiz_por_sus_manos: raizPorSusManos } : {}),
       ...(aEliminar.length ? { retiradas: aEliminar, retirada } : { retiradas: body.retiradas || [] }),
     };
   } catch (e) {

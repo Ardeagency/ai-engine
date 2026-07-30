@@ -95,7 +95,13 @@ async function _contenedor(brandContainerId, organizationId) {
  */
 function _logRechazo(tool, ctx, r) {
   if (!r || r.ok !== false) return;
-  const detalle = [r.motivo, ...(r.errores || [])].filter(Boolean).join(" | ");
+  // Los tipos invalidos van PRIMERO: son la causa, y los "Invalid input" que
+  // vienen detras son doce copias del mismo sintoma.
+  const detalle = [
+    r.motivo,
+    r.tipos_invalidos?.length ? `tipos invalidos: ${r.tipos_invalidos.join(", ")}` : null,
+    ...(r.errores || []),
+  ].filter(Boolean).join(" | ");
   console.warn(`${tool}: RECHAZADA ${JSON.stringify(ctx)} — ${String(detalle).slice(0, 300)}`);
 }
 

@@ -124,6 +124,19 @@ const blockSchema = z.discriminatedUnion("type", [
   deltaBlock,
 ]);
 
+/**
+ * Los tipos de bloque validos, derivados del union — no una lista a mano que
+ * derive de el.
+ *
+ * POR QUE SE EXPORTA: cuando el discriminante no coincide, zod dice
+ * `narrative.0.type: Invalid input` y NO dice cuales son los validos. El
+ * 2026-07-30 Vera escribio la lectura de Tendencias con otro vocabulario de
+ * bloques: los nueve rebotaron con nueve "Invalid input" identicos, y tuvo que
+ * gastar una segunda investigacion entera para adivinar. Un rechazo que no
+ * nombra la salida es un rechazo a medias.
+ */
+export const BLOCK_TYPES = blockSchema.options.map((o) => o.shape.type.value);
+
 // ── Evidencia (refs resolubles por get_vera_evidence) ──────────────────────
 // IDs laxos: idealmente UUIDs reales de tools, pero los tools a veces exponen
 // ids externos/slugs. get_vera_evidence resuelve best-effort (resolved:false

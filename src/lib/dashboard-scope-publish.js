@@ -19,7 +19,7 @@
  * ai-engine sigue siendo el medio, no el cerebro.
  */
 import { supabase } from "./supabase.js";
-import { scopeReadingSchema, READING_SCHEMA_VERSION } from "./vera-reading.schema.js";
+import { scopeReadingSchema, READING_SCHEMA_VERSION, BLOCK_TYPES } from "./vera-reading.schema.js";
 
 /** Los tabs que se escriben por aqui. 'mi_marca' NO: tiene productor dedicado. */
 export const SCOPES_ESCRIBIBLES = ["monitoreo", "tendencias", "estrategia"];
@@ -56,14 +56,29 @@ export async function publicarLecturaScope({
   // se rechaza aqui —donde Vera puede corregirla— y no ensucia el tablero.
   const v = scopeReadingSchema.safeParse(reading);
   if (!v.success) {
+    /* Un `type` que no existe rebota como `Invalid input` y nada mas: zod no
+       puede decir cuales serian validos porque el discriminante no caso con
+       ninguna rama. Se dice AQUI, con los tipos que ella escribio delante — si
+       no, el rechazo la manda a adivinar y a gastar otra investigacion entera. */
+    const escritos = Array.isArray(reading?.narrative)
+      ? [...new Set(reading.narrative.map((b) => b && b.type).filter(Boolean))]
+      : [];
+    const invalidos = escritos.filter((t) => !BLOCK_TYPES.includes(t));
     return {
       ok: false,
       motivo: "la lectura no cumple el contrato narrative v1",
       errores: v.error.issues.slice(0, 12).map(
         (i) => `${i.path.join(".") || "(raiz)"}: ${i.message}`
       ),
-      detalle: "No se guardo nada: el tab sigue mostrando la lectura anterior. " +
-        "Recuerda que toda referencia evN usada en los bloques tiene que existir en el mapa 'evidence'.",
+      ...(invalidos.length ? { tipos_invalidos: invalidos } : {}),
+      tipos_de_bloque_validos: BLOCK_TYPES,
+      detalle: [
+        "No se guardo nada: el tab sigue mostrando la lectura anterior.",
+        invalidos.length
+          ? `Estos tipos de bloque NO existen: ${invalidos.join(", ")}. Los unicos validos son: ${BLOCK_TYPES.join(", ")}.`
+          : null,
+        "Toda referencia evN usada en un bloque tiene que existir en el mapa 'evidence'.",
+      ].filter(Boolean).join(" "),
     };
   }
 

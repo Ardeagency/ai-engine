@@ -62,6 +62,8 @@ export const PHASE_B_TOOLS = [
   // conversacion entera para persistir lo que ella ya habia escrito.
   "publishMiMarcaCard", "getMiMarcaProgress", "updateMiMarcaCardItems",
   "publishDashboardReading",
+  // Las 30 cards del cerebro (cards.vera4), una por llamada.
+  "getVera4Encargo", "publishVera4Card", "getVera4Progress",
   "getPublicacionDestacada", "explainPublicacionDestacada",
   "describirPublicacion",
   "getMaterialDeCodigos", "getMaterialDeEmpaque",

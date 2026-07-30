@@ -1,0 +1,522 @@
+/**
+ * vera4-cards.schema.js — Contrato de las 30 cards del CEREBRO de Vera (cards.vera4).
+ *
+ * DE DONDE SALEN: VERA_BRAIN_MASTER v1.1 (Parte VI, el Ciclo de Relevancia:
+ * Infiltracion -> Sincronizacion -> Manifestacion -> Aprendizaje) aterrizado en
+ * los 4 tabs que ya existen. Cada card es un acto del ciclo, no un widget.
+ *
+ * EL PRINCIPIO, EL MISMO DE cards.v2: el frontend define los MOLDES y Vera los
+ * LLENA con su juicio. Este archivo ES el molde, y sigue AL PINTOR
+ * (js/views/dashboard/Vera4.mixin.js), no al reves. Si aqui se declara un campo
+ * que el pintor no lee, Vera gasta una sesion escribiendo algo invisible.
+ *
+ * EL REPARTO ES PARTE DEL CONTRATO: cada type pertenece a UN tab. Las reglas de
+ * los tabs se contradicen entre si —Mi Marca tiene prohibido nombrar a la
+ * competencia— asi que una card en el tab equivocado no es un problema estetico:
+ * hace que el tablero diga lo que no debe. Por eso el scope se valida aqui.
+ *
+ * LIMITES MAS ANCHOS QUE EL PROMPT (leccion cara de cards.v2): al prompt se le
+ * piden 280 chars y el schema admite 360. Unos caracteres de mas no pueden
+ * costar una lectura entera que ya se pago.
+ *
+ * schema_version: 4
+ */
+import { z } from "zod";
+
+export const VERA4_SCHEMA = "cards.vera4";
+export const VERA4_SCHEMA_VERSION = 4;
+
+/* ── Vocabulario compartido ─────────────────────────────────────────────── */
+const txt = (min, max) => z.string().trim().min(min).max(max);
+const opt = (s) => s.optional().nullable();
+// Evidencia: la disciplina anti-invencion. Es opcional en la forma pero el
+// prompt la exige; sin ella una card es una opinion sin respaldo.
+const EVIDENCE = opt(z.array(z.string().max(120)).max(12));
+const PRIORIDAD = z.enum(["alta", "media", "baja"]);
+const CONFIANZA = z.enum(["alta", "media", "baja", "exploratoria"]);
+const ROL = z.enum(["competidor_directo", "competidor_indirecto", "referente", "aliado", "otro_sector"]);
+// Fecha en texto: se admite ISO o lenguaje ("en 12 dias"). Vera escribe para un
+// humano, no para un parser.
+const FECHA = txt(3, 40);
+
+/** Card de LISTA: el molde repetido de las fichas. */
+const fichas = (item, { min = 1, max = 8 } = {}) =>
+  z.object({
+    type: z.string(),
+    items: z.array(item).min(min).max(max),
+    evidence: EVIDENCE,
+  }).strip();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MI MARCA — la marca contra si misma (prohibido nombrar competencia)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const silencio = fichas(z.object({
+  // El tema abandonado por un rival NO vive aqui: eso es Competencia.
+  clase: z.enum(["pieza_retirada", "pregunta_sin_respuesta"]),
+  quien: opt(txt(1, 80)),
+  que: txt(3, 260),
+  desde: opt(FECHA),
+  lectura: txt(10, 360),
+  evidence: EVIDENCE,
+}).strip(), { max: 6 });
+
+const latencia = z.object({
+  type: z.literal("latencia"),
+  dias_promedio: opt(z.number().min(0).max(3650)),
+  delta: opt(txt(1, 80)),
+  peor: opt(z.object({
+    ventana: txt(3, 110),
+    se_abrio: opt(FECHA),
+    reaccion: opt(txt(1, 40)),      // fecha o "nunca"
+    costo: opt(txt(3, 200)),
+  }).strip()),
+  mejor: opt(z.object({
+    ventana: txt(3, 110),
+    dias: opt(z.number().min(0).max(3650)),
+    que_se_hizo: opt(txt(3, 200)),
+  }).strip()),
+  markdown: opt(txt(10, 400)),
+  evidence: EVIDENCE,
+}).strip().refine((c) => c.dias_promedio != null || c.peor, {
+  message: "latencia sin cifra ni ventana perdida no dice nada: da al menos dias_promedio o peor",
+});
+
+const impacto_vs_ruido = z.object({
+  type: z.literal("impacto_vs_ruido"),
+  impacto: z.array(z.object({
+    que: txt(3, 140), mecanismo: txt(10, 260), evidence: EVIDENCE,
+  }).strip()).max(6).default([]),
+  ruido: z.array(z.object({
+    que: txt(3, 140), por_que_no_mueve: txt(10, 260), evidence: EVIDENCE,
+  }).strip()).max(6).default([]),
+  // La instruccion es el punto de la card: si de aqui no sale algo que el
+  // equipo DEJE de hacer, no se decidio nada.
+  dejar_de_hacer: opt(txt(10, 260)),
+}).strip().refine((c) => (c.impacto?.length || 0) + (c.ruido?.length || 0) > 0, {
+  message: "la card necesita al menos una entrada en impacto o en ruido",
+});
+
+const emocion_objetivo = z.object({
+  type: z.literal("emocion_objetivo"),
+  emocion: z.enum(["urgencia", "deseo", "confianza", "nostalgia", "empoderamiento", "pertenencia", "asombro"]),
+  para_quien: txt(3, 110),
+  momento: opt(txt(3, 160)),
+  que_la_dispara: txt(10, 360),
+  cita: opt(txt(3, 240)),
+  evidence: EVIDENCE,
+}).strip();
+
+const viabilidad_comercial = z.object({
+  type: z.literal("viabilidad_comercial"),
+  gastado: opt(txt(1, 40)),
+  ventana: opt(txt(1, 60)),
+  kpi: opt(z.object({
+    nombre: txt(1, 20),                       // ROAS | CPL | CPA | CVR
+    valor: txt(1, 30),
+    vara: opt(txt(1, 80)),
+    estado: opt(z.enum(["sano", "justo", "malo"])),
+  }).strip()),
+  ritmo: opt(txt(5, 200)),
+  veredicto: opt(z.enum(["cabe", "cabe_moviendo", "no_cabe"])),
+  de_donde_sale: opt(txt(5, 200)),
+  markdown: opt(txt(10, 400)),
+  evidence: EVIDENCE,
+}).strip().refine((c) => c.gastado || c.kpi, {
+  message: "sin gasto ni KPI medido esta card seria una opinion sobre plata: cita lo que viste en la tool",
+});
+
+const ritmo = z.object({
+  type: z.literal("ritmo"),
+  rafagas: z.array(z.object({
+    cuando: FECHA, piezas: opt(z.number().min(2).max(200)), costo: opt(txt(5, 200)),
+  }).strip()).max(8).default([]),
+  silencios: z.array(z.object({
+    desde: FECHA, hasta: opt(FECHA), ventana_perdida: opt(txt(3, 160)),
+  }).strip()).max(8).default([]),
+  instruccion: opt(txt(10, 300)),
+}).strip().refine((c) => (c.rafagas?.length || 0) + (c.silencios?.length || 0) > 0 || c.instruccion, {
+  message: "un ritmo sin rafagas, sin silencios y sin instruccion no es una lectura",
+});
+
+const autopsia = z.object({
+  type: z.literal("autopsia"),
+  pieza: txt(3, 160),
+  que_estuvo_bien: opt(txt(5, 260)),
+  // Los seis sospechosos del Ritual de la Autopsia (Parte III, Capa 6).
+  culpable: z.enum(["mensaje", "emocion", "timing", "formato", "adn", "mi_intuicion"]),
+  por_que: txt(20, 700),
+  descartados: z.array(z.object({
+    sospechoso: txt(2, 30), por_que_no: txt(5, 200),
+  }).strip()).max(6).default([]),
+  leccion: txt(10, 320),
+  evidence: EVIDENCE,
+}).strip();
+
+const victoria_explicada = z.object({
+  type: z.literal("victoria_explicada"),
+  pieza: txt(3, 160),
+  mecanismo: txt(20, 500),
+  condiciones: z.array(z.object({
+    condicion: txt(3, 180), repetible: z.boolean(),
+  }).strip()).max(8).default([]),
+  // La prueba que separa causa de coincidencia: el rasgo, ¿esta tambien en las
+  // que fracasaron? Sin esto una victoria explicada es una anecdota.
+  prueba_contraria: opt(txt(10, 300)),
+  como_se_repite: txt(10, 320),
+  evidence: EVIDENCE,
+}).strip();
+
+const causalidad = z.object({
+  type: z.literal("causalidad"),
+  resultado: txt(5, 200),
+  alternativas: z.array(z.object({
+    explicacion: txt(3, 200), descartada_porque: opt(txt(5, 220)), evidence: EVIDENCE,
+  }).strip()).max(6).default([]),
+  veredicto: z.enum(["causa_nuestra", "mezcla", "coincidencia"]),
+  confianza: opt(CONFIANZA),
+  prueba_propuesta: opt(z.object({
+    como: txt(10, 300), mide: opt(txt(2, 110)), dura: opt(txt(2, 80)),
+  }).strip()),
+}).strip();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   COMPETENCIA — los perfiles monitoreados (doctrina de roles innegociable)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const anomalia = fichas(z.object({
+  perfil: txt(1, 90),
+  rol: ROL,
+  antes: txt(3, 200),               // sin el ANTES no hay anomalia, hay actividad
+  ahora: txt(3, 200),
+  hipotesis: opt(txt(5, 260)),
+  veredicto: z.enum(["responder_hoy", "vigilar", "ignorar"]),
+  prioridad: opt(PRIORIDAD),
+  evidence: EVIDENCE,
+}).strip(), { max: 8 });
+
+const error_ajeno = fichas(z.object({
+  quien: txt(1, 90),
+  rol: ROL,
+  que_intento: txt(5, 220),
+  evidencia_del_fallo: txt(5, 220),   // observable, no chisme
+  causa_raiz: txt(10, 260),
+  me_puede_pasar: z.boolean(),
+  que_ajusto: txt(5, 220),
+  evidence: EVIDENCE,
+}).strip(), { max: 6 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TENDENCIAS — el mercado (aqui no se audita la cuenta propia)
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const pulso_nicho = z.object({
+  type: z.literal("pulso_nicho"),
+  estado: z.enum(["caliente", "tibio", "frio", "girando"]),
+  titular: txt(10, 130),
+  numero: opt(txt(1, 40)),
+  delta: opt(txt(1, 80)),
+  markdown: opt(txt(10, 500)),
+  evidence: EVIDENCE,
+}).strip();
+
+const senal_debil = fichas(z.object({
+  titulo: txt(3, 110),
+  que_vi: txt(10, 300),
+  por_que_nadie_lo_ve: opt(txt(5, 220)),
+  si_es_real: opt(txt(5, 260)),
+  ventana: opt(txt(2, 80)),          // el reloj: una señal sin tiempo no se acciona
+  fuerza: opt(z.enum(["fuerte", "media", "tenue"])),
+  evidence: EVIDENCE,
+}).strip(), { max: 6 });
+
+const triangulacion = z.object({
+  type: z.literal("triangulacion"),
+  nombre_oportunidad: txt(3, 110),
+  // Tres señales o no hay triangulacion: con dos es una corazonada con adorno.
+  senales: z.array(z.object({
+    observacion: txt(5, 240),
+    fuente: opt(txt(2, 40)),
+    evidence: EVIDENCE,
+  }).strip()).min(2).max(6),
+  conclusion: txt(15, 500),
+  confianza: opt(CONFIANZA),
+}).strip();
+
+const tension = fichas(z.object({
+  tension: txt(5, 200),
+  cita: opt(txt(3, 240)),            // la cita real que la delata
+  de_donde: opt(txt(1, 90)),
+  por_que_nadie_la_toca: opt(txt(5, 240)),
+  que_diria_la_marca: opt(txt(5, 260)),
+  evidence: EVIDENCE,
+}).strip(), { max: 6 });
+
+const timing = z.object({
+  type: z.literal("timing"),
+  abiertas: z.array(z.object({
+    ventana: txt(3, 130),
+    cierra: opt(FECHA),
+    fase: opt(z.enum(["antes", "durante", "despues"])),
+    que_exige_ahora: opt(txt(5, 240)),
+    evidence: EVIDENCE,
+  }).strip()).max(8).default([]),
+  demasiado_pronto: z.array(z.object({
+    que: txt(3, 130), volver_a_mirar: opt(FECHA), por_que: opt(txt(5, 200)),
+  }).strip()).max(6).default([]),
+}).strip().refine((c) => (c.abiertas?.length || 0) + (c.demasiado_pronto?.length || 0) > 0, {
+  message: "timing vacio: si no hay ninguna ventana abierta ni nada que sea pronto, no publiques la card",
+});
+
+const lo_que_falta = fichas(z.object({
+  hueco: txt(3, 120),
+  demanda_observada: txt(5, 200),
+  quien_no_lo_cubre: opt(txt(3, 160)),
+  angulo_de_la_marca: txt(5, 260),
+  intencion_comercial: opt(PRIORIDAD),
+  evidence: EVIDENCE,
+}).strip(), { max: 6 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ESTRATEGIA — la sintesis. El unico tab que cruza los tres mundos.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const decision_del_dia = z.object({
+  type: z.literal("decision_del_dia"),
+  decision: txt(8, 160),
+  por_que: txt(15, 400),
+  // Sin costo de inaccion no era la decision de hoy: era una idea.
+  costo_de_no_hacerla: txt(8, 300),
+  quien: opt(z.enum(["vera", "equipo_humano", "ambos"])),
+  horizonte: z.enum(["hoy", "esta_semana", "este_mes"]),
+  confianza: opt(CONFIANZA),
+  evidence: EVIDENCE,
+}).strip();
+
+const autoridad_adn = fichas(z.object({
+  senal: txt(3, 160),
+  veredicto: z.enum(["tomar", "adaptar", "dejar_pasar"]),
+  razon_desde_el_adn: txt(10, 320),
+  puerta_de_entrada: opt(txt(5, 240)),
+  evidence: EVIDENCE,
+}).strip(), { max: 8 });
+
+const puerta_aprobacion = fichas(z.object({
+  que: txt(5, 160),
+  puerta: z.enum(["publicacion", "crisis", "estrategia", "gasto", "contacto_externo"]),
+  espera_desde: opt(FECHA),
+  costo_de_esperar: opt(txt(5, 220)),
+  estado: opt(z.enum(["vigente", "vence_pronto", "vencido"])),
+}).strip(), { max: 8 });
+
+const produccion_viva = z.object({
+  type: z.literal("produccion_viva"),
+  accion_actual: txt(5, 160),
+  en_curso: z.array(z.object({
+    pieza: txt(3, 130),
+    formato: opt(txt(1, 40)),
+    sirve_a: opt(txt(3, 130)),
+    estado: opt(z.enum(["investigando", "creando", "verificando", "lista"])),
+  }).strip()).max(10).default([]),
+  bloqueado: z.array(z.object({
+    que: txt(3, 130), por: txt(3, 160), desde: opt(FECHA),
+  }).strip()).max(8).default([]),
+  proximas: z.array(txt(3, 130)).max(5).default([]),
+}).strip();
+
+const pieza_asombro = z.object({
+  type: z.literal("pieza_asombro"),
+  titulo: txt(5, 120),
+  escena: txt(30, 800),             // la escena concreta, no un mood
+  formato: txt(2, 60),
+  por_que_este_formato: opt(txt(10, 300)),
+  copy_semilla: opt(txt(5, 360)),
+  emocion: opt(txt(2, 40)),
+  por_que_nadie_mas: txt(10, 320),  // si otra marca podria publicarla, no es asombro
+  que_necesita: z.array(txt(3, 130)).max(8).default([]),
+  evidence: EVIDENCE,
+}).strip();
+
+const formato = fichas(z.object({
+  idea: txt(3, 130),
+  formato: txt(2, 60),
+  descartado: opt(txt(2, 60)),      // el formato obvio que se descarta
+  por_que_moriria: opt(txt(5, 260)),
+  prueba: opt(txt(5, 260)),
+  evidence: EVIDENCE,
+}).strip(), { max: 6 });
+
+const cadena_portafolio = z.object({
+  type: z.literal("cadena_portafolio"),
+  eslabones: z.array(z.object({
+    pieza: txt(2, 110),
+    canal: opt(txt(1, 40)),
+    empuja_a: opt(txt(2, 110)),
+    estado: opt(z.enum(["existe", "falta"])),
+  }).strip()).min(1).max(10),
+  roto_en: opt(txt(3, 160)),
+  que_se_pierde: opt(txt(5, 260)),
+  como_se_arregla: opt(txt(5, 300)),
+  evidence: EVIDENCE,
+}).strip();
+
+const verificacion = z.object({
+  type: z.literal("verificacion"),
+  revisadas: opt(z.number().min(0).max(999)),
+  corregidas: z.array(z.object({
+    pieza: txt(2, 130), que_estaba_mal: txt(5, 220), como_quedo: opt(txt(3, 220)),
+  }).strip()).max(12).default([]),
+  rechazadas: z.array(z.object({
+    pieza: txt(2, 130), por_que: txt(5, 240),
+  }).strip()).max(12).default([]),
+  markdown: opt(txt(10, 360)),
+}).strip();
+
+const brief_humano = fichas(z.object({
+  que: txt(5, 160),
+  sirve_a: opt(txt(3, 130)),
+  con_quien: opt(txt(2, 120)),
+  donde: opt(txt(2, 120)),
+  pasos: z.array(txt(3, 160)).max(10).default([]),
+  antes_de_grabar: z.array(txt(3, 140)).max(8).default([]),
+  tiempo: opt(txt(2, 80)),
+  no_hacer: opt(txt(5, 200)),
+  listo_cuando: opt(txt(5, 200)),
+}).strip(), { max: 5 });
+
+const bucle_outcome = z.object({
+  type: z.literal("bucle_outcome"),
+  tasa_acierto: opt(txt(1, 40)),
+  items: z.array(z.object({
+    movida: txt(5, 160),
+    cuando: opt(FECHA),
+    estado: z.enum(["se_hizo", "no_se_hizo", "se_hizo_distinto"]),
+    resultado: opt(txt(3, 240)),
+    veredicto: opt(z.enum(["acerte", "me_equivoque", "sin_datos"])),
+    por_que_no: opt(txt(3, 220)),
+    evidence: EVIDENCE,
+  }).strip()).min(1).max(12),
+  markdown: opt(txt(10, 360)),
+}).strip();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SIN TABLERO — hablan de Vera, no de la marca. Se validan igual: el dia que
+   exista donde ponerlas, el contrato ya esta.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const recalibracion = z.object({
+  type: z.literal("recalibracion"),
+  creia: txt(10, 260),
+  lo_tumbo: txt(10, 300),
+  ahora_creo: txt(10, 300),
+  que_hago_distinto: txt(10, 300),
+  evidence: EVIDENCE,
+}).strip();
+
+const humildad = z.object({
+  type: z.literal("humildad"),
+  dato_faltante: z.array(z.object({
+    que: txt(3, 160), que_decision_cojea: opt(txt(5, 240)), como_se_consigue: opt(txt(5, 240)),
+  }).strip()).max(6).default([]),
+  afirmacion_fragil: opt(z.object({
+    cual: txt(5, 300), por_que_fragil: opt(txt(5, 240)), como_verificarla: opt(txt(5, 240)),
+  }).strip()),
+  angulo_no_corrido: opt(z.object({
+    cual: txt(3, 200), que_podria_esconder: opt(txt(5, 240)),
+  }).strip()),
+}).strip();
+
+const a2a_readiness = z.object({
+  type: z.literal("a2a_readiness"),
+  veredicto: z.enum(["invisible", "mencionada", "opcion_logica"]),
+  consulta: opt(z.object({
+    pregunta: txt(5, 200),
+    que_respondio: txt(10, 500),
+    aparece: opt(z.boolean()),
+    errores: opt(txt(5, 300)),
+  }).strip()),
+  riqueza_semantica: opt(txt(10, 300)),
+  historia_de_relevancia: opt(txt(10, 300)),
+  reputacion: opt(txt(10, 300)),
+  que_falta: z.array(z.object({
+    accion: txt(5, 200), impacto: opt(z.enum(["alto", "medio", "bajo"])),
+  }).strip()).max(8).default([]),
+  evidence: EVIDENCE,
+}).strip();
+
+/* ══════════════════════════════════════════════════════════════════════════
+   El reparto. Es contrato, no documentacion.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const CARD = {
+  // Mi Marca
+  silencio, latencia, impacto_vs_ruido, emocion_objetivo, viabilidad_comercial,
+  ritmo, autopsia, victoria_explicada, causalidad,
+  // Competencia
+  anomalia, error_ajeno,
+  // Tendencias
+  pulso_nicho, senal_debil, triangulacion, tension, timing, lo_que_falta,
+  // Estrategia
+  decision_del_dia, autoridad_adn, puerta_aprobacion, produccion_viva,
+  pieza_asombro, formato, cadena_portafolio, verificacion, brief_humano, bucle_outcome,
+  // Sin tablero
+  recalibracion, humildad, a2a_readiness,
+};
+
+export const VERA4_TAB = {
+  silencio: "mi_marca", latencia: "mi_marca", impacto_vs_ruido: "mi_marca",
+  emocion_objetivo: "mi_marca", viabilidad_comercial: "mi_marca", ritmo: "mi_marca",
+  autopsia: "mi_marca", victoria_explicada: "mi_marca", causalidad: "mi_marca",
+  anomalia: "monitoreo", error_ajeno: "monitoreo",
+  pulso_nicho: "tendencias", senal_debil: "tendencias", triangulacion: "tendencias",
+  tension: "tendencias", timing: "tendencias", lo_que_falta: "tendencias",
+  decision_del_dia: "estrategia", autoridad_adn: "estrategia", puerta_aprobacion: "estrategia",
+  produccion_viva: "estrategia", pieza_asombro: "estrategia", formato: "estrategia",
+  cadena_portafolio: "estrategia", verificacion: "estrategia", brief_humano: "estrategia",
+  bucle_outcome: "estrategia",
+  recalibracion: null, humildad: null, a2a_readiness: null,
+};
+
+export const VERA4_TYPES = Object.keys(CARD);
+export const VERA4_SCOPES = ["mi_marca", "monitoreo", "tendencias", "estrategia"];
+export const VERA4_TYPES_POR_SCOPE = VERA4_SCOPES.reduce((acc, s) => {
+  acc[s] = VERA4_TYPES.filter((t) => VERA4_TAB[t] === s);
+  return acc;
+}, {});
+export const NOMBRE_TAB_V4 = {
+  mi_marca: "Mi Marca", monitoreo: "Competencia",
+  tendencias: "Tendencias", estrategia: "Estrategia",
+};
+
+/**
+ * Valida UNA card contra su molde. Devuelve {ok, card} o {ok:false, errores}.
+ * Se valida de a una a proposito: una card mala no puede tumbar a sus hermanas
+ * — es exactamente el fallo que hizo perder lecturas enteras de $0.19 en v2.
+ */
+export function validarCardV4(card) {
+  if (!card || typeof card !== "object" || Array.isArray(card)) {
+    return { ok: false, errores: ["(raiz): una card es un objeto {type, ...}"] };
+  }
+  const tipo = String(card.type || "");
+  const molde = CARD[tipo];
+  if (!molde) {
+    return {
+      ok: false,
+      errores: [`type: '${tipo || "(vacio)"}' no existe. Validos: ${VERA4_TYPES.join(", ")}`],
+    };
+  }
+  const r = molde.safeParse(card);
+  if (!r.success) {
+    return {
+      ok: false,
+      errores: r.error.issues.slice(0, 8).map((i) => `${i.path.join(".") || "(raiz)"}: ${i.message}`),
+    };
+  }
+  // `type` sobrevive al strip de los moldes de lista, que no lo declaran literal.
+  return { ok: true, card: { ...r.data, type: tipo } };
+}
+
+/** El tab al que pertenece una card, o null si no vive en ninguno todavia. */
+export function tabDeCard(tipo) {
+  return VERA4_TAB[String(tipo || "")] ?? undefined;
+}

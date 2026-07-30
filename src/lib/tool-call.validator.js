@@ -31,6 +31,7 @@ const FREETEXT_PARAMS = {
   publishMiMarcaCard: ["card"],
   updateMiMarcaCardItems: ["agregar"],
   publishDashboardReading: ["reading"],
+  publishVera4Card: ["card"],
 };
 const STRICT_PATTERNS = ["<script", "__proto__", "javascript:", "onerror="];
 
@@ -81,6 +82,39 @@ export const TOOL_SCHEMAS = {
         },
       },
       required: ["headline", "narrative", "evidence"],
+    },
+  },
+  // ── Cards del cerebro (cards.vera4) ─────────────────────────────────────
+  // El contrato va DECLARADO, no insinuado: son 30 moldes con campos distintos
+  // y sin verlos Vera los falla en el primer intento y aprende a base de
+  // rechazos caros. Es la misma leccion que dejo 22 tools con properties vacio.
+  getVera4Encargo:  { scope: { __required: true, type: "string", enum: ["mi_marca", "monitoreo", "tendencias", "estrategia"], description: "El tab cuyo encargo quieres leer. Pidelo ANTES de escribir: el schema dice donde va el texto, el encargo dice por que existe la card." } },
+  getVera4Progress: { brandContainerId: "uuid" },
+  publishVera4Card: {
+    brandContainerId: "uuid",
+    scope: {
+      __required: true,
+      type: "string",
+      enum: ["mi_marca", "monitoreo", "tendencias", "estrategia"],
+      description: "El tab donde vive la card. Cada type pertenece a UNO: publicarla en otro se rechaza. Las reglas de los tabs se contradicen entre si (Mi Marca tiene PROHIBIDO nombrar competencia), asi que una card fuera de sitio hace que el tablero diga lo que no debe.",
+    },
+    periodo: {
+      type: "string",
+      enum: ["week", "month", "year", "all"],
+      description: "SOLO para scope 'mi_marca', que tiene filtro de periodo en pantalla (Semana/Mes/Ano/Todo). Por defecto 'month'. Una lectura que no sabe que ventana describe miente en tres de los cuatro botones. Los otros tres tabs lo ignoran.",
+    },
+    card: {
+      __required: true,
+      type: "object",
+      description: "UNA card entera (se publica de a una: una card mala no puede tumbar a sus hermanas). CAMPOS POR TIPO — MI MARCA (scope 'mi_marca', lleva periodo) — silencio{items:[{clase:pieza_retirada|pregunta_sin_respuesta, que, lectura, quien?, desde?}]} | latencia{dias_promedio?, delta?, peor?:{ventana, se_abrio?, reaccion?, costo?}, mejor?:{ventana, dias?, que_se_hizo?}, markdown?} | impacto_vs_ruido{impacto:[{que, mecanismo}], ruido:[{que, por_que_no_mueve}], dejar_de_hacer?} | emocion_objetivo{emocion:urgencia|deseo|confianza|nostalgia|empoderamiento|pertenencia|asombro, para_quien, que_la_dispara, momento?, cita?} | viabilidad_comercial{gastado?, ventana?, kpi?:{nombre, valor, vara?, estado:sano|justo|malo}, ritmo?, veredicto?:cabe|cabe_moviendo|no_cabe, de_donde_sale?, markdown?} | ritmo{rafagas:[{cuando, piezas?, costo?}], silencios:[{desde, hasta?, ventana_perdida?}], instruccion?} | autopsia{pieza, culpable:mensaje|emocion|timing|formato|adn|mi_intuicion, por_que, leccion, que_estuvo_bien?, descartados?:[{sospechoso, por_que_no}]} | victoria_explicada{pieza, mecanismo, como_se_repite, condiciones?:[{condicion, repetible:bool}], prueba_contraria?} | causalidad{resultado, veredicto:causa_nuestra|mezcla|coincidencia, alternativas?:[{explicacion, descartada_porque?}], confianza?, prueba_propuesta?:{como, mide?, dura?}}. COMPETENCIA ('monitoreo') — anomalia{items:[{perfil, rol:competidor_directo|competidor_indirecto|referente|aliado|otro_sector, antes, ahora, veredicto:responder_hoy|vigilar|ignorar, hipotesis?, prioridad?}]} | error_ajeno{items:[{quien, rol, que_intento, evidencia_del_fallo, causa_raiz, me_puede_pasar:bool, que_ajusto}]}. TENDENCIAS ('tendencias') — pulso_nicho{estado:caliente|tibio|frio|girando, titular, numero?, delta?, markdown?} | senal_debil{items:[{titulo, que_vi, por_que_nadie_lo_ve?, si_es_real?, ventana?, fuerza?:fuerte|media|tenue}]} | triangulacion{nombre_oportunidad, senales:[{observacion, fuente?}] (MINIMO 2, idealmente 3 de fuentes distintas), conclusion, confianza?} | tension{items:[{tension, cita?, de_donde?, por_que_nadie_la_toca?, que_diria_la_marca?}]} | timing{abiertas:[{ventana, cierra?, fase?:antes|durante|despues, que_exige_ahora?}], demasiado_pronto:[{que, volver_a_mirar?, por_que?}]} | lo_que_falta{items:[{hueco, demanda_observada, angulo_de_la_marca, quien_no_lo_cubre?, intencion_comercial?:alta|media|baja}]}. ESTRATEGIA ('estrategia') — decision_del_dia{decision, por_que, costo_de_no_hacerla, horizonte:hoy|esta_semana|este_mes, quien?:vera|equipo_humano|ambos, confianza?} | autoridad_adn{items:[{senal, veredicto:tomar|adaptar|dejar_pasar, razon_desde_el_adn, puerta_de_entrada?}]} | puerta_aprobacion{items:[{que, puerta:publicacion|crisis|estrategia|gasto|contacto_externo, espera_desde?, costo_de_esperar?, estado?:vigente|vence_pronto|vencido}]} | produccion_viva{accion_actual, en_curso:[{pieza, formato?, sirve_a?, estado?:investigando|creando|verificando|lista}], bloqueado:[{que, por, desde?}], proximas:[texto]} | pieza_asombro{titulo, escena, formato, por_que_nadie_mas, por_que_este_formato?, copy_semilla?, emocion?, que_necesita?:[texto]} | formato{items:[{idea, formato, descartado?, por_que_moriria?, prueba?}]} | cadena_portafolio{eslabones:[{pieza, canal?, empuja_a?, estado?:existe|falta}], roto_en?, que_se_pierde?, como_se_arregla?} | verificacion{revisadas?, corregidas:[{pieza, que_estaba_mal, como_quedo?}], rechazadas:[{pieza, por_que}], markdown?} | brief_humano{items:[{que, sirve_a?, con_quien?, donde?, pasos:[texto], antes_de_grabar:[texto], tiempo?, no_hacer?, listo_cuando?}]} | bucle_outcome{tasa_acierto?, items:[{movida, estado:se_hizo|no_se_hizo|se_hizo_distinto, cuando?, resultado?, veredicto?:acerte|me_equivoque|sin_datos, por_que_no?}], markdown?}. Cualquier card admite 'evidence':[claves de lo que viste]. Los campos con ? son opcionales.",
+      properties: {
+        type: {
+          type: "string",
+          enum: ["silencio", "latencia", "impacto_vs_ruido", "emocion_objetivo", "viabilidad_comercial", "ritmo", "autopsia", "victoria_explicada", "causalidad", "anomalia", "error_ajeno", "pulso_nicho", "senal_debil", "triangulacion", "tension", "timing", "lo_que_falta", "decision_del_dia", "autoridad_adn", "puerta_aprobacion", "produccion_viva", "pieza_asombro", "formato", "cadena_portafolio", "verificacion", "brief_humano", "bucle_outcome"],
+          description: "Que card es. Determina sus campos y su tab.",
+        },
+      },
+      required: ["type"],
     },
   },
   getPublicacionDestacada:     { brandContainerId: "uuid", periodo: "string" },

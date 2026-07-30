@@ -23,6 +23,7 @@ import * as mediaAnalysis from "./media-analysis.service.js";
 import * as scraperTools from "../tools/scraper.tools.js";
 import * as dashboardTools from "../tools/dashboard.tools.js";
 import * as dashboardWriteTools from "../tools/dashboard-write.tools.js";
+import * as vera4WriteTools from "../tools/vera4-write.tools.js";
 import * as destacadaTools from "../tools/destacada.tools.js";
 import * as materialesTools from "../tools/materiales.tools.js";
 import * as medicionTools from "../tools/medicion.tools.js";
@@ -377,6 +378,24 @@ const TOOL_REGISTRY = {
   // como sus hermanas: es su lectura, no la identidad de la marca.
   publishDashboardReading: {
     fn: (params) => dashboardWriteTools.publishDashboardReading(params),
+    requiresConsent: false,
+  },
+
+  // ── Cards del cerebro (cards.vera4) ───────────────────────────────────────
+  // Las 30 tarjetas del Ciclo de Relevancia repartidas en los 4 tabs. Conviven
+  // con la lectura de siempre de cada tab: el schema forma parte de la identidad
+  // de una lectura desde 2026-07-30 (indice unico + get_vera_reading).
+  // Sin consentimiento, como sus hermanas: es su lectura, no la identidad de la marca.
+  getVera4Encargo: {
+    fn: (params) => vera4WriteTools.getVera4Encargo(params),
+    requiresConsent: false,
+  },
+  publishVera4Card: {
+    fn: (params) => vera4WriteTools.publishVera4Card(params),
+    requiresConsent: false,
+  },
+  getVera4Progress: {
+    fn: (params) => vera4WriteTools.getVera4Progress(params),
     requiresConsent: false,
   },
 

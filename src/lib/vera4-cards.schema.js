@@ -484,6 +484,75 @@ const lo_que_falta = fichas(z.object({
   evidence: EVIDENCE,
 }).strip(), { max: 6 });
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TENDENCIAS · LA DISCIPLINA DE FUTUROS — separar una moda de una tendencia,
+   ordenar por horizonte y decidir si a ESTA marca le toca. Sin las tres, una
+   lista de tendencias es una revista.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const crecimiento_categoria = z.object({
+  type: z.literal("crecimiento_categoria"),
+  total_cambio: opt(txt(1, 40)),
+  // Las dos mitades de la historia: la marea y el nado. Pueden ser negativas.
+  efecto_categoria: z.number(),
+  efecto_cuota: z.number(),
+  cuota_antes: opt(txt(1, 20)),
+  cuota_ahora: opt(txt(1, 20)),
+  unidad: opt(txt(2, 60)),          // aqui la unidad es conversacion observada, no ventas
+  evidence: EVIDENCE,
+}).strip();
+
+const tendencia_o_moda = z.object({
+  type: z.literal("tendencia_o_moda"),
+  senales: z.array(z.object({
+    tema: txt(3, 110),
+    serie: z.array(z.number().min(0)).min(2).max(24),
+    // Los TRES marcadores, los tres a la vez: colapsarlos en un puntaje destruye
+    // el diagnostico. Una senal que pica altisimo en UNA plataforma es una moda.
+    semanas_activa: opt(z.number().min(0).max(520)),
+    plataformas: z.array(txt(2, 30)).max(8).default([]),
+    consistencia: opt(z.enum(["alta", "media", "baja"])),
+    veredicto: z.enum(["tendencia", "moda", "pronto_para_saber"]),
+    evidence: EVIDENCE,
+  }).strip()).min(1).max(10),
+  nota_metodo: opt(txt(5, 200)),
+}).strip();
+
+const tres_horizontes = z.object({
+  type: z.literal("tres_horizontes"),
+  h1: z.array(z.object({ senal: txt(3, 130), que_exige: txt(5, 220), cuando: opt(FECHA) }).strip()).max(6).default([]),
+  h2: z.array(z.object({ senal: txt(3, 130), que_preparar: txt(5, 220), revisar_el: opt(FECHA) }).strip()).max(6).default([]),
+  h3: z.array(z.object({ senal: txt(3, 130), por_que_importa: txt(5, 220) }).strip()).max(6).default([]),
+  evidence: EVIDENCE,
+}).strip().refine((c) => (c.h1?.length || 0) + (c.h2?.length || 0) + (c.h3?.length || 0) > 0, {
+  message: "los tres horizontes vacios no ordenan nada",
+}).refine((c) => !((c.h2?.length || 0) === 0 && (c.h3?.length || 0) === 0 && (c.h1?.length || 0) > 2), {
+  message: "todo en H1 no es ordenar: si todo se siente urgente, no decidiste horizonte",
+});
+
+const derecho_a_jugar = fichas(z.object({
+  senal: txt(3, 140),
+  autoridad: z.enum(["si", "parcial", "no"]),
+  audiencia: z.enum(["si", "parcial", "no"]),
+  momento: z.enum(["pronto", "justo", "tarde"]),
+  territorio: z.enum(["libre", "disputado", "tomado"]),
+  veredicto: z.enum(["tomar", "adaptar", "dejar_pasar"]),
+  razon: txt(10, 300),
+  evidence: EVIDENCE,
+}).strip(), { max: 8 });
+
+const curva_adopcion = z.object({
+  type: z.literal("curva_adopcion"),
+  senales: z.array(z.object({
+    tema: txt(3, 110),
+    // innovadores | nicho especializado | mainstream — reparten 100
+    mezcla: z.array(z.number().min(0).max(100)).length(3),
+  }).strip()).min(1).max(8),
+  nota_metodo: txt(5, 200),
+  evidence: EVIDENCE,
+}).strip();
+
 /* ══════════════════════════════════════════════════════════════════════════
    ESTRATEGIA — la sintesis. El unico tab que cruza los tres mundos.
    ══════════════════════════════════════════════════════════════════════════ */
@@ -667,6 +736,7 @@ const CARD = {
   supuesto_punto_ciego, proxima_movida,
   // Tendencias
   pulso_nicho, senal_debil, triangulacion, tension, timing, lo_que_falta,
+  crecimiento_categoria, tendencia_o_moda, tres_horizontes, derecho_a_jugar, curva_adopcion,
   // Estrategia
   decision_del_dia, autoridad_adn, puerta_aprobacion, produccion_viva,
   pieza_asombro, formato, cadena_portafolio, verificacion, brief_humano, bucle_outcome,
@@ -687,6 +757,8 @@ export const VERA4_TAB = {
   supuesto_punto_ciego: "monitoreo", proxima_movida: "monitoreo",
   pulso_nicho: "tendencias", senal_debil: "tendencias", triangulacion: "tendencias",
   tension: "tendencias", timing: "tendencias", lo_que_falta: "tendencias",
+  crecimiento_categoria: "tendencias", tendencia_o_moda: "tendencias",
+  tres_horizontes: "tendencias", derecho_a_jugar: "tendencias", curva_adopcion: "tendencias",
   decision_del_dia: "estrategia", autoridad_adn: "estrategia", puerta_aprobacion: "estrategia",
   produccion_viva: "estrategia", pieza_asombro: "estrategia", formato: "estrategia",
   cadena_portafolio: "estrategia", verificacion: "estrategia", brief_humano: "estrategia",

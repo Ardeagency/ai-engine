@@ -207,6 +207,114 @@ const error_ajeno = fichas(z.object({
 }).strip(), { max: 6 });
 
 
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MI MARCA · SALUD DE MARCA — lo que un CMO mira primero de su propia marca:
+   disponibilidad mental (en que momentos lo piensan), activos distintivos
+   (que codigos son famosos Y suyos), el reparto construir/cosechar y el bucle
+   de aprendizaje. Nada de esto es engagement, a proposito: esta medido que
+   likes y compartidos casi no predicen si a la marca la recuerdan.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const cobertura_momentos = z.object({
+  type: z.literal("cobertura_momentos"),
+  momentos: z.array(z.object({
+    cep: txt(3, 120),                       // el momento dicho como lo diria una persona
+    cobertura: z.number().min(0).max(100),
+    cubierto: z.boolean(),
+    piezas: opt(z.number().min(0).max(9999)),
+  }).strip()).min(2).max(14),
+  ventana_dias: opt(z.number().min(1).max(400)),
+  nota_metodo: opt(txt(5, 200)),
+  evidence: EVIDENCE,
+}).strip();
+
+const rejilla_codigos = z.object({
+  type: z.literal("rejilla_codigos"),
+  activos: z.array(z.object({
+    tipo: txt(2, 40),                       // color | tipografia | personaje | formato | frase...
+    nombre: txt(2, 90),
+    fama: z.number().min(0).max(100),       // cuantos lo ligan a la marca
+    unicidad: z.number().min(0).max(100),   // cuantos lo ligan SOLO a la marca
+    veces_aplicado: opt(z.number().min(0).max(9999)),
+    de_cuantas_piezas: opt(z.number().min(0).max(9999)),
+  }).strip()).min(2).max(12),
+  umbral: opt(z.number().min(0).max(100)),  // 50 por defecto (Romaniuk)
+  // Nuestros dos ejes son consistencia de uso y reconocimiento observado, no la
+  // encuesta de Romaniuk. Es una aproximacion honesta y TIENE que decirse.
+  nota_metodo: txt(5, 220),
+  evidence: EVIDENCE,
+}).strip();
+
+const deriva_codigos = z.object({
+  type: z.literal("deriva_codigos"),
+  fechas: z.array(txt(2, 20)).min(2).max(24),
+  series: z.array(z.object({
+    codigo: txt(2, 90),
+    valores: z.array(z.number().min(0).max(100)).min(2).max(24),
+  }).strip()).min(1).max(6),
+  destacado: opt(txt(2, 90)),               // el que se apaga: va en color, el resto en gris
+  evidence: EVIDENCE,
+}).strip().refine((c) => c.series.every((x) => x.valores.length === c.fechas.length), {
+  message: "cada codigo necesita un valor por fecha, en el mismo orden",
+});
+
+const construir_vs_cosechar = z.object({
+  type: z.literal("construir_vs_cosechar"),
+  meses: z.array(txt(2, 20)).min(2).max(18),
+  construir: z.array(z.number().min(0)).min(2).max(18),
+  cosechar: z.array(z.number().min(0)).min(2).max(18),
+  vara: opt(z.number().min(0).max(100)),    // 60 por defecto (Binet & Field)
+  nota_metodo: txt(5, 200),
+  evidence: EVIDENCE,
+}).strip().refine((c) => c.construir.length === c.meses.length && c.cosechar.length === c.meses.length, {
+  message: "construir y cosechar necesitan un valor por mes, en el mismo orden",
+});
+
+const aplauso_vs_propagacion = z.object({
+  type: z.literal("aplauso_vs_propagacion"),
+  piezas: z.array(z.object({
+    titulo: txt(3, 140),
+    aplauso: z.number().min(0),
+    propagacion: z.number().min(0),
+    formato: opt(txt(2, 40)),
+  }).strip()).min(3).max(40),
+  medianas: opt(z.object({
+    aplauso: z.number().min(0), propagacion: z.number().min(0),
+  }).strip()),
+  // El limite que la card DEBE confesar: esto no mide memoria de marca.
+  nota_limite: opt(txt(10, 240)),
+  evidence: EVIDENCE,
+}).strip();
+
+const penetracion_vs_lealtad = z.object({
+  type: z.literal("penetracion_vs_lealtad"),
+  meses: z.array(txt(2, 20)).min(3).max(24),
+  series: z.array(z.object({
+    nombre: txt(2, 60),
+    valores: z.array(z.number().min(0)).min(3).max(24),
+  }).strip()).length(2),                    // exactamente dos: gente nueva vs los mismos
+  base: opt(txt(5, 120)),
+  evidence: EVIDENCE,
+}).strip().refine((c) => c.series.every((x) => x.valores.length === c.meses.length), {
+  message: "cada serie necesita un valor por mes, en el mismo orden",
+});
+
+const biblioteca_patrones = z.object({
+  type: z.literal("biblioteca_patrones"),
+  patrones: z.array(z.object({
+    patron: txt(10, 240),
+    confirmado: z.number().min(0).max(999),
+    // Un patron refutado NO se borra: saber que una creencia fallo vale tanto
+    // como la que aguanta.
+    refutado: z.number().min(0).max(999),
+    confianza: CONFIANZA,
+    ultima_prueba: opt(FECHA),
+    que_decide: txt(5, 220),                // si no cambia una decision, es trivia
+  }).strip()).min(1).max(20),
+  evidence: EVIDENCE,
+}).strip();
+
 /* ══════════════════════════════════════════════════════════════════════════
    COMPETENCIA · INSTRUMENTOS — la forma la fija el tablero, Vera alimenta la
    serie. Las escalas son FIJAS a proposito: sin escala fija no se puede
@@ -551,6 +659,8 @@ const CARD = {
   // Mi Marca
   silencio, latencia, impacto_vs_ruido, emocion_objetivo, viabilidad_comercial,
   ritmo, autopsia, victoria_explicada, causalidad,
+  cobertura_momentos, rejilla_codigos, deriva_codigos, construir_vs_cosechar,
+  aplauso_vs_propagacion, penetracion_vs_lealtad, biblioteca_patrones,
   // Competencia
   anomalia, error_ajeno,
   territorio_tematico, registro_de_voz, emocion_competencia, busqueda_vs_voz,
@@ -568,6 +678,9 @@ export const VERA4_TAB = {
   silencio: "mi_marca", latencia: "mi_marca", impacto_vs_ruido: "mi_marca",
   emocion_objetivo: "mi_marca", viabilidad_comercial: "mi_marca", ritmo: "mi_marca",
   autopsia: "mi_marca", victoria_explicada: "mi_marca", causalidad: "mi_marca",
+  cobertura_momentos: "mi_marca", rejilla_codigos: "mi_marca", deriva_codigos: "mi_marca",
+  construir_vs_cosechar: "mi_marca", aplauso_vs_propagacion: "mi_marca",
+  penetracion_vs_lealtad: "mi_marca", biblioteca_patrones: "mi_marca",
   anomalia: "monitoreo", error_ajeno: "monitoreo",
   territorio_tematico: "monitoreo", registro_de_voz: "monitoreo",
   emocion_competencia: "monitoreo", busqueda_vs_voz: "monitoreo",

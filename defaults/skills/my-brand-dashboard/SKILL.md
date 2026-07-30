@@ -1,6 +1,6 @@
 ---
 name: my-brand-dashboard
-description: Como construyo el dashboard MI MARCA — el tablero donde le muestro a la organizacion como coexisten sus plataformas sociales y sus tiendas dentro de un mismo sistema digital, y de ahi saco planes que sostengan un trafico que suba y mas interaccion social. Incluye COMO me organizo para llenarlo — una investigacion y despues un trabajo aislado por tarjeta, que publico yo con publishMiMarcaCard, y como edito por item las que son lista con updateMiMarcaCardItems en vez de rehacerlas. Ninguna tarjeta es obligatoria y ninguna se oculta. La uso cada vez que escribo o reviso las tarjetas de Mi Marca (observacion, intuicion, virtudes, desventajas, algoritmo, audiencias recomendadas, audiencia), cuando me piden leer como va la marca por dentro, o cuando dudo si lo que voy a afirmar sobre ella es verificable. Se activa en "lee mi marca", "como vamos", "que esta pasando con nuestras redes", "llena el tablero", "analiza nuestra cuenta". NO es el analisis de la competencia (ese mira hacia afuera, a los perfiles monitoreados) ni el de tendencias (ese mira al mercado) — aqui el sujeto es la marca misma y nadie mas.
+description: Como construyo el dashboard MI MARCA — el tablero donde le muestro a la organizacion como coexisten sus plataformas sociales y sus tiendas dentro de un mismo sistema digital, y de ahi saco planes que sostengan un trafico que suba y mas interaccion social. Incluye COMO me organizo para llenarlo — una investigacion y despues un trabajo aislado por tarjeta, que publico yo con publishMiMarcaCard. La uso cada vez que escribo o reviso las tarjetas de Mi Marca (observacion, intuicion, virtudes, desventajas, algoritmo, audiencias recomendadas, audiencia), cuando me piden leer como va la marca por dentro, o cuando dudo si lo que voy a afirmar sobre ella es verificable. Se activa en "lee mi marca", "como vamos", "que esta pasando con nuestras redes", "llena el tablero", "analiza nuestra cuenta". NO es el analisis de la competencia (ese mira hacia afuera, a los perfiles monitoreados) ni el de tendencias (ese mira al mercado) — aqui el sujeto es la marca misma y nadie mas.
 ---
 
 # My Brand Dashboard — Leer a la marca por dentro sin inventarle nada
@@ -12,6 +12,56 @@ trabajo es mostrar cómo coexisten hoy, dónde se están estorbando, y qué plan
 sostiene un tráfico que suba en vez de un pico que se apague.
 
 No es un informe de resultados. El cliente ya tiene los resultados en pantalla.
+
+## Salud de marca: lo que un CMO mira ANTES del engagement
+
+Hasta ahora este tablero respondía "cómo me fue". Un CMO que quiere aprender de
+su propia marca mira cuatro cosas antes que esa, y ninguna es engagement — está
+medido que likes, comentarios y compartidos **casi no predicen si a la marca la
+recuerdan** (System1, 1.217 anuncios y 23.600 millones de impresiones).
+
+**1. ¿En qué momentos me piensan?** (`cobertura_momentos`)
+Una marca no crece porque la quieran más: crece porque aparece en más
+situaciones de compra. Los Category Entry Points son esas situaciones, y la
+cuota MENTAL correlaciona con la cuota de mercado (Ehrenberg-Bass). Lo que hay
+que ver no son los momentos cubiertos — es el hueco, porque por ahí entra otro.
+El dato lo calcula `compute_cep_coverage`; yo pongo el juicio de cuál hueco vale.
+
+**2. ¿Qué códigos son famosos Y míos?** (`rejilla_codigos`, `deriva_codigos`)
+La rejilla de Romaniuk cruza FAMA (cuántos ligan el activo a la marca) con
+UNICIDAD (cuántos lo ligan solo a ella), con umbral en 50. Mucha fama y poca
+unicidad es un código prestado; mucha unicidad y poca fama es la mejor inversión
+que existe — es genuinamente suyo y solo falta repetirlo sin descanso.
+**Aquí no invento códigos nuevos**: trabajo sobre los que ya existen. Inventar
+uno cada trimestre es exactamente como una marca se vuelve irreconocible.
+
+**3. ¿Construyo o cosecho?** (`construir_vs_cosechar`)
+~60% a construir marca y ~40% a activar da el mejor resultado a largo plazo
+(Binet & Field, 996 casos del IPA; varía por sector). La cosecha se mide fácil y
+paga rápido, así que se come el presupuesto **sin que nadie lo decida**. Clasifico
+cada pieza por a qué SIRVE, no por cómo se ve: una receta puede construir
+(enseña un momento de uso nuevo) o cosechar (recuerda comprar).
+
+**4. ¿Qué aprendí que cambie la próxima decisión?** (`biblioteca_patrones`,
+`aplauso_vs_propagacion`, `penetracion_vs_lealtad`)
+Un patrón refutado NO se borra: saber que una creencia falló vale tanto como la
+que aguanta. Y cuido dos trampas: que una pieza guste no significa que
+construya (un guardado dice "me sirve", un me-gusta dice poco), y que la
+interacción por seguidor suba puede significar que la audiencia se está
+achicando — la lealtad es consecuencia del tamaño, no su causa.
+
+### La regla de los instrumentos
+
+En estas siete cards **yo no elijo la forma**: alimento la serie y el tablero
+pone el eje, la escala y el color. Con escalas fijas, para que agosto se pueda
+comparar con julio y el instrumento acumule historia en vez de ser una foto
+distinta cada ciclo.
+
+Y **la nota de método es obligatoria** donde el dato es mío y no de un sensor.
+La rejilla de códigos es el caso claro: nuestros ejes salen de cuánto se aplica
+el código y cuánto se reconoce en lo observado, **no de una encuesta a
+compradores** como en el método original. Es una aproximación honesta y tiene
+que decirse — un gráfico parece una medición aunque no lo sea.
 
 ## Antes de afirmar: ¿puedo VERLO?
 
@@ -37,47 +87,21 @@ es la que destruye la confianza, porque suena verdadera y nadie la va a revisar.
 
 ## Este tablero lo construyo yo, tarjeta por tarjeta
 
-**Yo publico. Nadie extrae mis tarjetas de mi texto.** Tengo tres herramientas:
+**Yo publico. Nadie extrae mis tarjetas de mi texto.** Tengo dos herramientas:
 
-- `getMiMarcaProgress` — **qué hay** en cada periodo: cada tarjeta con su edad y,
-  las que son lista, con las claves de sus items. **Empiezo siempre por aquí.**
-- `publishMiMarcaCard` — deposita **UNA** tarjeta entera en **UN** periodo. Crea
-  o **reemplaza**.
-- `updateMiMarcaCardItems` — añade o quita **items** de una tarjeta que es lista,
-  sin rehacerla.
+- `publishMiMarcaCard` — deposita **UNA** tarjeta en **UN** periodo. Me responde
+  siempre qué me falta.
+- `getMiMarcaProgress` — qué tengo y qué me falta, periodo por periodo.
 
-**Ninguna tarjeta es obligatoria.** Los moldes son siete —`observacion`,
-`intuicion`, `virtudes`, `desventajas`, `algoritmo`, `audiencias_recomendadas` y
-`audiencia`— y el tablero muestra lo último que le puse a cada uno. **Nada se
-oculta por no haberse actualizado.** Una tarjeta que sigue siendo cierta no
-necesita que yo la reescriba: dejarla como está es una decisión, no un olvido.
+El periodo se publica **solo** cuando están las seis obligatorias: `observacion`,
+`intuicion`, `virtudes`, `desventajas`, `algoritmo`, `audiencias_recomendadas`.
 Una tarjeta rechazada me vuelve con el motivo y no tumba a las demás.
 
-`audiencia` es la del mapa y la pirámide: quién me sigue de verdad, por edad,
-género y país. Se llena con `getMetaAudienceDemographics`. **Solo si hay
-demografía real** — un mapa inventado envenena el tablero entero. Si la hay y no
-la escribo, el molde se queda vacío teniendo el dato delante.
-
-### Las tarjetas que son lista NO se rehacen: se editan
-
-`observacion` y `audiencias_recomendadas` son listas de items. Rehacerlas enteras
-borra lo que seguía siendo cierto y me obliga a reescribir cinco juicios buenos
-para cambiar uno. Así que:
-
-1. Leo lo que ya hay con `getMiMarcaProgress` — me devuelve las claves
-   (el `titulo` en observaciones, el `id` en audiencias).
-2. Decido **por item**: esto ya no aplica → fuera. Esto es nuevo → dentro. El
-   resto **no se toca** y conserva su texto original.
-3. `updateMiMarcaCardItems` con `agregar` y/o `eliminar`. Un item nuevo con la
-   clave de uno que ya estaba lo **corrige** en su sitio, no lo duplica.
-
-Solo uso `publishMiMarcaCard` en una lista cuando quiero empezar de cero a
-propósito. Si no hay nada que cambiar, **no llamo**: eso también es trabajo.
+Escribir las veinticuatro de un tirón es lo que me hacía razonar sobre todo a la
+vez y perderlo todo por un fallo. Ya no.
 
 ### El ritmo
 
-0. **Miro qué hay** (`getMiMarcaProgress`) y decido qué merece otra pasada. Lo
-   que envejece en días para `week` puede aguantar semanas en `year`.
 1. **Investigo una vez**, para los cuatro periodos. No cuatro veces.
 2. **Destilo lo que encontré a hechos**: cifras con su fuente y su fecha, piezas
    concretas, huecos declarados. No prosa.
@@ -115,9 +139,8 @@ Cada mensaje lleva, siempre:
 
 ### Si algo falla
 
-Un trabajo caído cuesta una tarjeta, no la lectura: las demás siguen en el
-tablero y se siguen viendo. `getMiMarcaProgress` me dice qué quedó puesto y de
-cuándo, y reprogramo solo la que se cayó. No repito lo que ya está bien.
+Un trabajo caído cuesta una tarjeta, no la lectura. `getMiMarcaProgress` me dice
+cuál falta y la reprogramo sola. No repito lo que ya está publicado.
 
 ## La publicación destacada pide un "¿por qué?", no un aplauso
 
@@ -296,10 +319,8 @@ mí, reviso si puedo hacerlo yo.
 
 **Para publicar (solo yo escribo este tablero):**
 
-- `getMiMarcaProgress` → qué hay en cada periodo, de cuándo, y con qué items.
-- `publishMiMarcaCard` → deposita UNA tarjeta entera en UN periodo (crea o reemplaza).
-- `updateMiMarcaCardItems` → añade o quita items de una lista (`observacion`,
-  `audiencias_recomendadas`) sin rehacerla.
+- `publishMiMarcaCard` → deposita UNA tarjeta en UN periodo; me dice qué falta.
+- `getMiMarcaProgress` → qué tengo y qué me falta, para retomar sin repetir.
 
 **Para pensar:**
 

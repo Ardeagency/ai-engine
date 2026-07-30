@@ -82,6 +82,24 @@ async function _contenedor(brandContainerId, organizationId) {
 }
 
 /**
+ * Un rechazo del contrato NO es un exito silencioso.
+ *
+ * Estas tools devuelven `{ok:false, motivo}` en vez de lanzar —a proposito: una
+ * card mala se rechaza con su porque y no tumba a las demas— pero el audit
+ * escribe `tool_executed` igual que en un exito. El 2026-07-30, en el primer
+ * latido con criterio de caducidad, Vera llamo cinco veces a
+ * updateMiMarcaCardItems: cuatro rebotaron y la quinta escribio. En el log las
+ * cinco se veian identicas, y las cuatro primeras solo se descubrieron porque la
+ * tabla de borradores no se movia. Un reintento caro que nadie puede contar es
+ * un reintento que nadie va a arreglar.
+ */
+function _logRechazo(tool, ctx, r) {
+  if (!r || r.ok !== false) return;
+  const detalle = [r.motivo, ...(r.errores || [])].filter(Boolean).join(" | ");
+  console.warn(`${tool}: RECHAZADA ${JSON.stringify(ctx)} — ${String(detalle).slice(0, 300)}`);
+}
+
+/**
  * Deposita UNA card de Mi Marca en el periodo indicado.
  *
  * Devuelve SIEMPRE lo que falta: ese retorno es el lazo con el que Vera decide
@@ -133,6 +151,7 @@ export async function publishMiMarcaCard({
     r.aviso = `Acabas de REEMPLAZAR '${card.type}' entera. Es una card de lista: ` +
       "para corregir o sumar sin borrar lo que sigue siendo cierto, usa updateMiMarcaCardItems.";
   }
+  _logRechazo("publishMiMarcaCard", { periodo, tipo: card.type }, r);
   return r;
 }
 
@@ -171,7 +190,7 @@ export async function updateMiMarcaCardItems({
     throw new Error("'agregar' y 'eliminar' son arrays.");
   }
 
-  return mutarItemsCard({
+  const r = await mutarItemsCard({
     organizationId,
     brandContainerId: contenedor,
     periodoKey: periodo,
@@ -180,6 +199,8 @@ export async function updateMiMarcaCardItems({
     eliminar: eliminar || [],
     sessionId: sessionId || crypto.randomUUID(),
   });
+  _logRechazo("updateMiMarcaCardItems", { periodo, cardType }, r);
+  return r;
 }
 
 /**
@@ -271,11 +292,13 @@ export async function publishDashboardReading({
     org = data?.organization_id || null;
   }
 
-  return publicarLecturaScope({
+  const r = await publicarLecturaScope({
     organizationId: org,
     brandContainerId: contenedor,
     scope,
     reading,
     sessionId: sessionId || crypto.randomUUID(),
   });
+  _logRechazo("publishDashboardReading", { scope }, r);
+  return r;
 }

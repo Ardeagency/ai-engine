@@ -107,25 +107,6 @@ const emocion_objetivo = z.object({
   evidence: EVIDENCE,
 }).strip();
 
-const viabilidad_comercial = z.object({
-  type: z.literal("viabilidad_comercial"),
-  gastado: opt(txt(1, 40)),
-  ventana: opt(txt(1, 60)),
-  kpi: opt(z.object({
-    nombre: txt(1, 20),                       // ROAS | CPL | CPA | CVR
-    valor: txt(1, 30),
-    vara: opt(txt(1, 80)),
-    estado: opt(z.enum(["sano", "justo", "malo"])),
-  }).strip()),
-  ritmo: opt(txt(5, 200)),
-  veredicto: opt(z.enum(["cabe", "cabe_moviendo", "no_cabe"])),
-  de_donde_sale: opt(txt(5, 200)),
-  markdown: opt(txt(10, 400)),
-  evidence: EVIDENCE,
-}).strip().refine((c) => c.gastado || c.kpi, {
-  message: "sin gasto ni KPI medido esta card seria una opinion sobre plata: cita lo que viste en la tool",
-});
-
 const ritmo = z.object({
   type: z.literal("ritmo"),
   rafagas: z.array(z.object({
@@ -477,21 +458,50 @@ const tension = fichas(z.object({
   evidence: EVIDENCE,
 }).strip(), { max: 6 });
 
-const timing = z.object({
-  type: z.literal("timing"),
-  abiertas: z.array(z.object({
-    ventana: txt(3, 130),
-    cierra: opt(FECHA),
-    fase: opt(z.enum(["antes", "durante", "despues"])),
-    que_exige_ahora: opt(txt(5, 240)),
+/* Propuestas de oportunidad: por cada fecha del calendario, DOS ideas que esta
+   marca podria producir. El minimo y el maximo de propuestas son 2 a proposito:
+   con una sola parece la unica salida posible y no hay eleccion; con tres o mas
+   es un menu que nadie decide. La regla la impone el schema para que no dependa
+   de que Vera se acuerde. */
+const propuestas_fecha = z.object({
+  type: z.literal("propuestas_fecha"),
+  fechas: z.array(z.object({
+    // El calendario de al lado ya muestra la fecha: aqui viaja solo para
+    // parear, por eso `cuando` es texto corto ("7 ago") y no una fecha ISO.
+    cuando: txt(2, 40),
+    evento: txt(3, 120),
+    propuestas: z.array(z.object({
+      titulo: txt(4, 120),
+      formato: opt(txt(2, 40)),
+      idea: txt(15, 420),
+      // El permiso de la marca para hablar de esa fecha. Sin esto la propuesta
+      // sirve para cualquiera del nicho.
+      por_que_esta_marca: txt(10, 300),
+      evidence: EVIDENCE,
+    }).strip()).length(2),
+  }).strip()).min(1).max(4),
+}).strip();
+
+/* Algoritmo (Competencia). El gemelo de la card de Mi Marca y a la vez su
+   opuesto: alli se lee como el algoritmo trata a la cuenta propia; aqui, que
+   esta premiando en los perfiles vigilados. Cada afirmacion exige la PRUEBA
+   observada en un perfil concreto — sin eso seria repetir lo que "se dice" de
+   cada plataforma, que es justo el ruido del que este tablero protege. */
+const algoritmo_rival = z.object({
+  type: z.literal("algoritmo_rival"),
+  plataformas: z.array(z.object({
+    plataforma: txt(2, 30),
+    que_premia: txt(15, 320),
+    // El perfil y el numero que lo delatan. Obligatorio a proposito.
+    prueba: txt(10, 300),
+    a_quien_alcanza: opt(txt(5, 220)),
+    // Lo unico que convierte la observacion en util: que hace ESTA marca con eso.
+    que_me_llevo: txt(10, 280),
     evidence: EVIDENCE,
-  }).strip()).max(8).default([]),
-  demasiado_pronto: z.array(z.object({
-    que: txt(3, 130), volver_a_mirar: opt(FECHA), por_que: opt(txt(5, 200)),
-  }).strip()).max(6).default([]),
-}).strip().refine((c) => (c.abiertas?.length || 0) + (c.demasiado_pronto?.length || 0) > 0, {
-  message: "timing vacio: si no hay ninguna ventana abierta ni nada que sea pronto, no publiques la card",
-});
+  }).strip()).min(1).max(5),
+  // Lo que se repite en todas las plataformas, si es que se repite.
+  patron_transversal: opt(txt(15, 400)),
+}).strip();
 
 const lo_que_falta = fichas(z.object({
   hueco: txt(3, 120),
@@ -791,7 +801,7 @@ const a2a_readiness = z.object({
 
 const CARD = {
   // Mi Marca
-  silencio, latencia, impacto_vs_ruido, emocion_objetivo, viabilidad_comercial,
+  silencio, latencia, impacto_vs_ruido, emocion_objetivo,
   ritmo, autopsia, victoria_explicada, causalidad,
   cobertura_momentos, rejilla_codigos, deriva_codigos, construir_vs_cosechar,
   aplauso_vs_propagacion, penetracion_vs_lealtad, biblioteca_patrones,
@@ -800,7 +810,8 @@ const CARD = {
   territorio_tematico, registro_de_voz, emocion_competencia, busqueda_vs_voz,
   supuesto_punto_ciego, proxima_movida,
   // Tendencias
-  pulso_nicho, senal_debil, triangulacion, tension, timing, lo_que_falta,
+  pulso_nicho, senal_debil, triangulacion, tension, propuestas_fecha, lo_que_falta,
+  algoritmo_rival,
   crecimiento_categoria, tendencia_o_moda, tres_horizontes, derecho_a_jugar, curva_adopcion,
   // Estrategia
   decision_del_dia, autoridad_adn, puerta_aprobacion, produccion_viva,
@@ -817,7 +828,7 @@ const CARD = {
    se hace cuatro veces con cuatro sujetos distintos. */
 export const VERA4_TAB = {
   silencio: "mi_marca", latencia: "mi_marca", impacto_vs_ruido: "mi_marca",
-  emocion_objetivo: "mi_marca", viabilidad_comercial: "mi_marca", ritmo: "mi_marca",
+  emocion_objetivo: "mi_marca", ritmo: "mi_marca",
   autopsia: "mi_marca", victoria_explicada: "mi_marca", causalidad: "mi_marca",
   cobertura_momentos: "mi_marca", rejilla_codigos: "mi_marca", deriva_codigos: "mi_marca",
   construir_vs_cosechar: "mi_marca", aplauso_vs_propagacion: "mi_marca",
@@ -827,7 +838,8 @@ export const VERA4_TAB = {
   emocion_competencia: "monitoreo", busqueda_vs_voz: "monitoreo",
   supuesto_punto_ciego: "monitoreo", proxima_movida: "monitoreo",
   pulso_nicho: "tendencias", senal_debil: "tendencias", triangulacion: "tendencias",
-  tension: "tendencias", timing: "tendencias", lo_que_falta: "tendencias",
+  tension: "tendencias", propuestas_fecha: "tendencias", lo_que_falta: "tendencias",
+  algoritmo_rival: "monitoreo",
   crecimiento_categoria: "tendencias", tendencia_o_moda: "tendencias",
   tres_horizontes: "tendencias", derecho_a_jugar: "tendencias", curva_adopcion: "tendencias",
   decision_del_dia: "estrategia", autoridad_adn: "estrategia", puerta_aprobacion: "estrategia",

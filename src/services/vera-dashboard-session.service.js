@@ -97,6 +97,8 @@ const DASHBOARD_READING_TOOLS_RAW = [
   "verPublicacion",            // "voy a verlo": describir la media de un post
   "harvestPostComments", "getHarvestedComments", // el hilo completo de un post
   "studyFollowers", "getFollowerStudy",          // quien es la gente que la sigue
+  "exploreSearchDemand", "watchSearchTerm",      // Google Trends: mirar y vigilar
+  "listWatchedTerms", "unwatchSearchTerm",
   "getGoogleAnalytics", "getSocialSummary",
   // RETAIL / catálogo (MercadoLibre)
   "getCatalogDiagnosis", "getRetailPrices", "getLiveProducts", "getLivePosts",

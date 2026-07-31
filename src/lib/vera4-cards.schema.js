@@ -694,6 +694,53 @@ const bucle_outcome = z.object({
 }).strip();
 
 /* ══════════════════════════════════════════════════════════════════════════
+   LA INTUICION — la unica card que vive en VARIOS tabs, UNA POR TAB.
+
+   POR QUE EXISTE ESTA EXCEPCION: hasta el 2026-07-31 la Intuicion era una sola
+   —la de Mi Marca— y el frontend la COPIABA al pie de los otros tres tabs. El
+   cliente veia el mismo parrafo cuatro veces, y la unica capa donde Vera dice
+   lo que un tablero no puede decir quedaba diciendo lo mismo mires donde mires.
+   Ahora cada tab escribe LA SUYA: mismo metodo, sujeto distinto.
+
+   NO ES UNA TEMATICA, ES UNA LENTE. Las demas cards tienen tema asignado; esta
+   tiene un METODO: partir de UNA cosa concreta que Vera vio, separar el acierto
+   del culpable —sin condenar todo— y terminar en algo que se pueda producir. El
+   culpable puede ser el formato, el momento, el encuadre, quien aparece o lo que
+   se callo: lo dicta el caso, no el molde.
+
+   LA VARA: si un tablero pudiera decirlo con una cifra, no es intuicion — es una
+   etiqueta. Lo que va aqui es el POR QUE que la cifra no trae.
+
+   MI MARCA NO ESTA EN ESTA LISTA a proposito: su Intuicion vive en cards.v2
+   (vera-mimarca-cards.schema.js, se escribe con publishMiMarcaCard y ademas
+   reparte por periodo). Un mismo concepto con DOS productores es como se llega a
+   una card que nadie escribe porque cada uno cree que la escribe el otro.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+const intuicion = z.object({
+  type: z.literal("intuicion"),
+  // El hallazgo en una frase. No el tema: la conclusion.
+  titulo: txt(6, 120),
+  // De UNA cosa concreta, no del periodo en abstracto: la pieza del rival, la
+  // senal del mercado, la decision sobre la mesa. Sin esto es un horoscopo.
+  de_donde: txt(10, 320),
+  // Lo que el tablero YA muestra de eso. Nombrarlo es lo que obliga a que el
+  // resto de la card diga algo distinto.
+  lo_obvio: opt(txt(10, 320)),
+  // El mecanismo que un humano no ve a simple vista: por que paso lo que paso.
+  el_porque: txt(30, 900),
+  // Separar el acierto del culpable. Condenarlo todo junto es mas facil de
+  // escribir y no le sirve a nadie: se tira lo que estaba bien.
+  acierto: opt(txt(5, 320)),
+  culpable: opt(txt(5, 320)),
+  // La salida ejecutable. Si no termina en algo que se pueda producir, quedo a
+  // medias — por audaz que suene el diagnostico.
+  que_hago: txt(10, 500),
+  confianza: opt(CONFIANZA),
+  evidence: EVIDENCE,
+}).strip();
+
+/* ══════════════════════════════════════════════════════════════════════════
    SIN TABLERO — hablan de Vera, no de la marca. Se validan igual: el dia que
    exista donde ponerlas, el contrato ya esta.
    ══════════════════════════════════════════════════════════════════════════ */
@@ -758,10 +805,16 @@ const CARD = {
   // Estrategia
   decision_del_dia, autoridad_adn, puerta_aprobacion, produccion_viva,
   pieza_asombro, formato, cadena_portafolio, verificacion, brief_humano, bucle_outcome,
+  // En varios tabs, una por tab
+  intuicion,
   // Sin tablero
   recalibracion, humildad, a2a_readiness,
 };
 
+/* El reparto: type -> el tab donde vive. `null` = todavia no tiene tablero.
+   Un ARRAY = vive en varios, y entonces escribe UNA por tab (hoy solo la
+   Intuicion). Nunca significa "la misma card repetida": significa que ese acto
+   se hace cuatro veces con cuatro sujetos distintos. */
 export const VERA4_TAB = {
   silencio: "mi_marca", latencia: "mi_marca", impacto_vs_ruido: "mi_marca",
   emocion_objetivo: "mi_marca", viabilidad_comercial: "mi_marca", ritmo: "mi_marca",
@@ -781,13 +834,29 @@ export const VERA4_TAB = {
   produccion_viva: "estrategia", pieza_asombro: "estrategia", formato: "estrategia",
   cadena_portafolio: "estrategia", verificacion: "estrategia", brief_humano: "estrategia",
   bucle_outcome: "estrategia",
+  // Mi Marca NO esta aqui: su Intuicion es cards.v2 (publishMiMarcaCard) y
+  // reparte por periodo. Ver el bloque de la card arriba.
+  intuicion: ["monitoreo", "tendencias", "estrategia"],
   recalibracion: null, humildad: null, a2a_readiness: null,
 };
 
 export const VERA4_TYPES = Object.keys(CARD);
 export const VERA4_SCOPES = ["mi_marca", "monitoreo", "tendencias", "estrategia"];
+
+/** Los tabs donde vive un type, siempre como lista (vacia si no tiene tablero). */
+export function tabsDeCard(tipo) {
+  const t = VERA4_TAB[String(tipo || "")];
+  if (t == null) return [];
+  return Array.isArray(t) ? t : [t];
+}
+
+/** Si esa card se puede publicar en ese tab. */
+export function cardCabeEn(tipo, scope) {
+  return tabsDeCard(tipo).includes(String(scope || ""));
+}
+
 export const VERA4_TYPES_POR_SCOPE = VERA4_SCOPES.reduce((acc, s) => {
-  acc[s] = VERA4_TYPES.filter((t) => VERA4_TAB[t] === s);
+  acc[s] = VERA4_TYPES.filter((t) => cardCabeEn(t, s));
   return acc;
 }, {});
 export const NOMBRE_TAB_V4 = {
@@ -882,7 +951,9 @@ export function validarCardV4(card) {
   return { ok: true, card: { ...r.data, type: tipo } };
 }
 
-/** El tab al que pertenece una card, o null si no vive en ninguno todavia. */
+/** El tab al que pertenece una card, o null si no vive en ninguno todavia.
+    OJO: puede devolver un ARRAY (la Intuicion vive en tres tabs). Para preguntar
+    "¿cabe aqui?" usa cardCabeEn, que no tiene que adivinar la forma. */
 export function tabDeCard(tipo) {
   return VERA4_TAB[String(tipo || "")] ?? undefined;
 }

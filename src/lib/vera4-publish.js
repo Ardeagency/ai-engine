@@ -22,7 +22,7 @@
  */
 import { supabase } from "./supabase.js";
 import {
-  validarCardV4, tabDeCard, VERA4_SCHEMA, VERA4_SCHEMA_VERSION,
+  validarCardV4, tabsDeCard, cardCabeEn, VERA4_SCHEMA, VERA4_SCHEMA_VERSION,
   VERA4_SCOPES, VERA4_TYPES_POR_SCOPE, NOMBRE_TAB_V4,
 } from "./vera4-cards.schema.js";
 
@@ -92,13 +92,18 @@ export async function depositarCardV4({
   // El reparto es contrato: las reglas de los tabs se contradicen entre si (Mi
   // Marca tiene prohibido nombrar competencia), asi que una card en el tab
   // equivocado hace que el tablero diga lo que no debe.
-  const suTab = tabDeCard(v.card.type);
-  if (suTab !== sc) {
+  if (!cardCabeEn(v.card.type, sc)) {
+    const susTabs = tabsDeCard(v.card.type);
+    // La Intuicion de Mi Marca no se rechaza a secas: se rechaza diciendo por
+    // donde entra. Un rechazo que no nombra la salida es un rechazo a medias.
+    const desvio = (v.card.type === "intuicion" && sc === "mi_marca")
+      ? "La Intuicion de Mi Marca no va por aqui: se publica con publishMiMarcaCard({periodo, card:{type:'intuicion', ...}}), que es contrato cards.v2 y reparte por periodo. "
+      : "";
     return {
       ok: false,
       motivo: `'${v.card.type}' no vive en ${NOMBRE_TAB_V4[sc]}`,
-      detalle: suTab
-        ? `Esa card es de ${NOMBRE_TAB_V4[suTab]} (scope '${suTab}'). En ${NOMBRE_TAB_V4[sc]} caben: ${VERA4_TYPES_POR_SCOPE[sc].join(", ")}.`
+      detalle: susTabs.length
+        ? `${desvio}Esa card es de ${susTabs.map((t) => `${NOMBRE_TAB_V4[t]} (scope '${t}')`).join(" o ")}. En ${NOMBRE_TAB_V4[sc]} caben: ${VERA4_TYPES_POR_SCOPE[sc].join(", ")}.`
         : `'${v.card.type}' todavia no tiene tablero: habla de ti, no de la marca. No se publica en ninguno de los cuatro.`,
     };
   }

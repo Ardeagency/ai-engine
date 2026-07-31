@@ -1,6 +1,6 @@
 ---
 name: my-trends-dashboard
-description: Como construyo el dashboard TENDENCIAS — el tablero donde leo el MERCADO y no la cuenta, separando lo que va a durar de lo que se apaga en tres semanas, ordenando cada senal por horizonte y decidiendo si a ESTA marca le toca. Incluye COMO me organizo para llenarlo (getVera4Encargo, investigar, publishVera4Card una card por llamada) y la regla de sus instrumentos — la forma la fija el tablero, yo alimento la serie. La uso cada vez que escribo o reviso las tarjetas de Tendencias (latido, senales debiles, triangulacion, tensiones, tendencia o moda, tres horizontes, derecho a jugar, curva de adopcion, momento exacto, lo que falta, crecimiento de categoria), cuando me piden leer el mercado o el nicho, y cuando dudo si una senal merece que la marca se suba. Se activa en "lee las tendencias", "que se esta moviendo", "que hay de nuevo en el mercado", "esto es tendencia o moda", "nos subimos a esto", "actualiza tendencias". NO es la marca por dentro (my-brand-dashboard) ni los perfiles monitoreados (my-competition-dashboard). NO es el juicio de UNA senal puntual (reading-beneath-the-surface, que es el razonamiento que uso AQUI).
+description: Como construyo el dashboard TENDENCIAS — el tablero donde leo el MERCADO y no la cuenta, separando lo que va a durar de lo que se apaga en tres semanas, ordenando cada senal por horizonte y decidiendo si a ESTA marca le toca. Incluye COMO me organizo para llenarlo (getVera4Encargo, investigar, publishVera4Card una card por llamada) y la regla de sus instrumentos — la forma la fija el tablero, yo alimento la serie. La uso cada vez que escribo o reviso las tarjetas de Tendencias (latido, senales debiles, triangulacion, tensiones, tendencia o moda, tres horizontes, derecho a jugar, curva de adopcion, momento exacto, lo que falta, crecimiento de categoria, y mi intuicion sobre el mercado), cuando me piden leer el mercado o el nicho, y cuando dudo si una senal merece que la marca se suba. Se activa en "lee las tendencias", "que se esta moviendo", "que hay de nuevo en el mercado", "esto es tendencia o moda", "nos subimos a esto", "actualiza tendencias". NO es la marca por dentro (my-brand-dashboard) ni los perfiles monitoreados (my-competition-dashboard). NO es el juicio de UNA senal puntual (reading-beneath-the-surface, que es el razonamiento que uso AQUI).
 ---
 
 # My Trends Dashboard — Leer el mercado sin volverse una revista
@@ -36,6 +36,43 @@ nombre.
 2. **Investigo** con mis tools MCP. Sin límite de tools ni de tokens.
 3. **`publishVera4Card`**, UNA card por llamada. Ninguna es obligatoria.
 4. **`getVera4Progress`** para cerrar: qué quedó y qué dejé fuera, con mi motivo.
+
+## Yo decido qué se vigila. La automatización solo ejecuta
+
+Los colectores siembran de `palabras_clave`, una lista que alguien escribió una
+vez y que no aprende nada. No sabe que ayer un tema encendió los comentarios de
+un competidor. Eso lo sé yo, y por eso la curaduría es mía.
+
+**Son dos actos distintos y no los confundo:**
+
+- **`exploreSearchDemand`** — mirar un término **una vez**, ahora. Barato,
+  inmediato, sin compromiso. Es como decido si algo merece más.
+- **`watchSearchTerm`** — dejarlo montado para que se mida **todos los días**.
+  Compromete cuota a diario, así que exige un motivo escrito y la lista tiene
+  tope. `listWatchedTerms` para ver qué hay, `unwatchSearchTerm` para soltar.
+
+**Qué merece vigilancia diaria:** un término que apareció en una señal viva —lo
+que preguntan en los comentarios de un rival, lo que se repite en las bios de sus
+seguidores, la consulta que ya venía en `rising`— y sobre el que voy a tener que
+decidir algo. **Qué no:** el nombre de nuestros productos (eso ya lo miden los
+colectores) y las curiosidades sin consecuencia. La lista está llena a los cinco:
+si quiero meter uno, saco otro y explico por qué. Esa fricción es a propósito.
+
+**Lo que vale de medir a diario no es el número.** Google devuelve la serie de
+doce meses en una sola llamada, así que la curva no la construyo yo. Lo valioso
+es `nuevas`: **las consultas que hoy están y ayer no**. Una consulta en breakout
+es una ola empezando, y eso solo se ve comparando días.
+
+**Tres cosas que digo, siempre que use esto:**
+
+- El interés es **relativo (0-100)**, no un número de búsquedas. Compara momentos
+  y términos entre sí; no estima tráfico.
+- **Sin volumen no significa sin valor.** La búsqueda mide demanda que YA existe.
+  Nadie busca lo que todavía no sabe que existe, y ahí es donde vive lo que hay
+  que construir.
+- Si la cuota se acabó y no pude consultar, **lo digo**. «No hay demanda» y «no
+  pude mirar» son cosas distintas, y confundirlas es como se entierra una idea
+  buena con cara de dato.
 
 ## Tendencia o moda: tres marcadores, nunca un puntaje
 
@@ -97,6 +134,28 @@ el instrumento acumule historia en vez de ser una foto distinta cada ciclo.
 
 Donde el dato es juicio mío —la consistencia narrativa, quién adopta— va la
 **nota de método**: un gráfico parece una medición aunque no lo sea.
+
+## Mi intuición sobre el mercado — la única card sin tema asignado
+
+`intuicion` es **mía y de este tablero**. No la copio de Mi Marca ni de
+Competencia: allí el sujeto es la marca o el rival, aquí es **el mercado**. Si la
+que escribo aquí se pudiera pegar en otro tab sin que se note, no escribí nada.
+
+No tiene tema: tiene un **método**. Un humano ya ve que una búsqueda subió; lo que
+no ve es el **porqué**.
+
+1. **Parto de UNA señal concreta** —una conversación, una búsqueda que se mueve,
+   algo que la gente empezó a decir— y respondo por qué se mueve **AHORA** y no
+   hace seis meses. Del mercado en abstracto sale un horóscopo.
+2. **Nombro lo obvio** que el tablero ya muestra de esa señal. Si mi lectura es lo
+   obvio con otras palabras, no la escribo.
+3. La intuición de este tab casi siempre está en la **causa emocional** debajo de
+   la señal: qué cambió en la vida de esa gente para que esto les importe hoy.
+4. **Cierro en qué le toca hacer a esta marca** con esa ventana, con su reloj:
+   cuánto lleva abierta y cuánto le queda.
+
+La vara: si un tablero pudiera decirlo con una cifra, no es intuición — es una
+etiqueta. Y aquí no resumo lo que ya es noticia: si ya es titular, llegamos tarde.
 
 ## Lo que NUNCA hago aquí
 

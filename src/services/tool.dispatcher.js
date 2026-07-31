@@ -47,6 +47,7 @@ import { audit } from "../lib/audit-logger.js";
 import { emitToolActivity } from "../lib/activity-emitter.js";
 import * as commentHarvest from "./comment-harvest.service.js";
 import * as followerStudy from "./follower-study.service.js";
+import * as searchWatch from "./search-watchlist.service.js";
 
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS) || 8_000;
 
@@ -704,6 +705,55 @@ const TOOL_REGISTRY = {
         jobId: p.job_id,
         incluirPerfiles: p.incluir_perfiles !== false && p.incluir_perfiles !== "false",
         limit: p.limit,
+      });
+    },
+    requiresConsent: false,
+  },
+
+  // ── Demanda de busqueda: explorar hoy, vigilar todos los dias ────────────
+  // La automatizacion siembra de `palabras_clave`, una lista escrita una vez que
+  // no aprende. Esto le da a Vera las dos mitades que le faltaban: mirar un
+  // termino que acaba de descubrir, y dejarlo montado si vale la pena.
+  exploreSearchDemand: {
+    fn: ({ params, ...rest }) => {
+      const p = { ...(params || {}), ...rest };
+      return searchWatch.explorar({
+        term: p.term, geo: p.geo || "",
+        conSerie: p.con_serie !== false && p.con_serie !== "false",
+      });
+    },
+    // Gasta cuota SerpApi (250/mes para todo el sistema), no dolares. El freno
+    // fino es la RESERVA del endpoint; esto solo evita que se vacie en un ciclo.
+    requiresConsent: false,
+    costsMoney: true,
+  },
+  watchSearchTerm: {
+    fn: ({ params, organizationId, brandContainerId, ...rest }) => {
+      const p = { ...(params || {}), ...rest };
+      return searchWatch.vigilar({
+        organizationId,
+        brandContainerId: p.brand_container_id || brandContainerId,
+        term: p.term, geo: p.geo || null, reason: p.reason, origen: p.origen || null,
+      });
+    },
+    requiresConsent: false,
+  },
+  listWatchedTerms: {
+    fn: ({ params, brandContainerId, ...rest }) => {
+      const p = { ...(params || {}), ...rest };
+      return searchWatch.listar({
+        brandContainerId: p.brand_container_id || brandContainerId,
+        incluirInactivos: p.incluir_inactivos === true || p.incluir_inactivos === "true",
+      });
+    },
+    requiresConsent: false,
+  },
+  unwatchSearchTerm: {
+    fn: ({ params, brandContainerId, ...rest }) => {
+      const p = { ...(params || {}), ...rest };
+      return searchWatch.dejarDeVigilar({
+        brandContainerId: p.brand_container_id || brandContainerId,
+        term: p.term, motivo: p.motivo || null,
       });
     },
     requiresConsent: false,

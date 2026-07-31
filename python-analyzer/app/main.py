@@ -1143,6 +1143,29 @@ async def trends_keyword_loop(brand_container_id: str, max_calls: int | None = N
         raise HTTPException(500, f"keyword_loop error: {str(e)[:300]}")
 
 
+@app.post("/trends/explore")
+async def trends_explore(q: str, geo: str = "", con_serie: bool = True):
+    """Google Trends BAJO DEMANDA para un termino suelto.
+
+    A diferencia de los colectores semanales —que miden lo que ya decidimos
+    vigilar— esto responde la pregunta de ahora mismo: Vera vio algo en vivo y
+    quiere saber si hay ola detras. 1 llamada SerpApi sin serie, 2 con serie.
+    Respeta una reserva de cuota para no dejar sin datos a los colectores.
+    """
+    from .trends.explore import explorar
+    try:
+        return explorar(q, geo=geo, con_serie=con_serie)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except RuntimeError as e:
+        # Cuota agotada o SerpApi caido: 429 para que el llamador sepa que NO es
+        # "no hay datos" sino "no se pudo mirar". Confundirlos hace que Vera
+        # concluya que un tema no tiene demanda cuando lo que paso es que no miro.
+        raise HTTPException(429, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"explore error: {str(e)[:300]}")
+
+
 # ── Clasificador LLM (multi-etiqueta, data-driven desde pattern_taxonomy) ──
 class PatternsLLMReq(BaseModel):
     limit: int = 20

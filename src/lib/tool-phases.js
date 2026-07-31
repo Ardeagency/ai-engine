@@ -73,6 +73,8 @@ export const PHASE_B_TOOLS = [
   "harvestPostComments", "getHarvestedComments",
   // Estudio de seguidores: quien es la gente que sigue a la marca y a los rivales.
   "studyFollowers", "getFollowerStudy",
+  // Demanda de busqueda: mirar un termino hoy, y decidir que se vigila a diario.
+  "exploreSearchDemand", "watchSearchTerm", "listWatchedTerms", "unwatchSearchTerm",
   "registrarMedicionDeCodigos", "getSerieDeCodigos",
   ...PHASE_A_TOOLS,
   "getCatalogDiagnosis", "getLiveProducts", "getLivePosts", "getLiveAdsMetrics",

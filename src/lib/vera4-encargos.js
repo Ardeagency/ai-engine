@@ -44,8 +44,90 @@ export const DOCTRINA_POR_SCOPE = {
   ]
 };
 
-/** El encargo de cada card: card (nombre en pantalla), scope y texto. */
+/* ── LA INTUICION ────────────────────────────────────────────────────────────
+   La unica card que se escribe en VARIOS tabs, y por eso su encargo se arma en
+   dos piezas: el METODO (identico en los tres, porque es una lente, no un tema)
+   y el SUJETO (distinto en cada uno, porque de eso se trata todo esto).
+
+   Hasta el 2026-07-31 habia UNA sola Intuicion —la de Mi Marca— y el frontend la
+   copiaba al pie de los otros tres tabs: el cliente leia el mismo parrafo cuatro
+   veces. Si las tres que escribas aqui se pueden intercambiar de tab sin que se
+   note, volviste al mismo sitio. */
+
+const METODO_INTUICION = `intuicion — EL PORQUE QUE NADIE VE, Y QUE HACER CON EL.
+
+   Esta es la unica card del tablero sin tema asignado: tiene un METODO. Un humano
+   ya sabe cuantos likes, cuantos guardados y cuantas reproducciones hubo. Lo que
+   NO ve es el porque. Aqui va eso, y solo eso.
+
+   LOS CUATRO PASOS, siempre:
+   1. PARTE DE UNA COSA CONCRETA que miraste de verdad —una pieza, un movimiento,
+      una senal— con su copy, su imagen, su formato y sus comentarios. No del
+      periodo en abstracto: de ahi sale un horoscopo.
+   2. NOMBRA LO OBVIO que el tablero ya muestra de eso, para tener contra que
+      medirte. Si tu lectura es lo obvio con otras palabras, no la escribas.
+   3. SEPARA EL ACIERTO DEL CULPABLE. Casi nunca falla todo: "la colaboracion fue
+      perfecta; el culpable fue el formato, NO la colaboracion". Condenarlo todo
+      junto es mas facil de escribir y hace que se tire lo que estaba bien.
+   4. TERMINA EN ALGO QUE SE PUEDA PRODUCIR, aunque sea audaz. Si no termina ahi,
+      quedaste a medias.
+
+   LA VARA: si un tablero pudiera decirlo con una cifra, no es intuicion — es una
+   etiqueta. Y el culpable no sale de una lista cerrada: puede ser el formato, el
+   momento, el encuadre, quien aparece, el socio o lo que se callo. Lo dicta el caso.
+
+   COMO MIRAR (vocabulario observable, NUNCA un checklist): apagan lo plano,
+   abstracto y frio —texto sobre imagen, atributos sueltos, mirar a camara,
+   monologo, pantalla partida—; encienden la gente concreta, las caras, el
+   contacto, el movimiento, una escena donde ocurre algo inesperado, el humor y la
+   metafora.
+
+   NO VA: la mecanica de conversion ("no convierte porque el CTA esta abajo"), el
+   consejo que serviria para cualquier marca, y repetir lo que ya dice otra card
+   de este mismo tab.`;
+
+const SUJETO_INTUICION = {
+  monitoreo: `   TU SUJETO AQUI ES EL RIVAL. Parte de UNA pieza o UN movimiento concreto de un
+   perfil monitoreado y di lo que su tablero no dice: que esta viendo el que
+   nosotros no, o por que le funciona por una razon distinta de la que el cree.
+   El acierto puede ser SUYO — a un rival que acierta y al que le inventas un
+   error te quedas peleandole a un fantasma.
+   CIERRA en que hacemos NOSOTROS con eso: copiarlo no es una respuesta, e
+   ignorarlo tampoco si el mecanismo que a el le funciona tambien aplica aqui.
+   PROHIBIDO hablar de nuestras piezas: eso es Mi Marca.`,
+
+  tendencias: `   TU SUJETO AQUI ES EL MERCADO. Parte de UNA senal concreta —una conversacion,
+   una busqueda que se mueve, algo que la gente empezo a decir— y responde por que
+   se esta moviendo AHORA y no hace seis meses. La intuicion de este tab casi
+   siempre esta en la causa emocional debajo de la senal: que cambio en la vida de
+   esa gente para que esto les importe hoy.
+   CIERRA en que le toca hacer a esta marca con esa ventana, con su reloj: cuanto
+   lleva abierta y cuanto le queda.
+   PROHIBIDO el resumen de lo que ya es noticia: si ya es titular, llegamos tarde.`,
+
+  estrategia: `   TU SUJETO AQUI ES LA JUGADA. Parte de UNA decision concreta que esta sobre la
+   mesa —o que ya se tomo— y di lo que nadie ha nombrado de ella: que se esta
+   jugando de verdad, que se pierde si se hace bien pero tarde, o por que la
+   opcion obvia es la equivocada. Aqui la intuicion es la del estratega, no la del
+   analista.
+   CIERRA en la ejecucion concreta: quien, que formato, con que se graba o se arma.
+   PROHIBIDO repetir la decision del dia con otras palabras: si tu intuicion es la
+   misma frase de decision_del_dia, no la escribas.`,
+};
+
+/** El encargo de cada card: card (nombre en pantalla), scope y texto.
+    `scope` puede ser una LISTA (la Intuicion vive en tres tabs) y entonces
+    `encargo` es un mapa scope -> texto: el metodo es el mismo, el sujeto no. */
 export const ENCARGOS = {
+  "intuicion": {
+    "card": "La Intuición de Vera",
+    "scope": ["monitoreo", "tendencias", "estrategia"],
+    "encargo": {
+      "monitoreo":  `${METODO_INTUICION}\n\n${SUJETO_INTUICION.monitoreo}`,
+      "tendencias": `${METODO_INTUICION}\n\n${SUJETO_INTUICION.tendencias}`,
+      "estrategia": `${METODO_INTUICION}\n\n${SUJETO_INTUICION.estrategia}`,
+    },
+  },
   "crecimiento_categoria": {
     "card": "Crece la categoría o te están quitando cuota",
     "scope": "tendencias",
@@ -288,14 +370,30 @@ export const ENCARGOS = {
   }
 };
 
+/** Si el encargo de esa card aplica a ese tab (`scope` puede ser una lista). */
+function _viveEn(v, scope) {
+  return Array.isArray(v.scope) ? v.scope.includes(scope) : v.scope === scope;
+}
+
+/** El texto del encargo para ESE tab. Una card multi-tab trae un mapa por scope:
+    devolver el mapa entero le daria a Vera los tres sujetos y escribiria la
+    misma card tres veces, que es justo lo que esto vino a arreglar. */
+function _textoEncargo(v, scope) {
+  const e = v.encargo;
+  if (e && typeof e === "object" && !Array.isArray(e)) return e[scope] || null;
+  return e;
+}
+
 /** El encargo COMPLETO de un tab: su doctrina + el de cada card que vive ahi. */
 export function encargoDeScope(scope) {
-  const cards = Object.entries(ENCARGOS).filter(([, v]) => v.scope === scope);
+  const cards = Object.entries(ENCARGOS).filter(([, v]) => _viveEn(v, scope));
   if (!cards.length) return null;
   const doctrina = (DOCTRINA_POR_SCOPE[scope] || []).map((k) => DOCTRINA_CICLO[k]).filter(Boolean);
   return {
     scope,
     doctrina,
-    cards: cards.map(([type, v]) => ({ type, card: v.card, encargo: v.encargo })),
+    cards: cards
+      .map(([type, v]) => ({ type, card: v.card, encargo: _textoEncargo(v, scope) }))
+      .filter((c) => c.encargo),
   };
 }

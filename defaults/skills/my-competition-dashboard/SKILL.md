@@ -1,6 +1,6 @@
 ---
 name: my-competition-dashboard
-description: Como construyo el dashboard COMPETENCIA — el tablero donde muestro que hacen los perfiles monitoreados, como suenan, que emocion provocan y sobre todo que van a hacer despues. Incluye COMO me organizo para llenarlo (getVera4Encargo, investigar, publishVera4Card una card por llamada) y la regla que gobierna sus graficos — la forma la fija el tablero, yo alimento la serie. La uso cada vez que escribo o reviso las tarjetas de Competencia (territorio tematico, registro de voz, emocion, busqueda vs voz, supuesto y punto ciego, proxima movida, anomalias, errores ajenos), cuando me piden leer a la competencia o cuando dudo si lo que voy a afirmar de un rival es verificable. Se activa en "lee la competencia", "que estan haciendo los rivales", "llena el tablero de competencia", "analiza a los competidores", "actualiza competencia". NO es la lectura de UNA senal puntual de un rival (competitor-post-analyzer) ni el mapa mental para anticiparlo en abstracto (reading-the-rivals-mind, que es el razonamiento que uso AQUI). NO es la marca por dentro (my-brand-dashboard) ni el mercado (tendencias).
+description: Como construyo el dashboard COMPETENCIA — el tablero donde muestro que hacen los perfiles monitoreados, como suenan, que emocion provocan y sobre todo que van a hacer despues. Incluye COMO me organizo para llenarlo (getVera4Encargo, investigar, publishVera4Card una card por llamada) y la regla que gobierna sus graficos — la forma la fija el tablero, yo alimento la serie. La uso cada vez que escribo o reviso las tarjetas de Competencia (territorio tematico, registro de voz, emocion, busqueda vs voz, supuesto y punto ciego, proxima movida, anomalias, errores ajenos, y mi intuicion sobre el rival), cuando me piden leer a la competencia o cuando dudo si lo que voy a afirmar de un rival es verificable. Se activa en "lee la competencia", "que estan haciendo los rivales", "llena el tablero de competencia", "analiza a los competidores", "actualiza competencia". NO es la lectura de UNA senal puntual de un rival (competitor-post-analyzer) ni el mapa mental para anticiparlo en abstracto (reading-the-rivals-mind, que es el razonamiento que uso AQUI). NO es la marca por dentro (my-brand-dashboard) ni el mercado (tendencias).
 ---
 
 # My Competition Dashboard — El tablero que mira hacia afuera
@@ -150,6 +150,29 @@ Lo visible es materia prima; no me quedo ahí.
 - **En qué fracasó** (`error_ajeno`): disecciono POR QUÉ, y verifico si yo podría
   cometer el mismo error. Sin burla y sin celebración: es material de aprendizaje,
   no munición.
+
+## Mi intuición sobre el rival — la única card sin tema asignado
+
+`intuicion` es **mía y de este tablero**. No la copio de Mi Marca: allí el sujeto
+es la marca, aquí es **el rival**. Si la que escribo aquí se pudiera pegar en otro
+tab sin que se note, no escribí nada.
+
+No tiene tema: tiene un **método**. Un humano ya sabe cuántos likes tuvo el post
+del competidor; lo que no ve es el **porqué**.
+
+1. **Parto de UNA pieza o UN movimiento concreto** que miré de verdad — su copy,
+   su imagen, su formato, sus comentarios. Del periodo en abstracto sale un
+   horóscopo.
+2. **Nombro lo obvio** que el tablero ya muestra de eso, para tener contra qué
+   medirme. Si mi lectura es lo obvio con otras palabras, no la escribo.
+3. **Separo el acierto del culpable.** Casi nunca falla todo. Y el acierto puede
+   ser **suyo**: a un rival que acierta y al que le invento un error me quedo
+   peleándole a un fantasma.
+4. **Cierro en qué hacemos NOSOTROS.** Copiarlo no es una respuesta; ignorarlo
+   tampoco, si el mecanismo que a él le funciona también aplica aquí.
+
+La vara: si un tablero pudiera decirlo con una cifra, no es intuición — es una
+etiqueta. Y aquí no hablo de nuestras piezas: eso es Mi Marca.
 
 ## Lo que NUNCA hago aquí
 

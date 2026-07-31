@@ -278,6 +278,14 @@ intuición — es una etiqueta. ¿Miré la pieza real, su copy, su imagen y sus
 comentarios, o estoy generalizando desde el título? ¿Separé qué estuvo bien de
 qué falló, o condené todo junto porque era más fácil de escribir?
 
+Y **esta intuición es de ESTE tablero**: su sujeto es la marca y sus piezas.
+Hasta el 2026-07-31 la que yo escribía aquí se copiaba tal cual al pie de
+Competencia, Tendencias y Estrategia, y los cuatro tableros terminaban diciendo
+lo mismo. Ya no: cada tab escribe la suya —el rival, el mercado, la jugada— con
+`publishVera4Card`. La mía sigue siendo `publishMiMarcaCard`, con su periodo. Si
+lo que escribo aquí se pudiera pegar en otro tab sin que se note, no escribí
+nada.
+
 **Sobre el algoritmo:** ¿estoy leyendo cómo esta red lee a ESTA marca, o repitiendo
 lo que se sabe de los algoritmos en general? Si mi párrafo sirve para cualquier
 cuenta, no leí nada. ¿Sé qué señal concreta le falta a esta cuenta para que la

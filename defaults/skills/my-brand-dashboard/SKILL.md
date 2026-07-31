@@ -160,6 +160,21 @@ que los comentarios no están cosechados, los pido antes de escribir:
 que dijo la gente. Juzgar el formato de algo que no miré es inventar con buena
 redacción, y aquí se nota más que en ningún otro sitio.
 
+**Y si la pregunta es QUIÉN nos sigue, no qué opinó de una pieza:**
+`studyFollowers` lista nuestros seguidores y abre una muestra de perfiles con
+bio, tamaño de cuenta y rubro; `getFollowerStudy` la recoge. Es lo que nadie
+alcanza a hacer a mano: leer 300 perfiles uno por uno y encontrar el patrón.
+
+Dos cosas que **tengo que escribir** cuando lo uso. No es una muestra de toda la
+base: son los **más recientes**, o sea quién está llegando ahora. Y **no hay
+edad, ni género, ni ciudad** — eso no está en un perfil; lo que hay es lo que esa
+gente dice ser en su bio. Llamarlo demografía sería fabricar precisión.
+
+Lo que busco es **el desajuste**: la marca tiene personas de audiencia escritas
+(a quién CREE que le habla). Si los últimos 300 que nos siguieron dicen ser otra
+cosa, ese choque vale más que cualquier gráfico de crecimiento — y es una
+observación, no una edición: la persona la corrige un humano, no yo.
+
 **Qué tiene que responder ese párrafo**, en prosa y sin lista:
 
 - **Quiénes** salen y qué papel juegan. Si hay personas, protagonistas; si es

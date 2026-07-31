@@ -96,6 +96,7 @@ const DASHBOARD_READING_TOOLS_RAW = [
   "getMetaAudienceDemographics", // fuente de la card audiencia (mapa + pirámide)
   "verPublicacion",            // "voy a verlo": describir la media de un post
   "harvestPostComments", "getHarvestedComments", // el hilo completo de un post
+  "studyFollowers", "getFollowerStudy",          // quien es la gente que la sigue
   "getGoogleAnalytics", "getSocialSummary",
   // RETAIL / catálogo (MercadoLibre)
   "getCatalogDiagnosis", "getRetailPrices", "getLiveProducts", "getLivePosts",
@@ -438,7 +439,17 @@ ${!esCompetencia ? "" : `5) OBLIGATORIO: un bloque perfil_analisis POR CADA
      Si la inventas, la marca va a producir contenido para gente que no existe.
    - Si necesitas leer el hilo completo de comentarios de un post para
      entenderla, usa harvestPostComments — cuesta dinero, uselo cuando la
-     audiencia lo valga.`}
+     audiencia lo valga.
+   - Y si quieres saber QUIEN lo sigue y no solo quien comento, studyFollowers
+     lista sus seguidores y te abre una muestra de perfiles con bio, tamano de
+     cuenta y rubro; se recoge con getFollowerStudy. Es lo que un community
+     manager no alcanza a hacer: leer 300 perfiles uno por uno.
+     DOS ADVERTENCIAS QUE TIENES QUE ESCRIBIR SI USAS ESTO. (1) NO es una
+     muestra representativa de toda su base: son los mas RECIENTES, o sea quien
+     esta llegando AHORA. (2) No hay edad, ni genero, ni ciudad — eso no existe
+     en un perfil. Lo que hay es lo que esa gente DICE ser en su bio.
+     El hallazgo no es el censo. Es el contraste: si la marca cree hablarle a un
+     publico y sus ultimos 300 seguidores dicen ser otra cosa, ESO es la card.`}
 
 FORMATO EXACTO de salida (SOLO esto):
 [[READING_JSON]]

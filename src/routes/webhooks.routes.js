@@ -18,6 +18,7 @@ import {
 } from "../controllers/signal-webhook.controller.js";
 import { enqueueComfyFlow, enqueueStudioComfyRun } from "../services/comfy-flow-runner.service.js";
 import { ingestHarvest } from "../services/comment-harvest.service.js";
+import { ingestStudy } from "../services/follower-study.service.js";
 
 const router = express.Router();
 
@@ -58,6 +59,34 @@ router.post("/apify-comments", async (req, res) => {
     console.log(`[apify-comments] job ${jobId || runId}: ${JSON.stringify(r)}`);
   } catch (e) {
     console.error(`[apify-comments] job ${jobId || runId} fallo:`, e?.message || e);
+  }
+});
+
+// Estudio de seguidores. A diferencia de los comentarios, un mismo estudio
+// recibe DOS avisos —listar y enriquecer— y sin la fase no habria como saber
+// cual de las dos corridas termino. Por eso el payloadTemplate la lleva.
+router.post("/apify-followers", async (req, res) => {
+  const expected = process.env.INTERNAL_WEBHOOK_SECRET;
+  if (!expected) return res.status(500).json({ error: "INTERNAL_WEBHOOK_SECRET no configurado" });
+  if (req.headers["x-webhook-secret"] !== expected) return res.status(403).json({ error: "Forbidden" });
+
+  const body = req.body || {};
+  const recurso = body.resource || {};
+  const jobId = body.jobId || null;
+  const fase = body.fase || null;
+  const runId = recurso.id || null;
+  const datasetId = recurso.defaultDatasetId || null;
+  const status = recurso.status || null;
+  if (!jobId) return res.status(400).json({ error: "falta jobId" });
+  // Se responde ANTES de ingerir: el dataset puede traer miles de filas y Apify
+  // reintenta si la respuesta tarda.
+  res.json({ received: true });
+
+  try {
+    const r = await ingestStudy({ jobId, fase, runId, datasetId, status });
+    console.log(`[apify-followers] job ${jobId} fase ${fase}: ${JSON.stringify(r)}`);
+  } catch (e) {
+    console.error(`[apify-followers] job ${jobId} fase ${fase} fallo:`, e?.message || e);
   }
 });
 

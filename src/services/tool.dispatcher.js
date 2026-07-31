@@ -46,6 +46,7 @@ import { checkPolicy, getActionCreditCost } from "../lib/policy.engine.js";
 import { audit } from "../lib/audit-logger.js";
 import { emitToolActivity } from "../lib/activity-emitter.js";
 import * as commentHarvest from "./comment-harvest.service.js";
+import * as followerStudy from "./follower-study.service.js";
 
 const TOOL_TIMEOUT_MS = Number(process.env.TOOL_TIMEOUT_MS) || 8_000;
 
@@ -670,6 +671,43 @@ const TOOL_REGISTRY = {
     },
     requiresConsent: false,
   },
+
+  // ── Estudio de seguidores ────────────────────────────────────────────────
+  // Lo que un community manager no alcanza a hacer: abrir 300 perfiles y leer
+  // quien es esa gente. Dos corridas —listar y enriquecer— porque la lista sale
+  // barata y delgada (en Instagram: username, nombre y poco mas) y la bio, los
+  // contadores y el rubro solo llegan con una segunda pasada que cuesta 3x.
+  studyFollowers: {
+    fn: async ({ params, organizationId, brandContainerId, ...rest }) => {
+      const p = { ...(params || {}), ...rest };
+      return followerStudy.requestStudy({
+        organizationId,
+        brandContainerId: p.brand_container_id || brandContainerId || null,
+        entityId: p.entity_id || null,
+        subjectKind: p.subject_kind || "monitoreado",
+        network: p.network,
+        handle: p.handle,
+        listarCap: p.listar_cap,
+        enriquecerCap: p.enriquecer_cap,
+        reason: p.reason || null,
+      });
+    },
+    // Solo LEE perfiles publicos, pero gasta: la gobierna el presupuesto de la
+    // Capa 5a, no el nivel de autonomia. Ver el comentario de harvestPostComments.
+    requiresConsent: false,
+    costsMoney: true,
+  },
+  getFollowerStudy: {
+    fn: ({ params, ...rest }) => {
+      const p = { ...(params || {}), ...rest };
+      return followerStudy.getStudy({
+        jobId: p.job_id,
+        incluirPerfiles: p.incluir_perfiles !== false && p.incluir_perfiles !== "false",
+        limit: p.limit,
+      });
+    },
+    requiresConsent: false,
+  },
   getCompetenciaRisk:       { fn: ({ params, organizationId }) => dashboardTools.getCompetenciaRisk({ ...(params || {}), organizationId }), requiresConsent: false },
   getBrandVsCompetencia:    { fn: ({ params, organizationId }) => dashboardTools.getBrandVsCompetencia({ ...(params || {}), organizationId }), requiresConsent: false },
   searchCompetidor:         { fn: ({ params, organizationId }) => dashboardTools.searchCompetidor({ ...(params || {}), organizationId }), requiresConsent: false },
@@ -1008,7 +1046,13 @@ export async function dispatchTool(toolName, params, secCtx) {
     if (techo > 0) {
       let gasto;
       try {
-        gasto = await commentHarvest.gastoDelMes({ organizationId });
+        // El techo es del GASTO, no de una tool: si solo contara comentarios, un
+        // estudio de seguidores podria vaciar el presupuesto sin tocar el limite.
+        const [c, f] = await Promise.all([
+          commentHarvest.gastoDelMes({ organizationId }),
+          followerStudy.gastoDelMes({ organizationId }),
+        ]);
+        gasto = { usd: Number((c.usd + f.usd).toFixed(3)), comentarios: c.usd, seguidores: f.usd };
       } catch (e) {
         // Un contador roto no autoriza gasto: fail-closed, igual que Capa 1.
         throw Object.assign(new Error(

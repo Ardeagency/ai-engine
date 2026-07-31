@@ -71,6 +71,8 @@ export const PHASE_B_TOOLS = [
   // y la dispara ella. Cuatro skills se la mandaban usar y no estaba expuesta
   // en ninguna fase — el hilo completo de un post nunca fue alcanzable.
   "harvestPostComments", "getHarvestedComments",
+  // Estudio de seguidores: quien es la gente que sigue a la marca y a los rivales.
+  "studyFollowers", "getFollowerStudy",
   "registrarMedicionDeCodigos", "getSerieDeCodigos",
   ...PHASE_A_TOOLS,
   "getCatalogDiagnosis", "getLiveProducts", "getLivePosts", "getLiveAdsMetrics",

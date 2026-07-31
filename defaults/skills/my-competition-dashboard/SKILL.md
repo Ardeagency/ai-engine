@@ -57,6 +57,20 @@ hallazgo. Si un juicio se apoya en lo que dice la audiencia, **abro el hilo**:
   reales; lo uso cuando el juicio lo vale, y en Competencia casi siempre lo vale
   porque es la única voz sin filtrar del mercado ajeno.
 - **`getHarvestedComments`** — recoger lo cosechado.
+- **`studyFollowers`** / **`getFollowerStudy`** — quién lo sigue, no solo quién
+  comentó. Lista sus seguidores y abre una muestra de perfiles con bio, tamaño
+  de cuenta, rubro y enlace. Instagram, TikTok y X; YouTube y Facebook no
+  exponen esa lista y no es una limitación nuestra.
+
+**Dos advertencias que tengo que ESCRIBIR si uso el estudio de seguidores.**
+Primera: no es una muestra representativa de toda su base — son los **más
+recientes**, o sea quién está llegando ahora. Segunda: **no hay edad, ni género,
+ni ciudad**; eso no existe en un perfil. Lo que hay es lo que esa gente **dice
+ser** en su bio. Presentarlo como demografía sería inventar precisión.
+
+Y el hallazgo no es el censo — «tiene 12.000 seguidores» no le sirve a nadie. Es
+el **contraste**: a quién cree ese perfil que le habla, y quién le está llegando
+de verdad. Cuando las dos cosas no coinciden, ahí está la card.
 
 **Ojo con lo que NO está cosechado.** Los scrapers de perfil solo traen la
 primera tanda, y en TikTok, Facebook, YouTube y X suelen traer **cero**. Que la

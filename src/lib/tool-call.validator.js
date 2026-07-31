@@ -163,6 +163,8 @@ export const TOOL_SCHEMAS = {
   getCampaigns:            { brandContainerId: "uuid" },
   getCampaignDetail:       { campaignId: "uuid", brandContainerId: "uuid" },
   harvestPostComments:     { brand_post_id: "uuid", cap: "string", reason: "string" },
+  studyFollowers:          { network: "string", handle: "string", listar_cap: "string", enriquecer_cap: "string", subject_kind: "string", entity_id: "string", reason: "string" },
+  getFollowerStudy:        { job_id: "uuid", incluir_perfiles: "string", limit: "string" },
   getHarvestedComments:    { job_id: "string", limit: "string" },
   getAvailableFlows:       {},
   getUpcomingDates:        {},

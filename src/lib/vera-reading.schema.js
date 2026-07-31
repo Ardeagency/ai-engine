@@ -113,6 +113,41 @@ const deltaBlock = z.object({
   direction: z.preprocess(normDir, z.enum(["up", "down", "new", "gone", "flat"])),
 }).strict();
 
+/* ── Bloques propios de COMPETENCIA ──────────────────────────────────────────
+   REGRESION QUE ARREGLAN (detectada 2026-07-31): el tab Competencia pinta dos
+   cards que se alimentan SOLO de estos dos tipos —"Audiencias" y
+   "Observaciones"—. Vera los escribia con el prompt de `runDashboardSession`,
+   pero ese camino se apago el 28/07 y el 30/07 nacio `publishDashboardReading`
+   con este contrato, que declaraba unicamente los 8 tipos genericos. Desde
+   entonces los dos tipos REBOTABAN ("no existen"), y las dos cards llevaban un
+   mes vacias mientras las lecturas viejas si los tenian.
+   Es el mismo patron de siempre: molde pintado en el frontend sin productor en
+   el backend. Los campos son EXACTAMENTE los que lee CompGrid.mixin.js — un
+   campo que el pintor no lee es una frase que Vera escribe para nadie. */
+
+const audienciaCompetidorBlock = z.object({
+  type: z.literal("audiencia_competidor"),
+  // Se nombra como un GRUPO DE GENTE, no por demografia.
+  nombre: z.string().min(2).max(60),
+  perfil: z.string().max(80).optional().nullable(),   // quien la pesca
+  descripcion: z.string().max(200).optional().nullable(),
+  dolores: z.array(z.string().max(120)).max(4).optional().nullable(),
+  deseos: z.array(z.string().max(120)).max(4).optional().nullable(),
+  gancho: z.string().max(90).optional().nullable(),   // el hilo con el que la pesca
+  evidence: EV_REFS.optional().nullable(),
+}).strict();
+
+const observacionPerfilBlock = z.object({
+  type: z.literal("observacion_perfil"),
+  perfil: z.string().min(1).max(80),                  // nombre EXACTO del registrado
+  rol: z.enum(["competidor_directo", "competidor_indirecto", "referente", "aliado"]).optional().nullable(),
+  titulo: z.string().min(3).max(60),
+  observacion: z.string().min(10).max(240),           // que viste y QUE IMPLICA
+  severidad: z.enum(["opportunity", "warning", "threat", "neutral"]).optional().nullable(),
+  prioridad: z.enum(["alta", "media", "baja"]).optional().nullable(),
+  evidence: EV_REFS.optional().nullable(),
+}).strict();
+
 const blockSchema = z.discriminatedUnion("type", [
   statTileBlock,
   insightBlock,
@@ -122,6 +157,9 @@ const blockSchema = z.discriminatedUnion("type", [
   recommendedMoveBlock,
   watchlistBlock,
   deltaBlock,
+  // Solo tienen pintor en Competencia (scope 'monitoreo').
+  audienciaCompetidorBlock,
+  observacionPerfilBlock,
 ]);
 
 /**

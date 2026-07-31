@@ -1,6 +1,6 @@
 ---
 name: my-competition-dashboard
-description: Como construyo el dashboard COMPETENCIA — el tablero donde muestro que hacen los perfiles monitoreados, como suenan, que emocion provocan y sobre todo que van a hacer despues. Incluye COMO me organizo para llenarlo (getVera4Encargo, investigar, publishVera4Card una card por llamada) y la regla que gobierna sus graficos — la forma la fija el tablero, yo alimento la serie. La uso cada vez que escribo o reviso las tarjetas de Competencia (territorio tematico, registro de voz, emocion, busqueda vs voz, supuesto y punto ciego, proxima movida, anomalias, errores ajenos, y mi intuicion sobre el rival), cuando me piden leer a la competencia o cuando dudo si lo que voy a afirmar de un rival es verificable. Se activa en "lee la competencia", "que estan haciendo los rivales", "llena el tablero de competencia", "analiza a los competidores", "actualiza competencia". NO es la lectura de UNA senal puntual de un rival (competitor-post-analyzer) ni el mapa mental para anticiparlo en abstracto (reading-the-rivals-mind, que es el razonamiento que uso AQUI). NO es la marca por dentro (my-brand-dashboard) ni el mercado (tendencias).
+description: Como construyo el dashboard COMPETENCIA — el tablero donde muestro que hacen los perfiles monitoreados, como suenan, que emocion provocan y sobre todo que van a hacer despues. Incluye COMO me organizo para llenarlo (getVera4Encargo, investigar, publishVera4Card una card por llamada) y la regla que gobierna sus graficos — la forma la fija el tablero, yo alimento la serie. La uso cada vez que escribo o reviso las tarjetas de Competencia (territorio tematico, registro de voz, emocion, busqueda vs voz, supuesto y punto ciego, proxima movida, anomalias, errores ajenos, algoritmo, y mi intuicion sobre el rival), cuando me piden leer a la competencia o cuando dudo si lo que voy a afirmar de un rival es verificable. Se activa en "lee la competencia", "que estan haciendo los rivales", "llena el tablero de competencia", "analiza a los competidores", "actualiza competencia". NO es la lectura de UNA senal puntual de un rival (competitor-post-analyzer) ni el mapa mental para anticiparlo en abstracto (reading-the-rivals-mind, que es el razonamiento que uso AQUI). NO es la marca por dentro (my-brand-dashboard) ni el mercado (tendencias).
 ---
 
 # My Competition Dashboard — El tablero que mira hacia afuera
@@ -151,6 +151,25 @@ Lo visible es materia prima; no me quedo ahí.
   cometer el mismo error. Sin burla y sin celebración: es material de aprendizaje,
   no munición.
 
+## Ojo: dos cards de este tab NO se escriben con `publishVera4Card`
+
+**Audiencias** y **Observaciones** salen de la lectura narrative v1, o sea de
+`publishDashboardReading({scope:"monitoreo", …})`, con dos tipos de bloque que
+solo existen aquí:
+
+- `observacion_perfil` → la card **Observaciones**. Uno por hallazgo, y un mismo
+  perfil puede llevar varios. Lleva `perfil` (el nombre EXACTO del registrado),
+  `titulo`, `observacion` (qué viste **y qué implica** para la marca) y,
+  opcionales, `rol`, `severidad` y `prioridad`.
+- `audiencia_competidor` → el carrusel **Audiencias**. `nombre` es un GRUPO DE
+  GENTE, no una demografía. Opcionales: `perfil` (quién la pesca),
+  `descripcion`, `dolores`, `deseos` y `gancho` (el hilo con el que la pesca).
+
+**Son los ÚNICOS que llenan esas dos cards.** Si no los escribo, quedan vacías —
+y así estuvieron un mes: el 30/07 nació la tool nueva y su contrato solo
+declaraba los ocho tipos genéricos, así que estos dos rebotaban en silencio.
+Arreglado el 31/07; ahora los acepta.
+
 ## Mi intuición sobre el rival — la única card sin tema asignado
 
 `intuicion` es **mía y de este tablero**. No la copio de Mi Marca: allí el sujeto
@@ -173,6 +192,27 @@ del competidor; lo que no ve es el **porqué**.
 
 La vara: si un tablero pudiera decirlo con una cifra, no es intuición — es una
 etiqueta. Y aquí no hablo de nuestras piezas: eso es Mi Marca.
+
+## El algoritmo se lee en ELLOS, no en mi
+
+Hay una card de Algoritmo en Mi Marca y otra aqui, y **no son la misma ni dicen
+lo mismo**. Alla el sujeto es la cuenta propia: como la esta leyendo el
+algoritmo, que le reparte y a quien se la muestra. **Aqui el sujeto son los
+perfiles vigilados**: que esta premiando la distribucion EN ELLOS. Si lo que
+escribo aqui se pudiera pegar en Mi Marca sin que se note, escribi la card
+equivocada.
+
+Por que vale: el algoritmo es el mismo para todos, pero **solo se deja leer
+donde hay volumen**. Los rivales son el laboratorio gratis — ya pagaron las
+pruebas que a esta marca le faltan.
+
+Por eso cada afirmacion lleva **su prueba: el perfil concreto y la cifra que la
+delata**. "Instagram premia los reels cortos" sin un perfil detras no es
+inteligencia, es repetir lo que se dice en internet. Y de un solo post no sale un
+patron: un caso es una anecdota.
+
+Cierro cada plataforma en **que me llevo** — la instruccion para esta marca. Sin
+eso, es observacion de museo.
 
 ## Lo que NUNCA hago aquí
 

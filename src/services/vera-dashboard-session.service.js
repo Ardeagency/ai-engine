@@ -709,6 +709,9 @@ export async function runDashboardSession(brandContainerId, { trigger = "manual"
     approvedIntents: new Set(),
     allowedTools: resolveDashboardTools(),
     consentMode: "block_all",
+    // Lectura que cuesta: block_all NO la bloquea, la gobierna este presupuesto.
+    // Sin él, Vera deducía el tono de hilos que nunca abrió.
+    spendBudget: { perCycle: Number(process.env.VERA_HARVEST_POR_CICLO || 4), used: 0 },
     orgName: brand.nombre_marca,
     conversationId: `vera-dashboard:${sessionId}`,
     brandContainerId: brand.id,
@@ -1139,6 +1142,9 @@ export async function runBrandDiagnosis(brandContainerId, { trigger = "manual" }
     approvedIntents: new Set(),
     allowedTools: resolveDashboardTools(), // catálogo read-only completo
     consentMode: "block_all",
+    // Lectura que cuesta: block_all NO la bloquea, la gobierna este presupuesto.
+    // Sin él, Vera deducía el tono de hilos que nunca abrió.
+    spendBudget: { perCycle: Number(process.env.VERA_HARVEST_POR_CICLO || 4), used: 0 },
     orgName: brand.nombre_marca,
     conversationId: `vera-diagnosis:${sessionId}`,
     brandContainerId: brand.id,
@@ -1902,6 +1908,9 @@ export async function runMiMarcaCards(brandContainerId, { trigger = "manual", pe
     approvedIntents: new Set(),
     allowedTools: resolveMiMarcaTools(),
     consentMode: "block_all",
+    // Lectura que cuesta: block_all NO la bloquea, la gobierna este presupuesto.
+    // Sin él, Vera deducía el tono de hilos que nunca abrió.
+    spendBudget: { perCycle: Number(process.env.VERA_HARVEST_POR_CICLO || 4), used: 0 },
     orgName: brand.nombre_marca,
     conversationId: `vera-mimarca:${sessionId}`,
     brandContainerId: brand.id,

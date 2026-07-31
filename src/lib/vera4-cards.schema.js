@@ -388,16 +388,34 @@ const busqueda_vs_voz = z.object({
 
 /* ══ COMPETENCIA · JUICIO (sin grafico a proposito) ═══════════════════════ */
 
+// El veredicto es el campo que faltaba. Un molde cuyo unico campo obligatorio se
+// llama "en_que_se_equivoca" ya afirma la conclusion antes de mirar la evidencia:
+// si el rival acierta, Vera igual tiene que rellenarlo y termina fabricandole un
+// error. "tiene_razon" es una salida legitima — y suele ser la mas util, porque
+// obliga a explicar el MECANISMO por el que a el le funciona y a nosotros no.
+const VEREDICTO_SUPUESTO = z.enum(["se_equivoca", "tiene_razon", "parcial"]);
+
 const supuesto_punto_ciego = fichas(z.object({
   perfil: txt(1, 90),
   rol: ROL,
   que_cree: txt(10, 300),               // el supuesto en SUS palabras
-  en_que_se_equivoca: txt(10, 300),
+  veredicto: VEREDICTO_SUPUESTO,
+  en_que_acierta: opt(txt(10, 300)),    // obligatorio si tiene_razon o parcial
+  en_que_se_equivoca: opt(txt(10, 300)),// obligatorio si se_equivoca o parcial
   evidencia_de_la_grieta: txt(10, 300),
+  // El hermano de senal_que_la_desmiente en proxima_movida. El encargo ya pedia
+  // en prosa "busca lo que la DESMENTIRIA" y por eso no se cumplia: lo que es
+  // campo se cumple, lo que es prosa se evapora.
+  que_lo_desmentiria: txt(10, 300),
   como_se_explota: txt(10, 300),
   confianza: CONFIANZA,                 // siempre hipotesis, nunca certeza
   evidence: EVIDENCE,
-}).strip(), { max: 6 });
+}).strip().refine(
+  (i) => (i.veredicto === "se_equivoca" ? !!i.en_que_se_equivoca
+        : i.veredicto === "tiene_razon" ? !!i.en_que_acierta
+        : !!i.en_que_acierta && !!i.en_que_se_equivoca),
+  { message: "el veredicto manda: se_equivoca exige en_que_se_equivoca, tiene_razon exige en_que_acierta, parcial exige los dos" },
+), { max: 6 });
 
 const proxima_movida = fichas(z.object({
   perfil: txt(1, 90),

@@ -655,7 +655,13 @@ const TOOL_REGISTRY = {
         note: "la cosecha sigue en curso; recogela con getHarvestedComments(job_id) en tu siguiente paso",
       };
     },
-    requiresConsent: true,
+    // NO es escritura: no toca el mundo, solo LEE comentarios publicos. Estuvo
+    // marcada requiresConsent porque cuesta dinero, y eso la barria junto a las
+    // escrituras en consentMode "block_all" — el modo del productor del tablero.
+    // Resultado: Vera pedia el hilo, se lo negaban en silencio y opinaba del tono
+    // sin haberlo leido. La gobierna el presupuesto (Capa 5a), no la autonomia.
+    requiresConsent: false,
+    costsMoney: true,
   },
   getHarvestedComments: {
     fn: ({ params, ...rest }) => {
@@ -925,12 +931,13 @@ export const AVAILABLE_TOOL_NAMES = Object.keys(TOOL_REGISTRY);
  * @param {CostController}                 [secCtx.costController]
  * @param {"block_all"|"require"|"auto"}   [secCtx.consentMode]  — derivado de level_of_autonomy
  * @param {string}                         [secCtx.orgName]      — nombre de la org para mensajes
+ * @param {{perCycle:number, used:number}} [secCtx.spendBudget]  — tope de llamadas de PAGO por sesion
  */
 export async function dispatchTool(toolName, params, secCtx) {
   const {
     organizationId, userId, approvedIntents, allowedTools = [],
     costController, consentMode = "require", orgName = "la organización",
-    brandContainerId = null,
+    brandContainerId = null, spendBudget = null,
   } = secCtx;
   const auditCtx = { organizationId, userId, conversationId: secCtx.conversationId };
 
@@ -985,6 +992,46 @@ export async function dispatchTool(toolName, params, secCtx) {
     if (!policy.allowed) {
       audit.policyDenied(auditCtx, tool.policyAction, policy.reason);
       throw Object.assign(new Error(policy.reason), { statusCode: 403, policyDenied: true });
+    }
+  }
+
+  // ── Capa 5a: gasto SIN escritura ────────────────────────────────────────
+  // Una tool que solo LEE pero cuesta dinero no es una escritura, y meterla en
+  // el gate de consentimiento fue un error de categoría con consecuencias: en
+  // "block_all" (el modo del productor del tablero) la cosecha de comentarios
+  // quedaba muda, y Vera terminaba deduciendo el tono de hilos que nunca abrió.
+  // Bloquear una LECTURA no protege a nadie — la empuja a opinar sin mirar, que
+  // sale más caro que los centavos que ahorra. Lo que gobierna estas tools es un
+  // PRESUPUESTO: tope por ciclo y techo mensual, ambos fail-closed.
+  if (tool.costsMoney) {
+    const techo = Number(process.env.HARVEST_MAX_USD_MES || 15);
+    if (techo > 0) {
+      let gasto;
+      try {
+        gasto = await commentHarvest.gastoDelMes({ organizationId });
+      } catch (e) {
+        // Un contador roto no autoriza gasto: fail-closed, igual que Capa 1.
+        throw Object.assign(new Error(
+          `[PRESUPUESTO] no se pudo verificar el gasto del mes (${e.message}); no se cosecha a ciegas`
+        ), { statusCode: 429, budgetDenied: true });
+      }
+      if (gasto.usd >= techo) {
+        audit.consentGate(auditCtx, `BUDGET_MONTH_${toolName}`);
+        throw Object.assign(new Error(
+          `[PRESUPUESTO] la cosecha ya lleva $${gasto.usd} este mes (techo $${techo}). ` +
+          `NO inventes lo que no pudiste leer: baja la confianza y di en la card que no leíste ese hilo.`
+        ), { statusCode: 429, budgetDenied: true });
+      }
+    }
+    if (spendBudget && Number.isFinite(spendBudget.perCycle)) {
+      if ((spendBudget.used || 0) >= spendBudget.perCycle) {
+        audit.consentGate(auditCtx, `BUDGET_CYCLE_${toolName}`);
+        throw Object.assign(new Error(
+          `[PRESUPUESTO] ya usaste las ${spendBudget.perCycle} llamadas de pago de este ciclo. ` +
+          `NO inventes lo que no pudiste leer: baja la confianza y di en la card que no leíste ese hilo.`
+        ), { statusCode: 429, budgetDenied: true });
+      }
+      spendBudget.used = (spendBudget.used || 0) + 1;
     }
   }
 

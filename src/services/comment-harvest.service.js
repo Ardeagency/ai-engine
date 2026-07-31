@@ -36,6 +36,32 @@ export const CAP_DEFAULT = 200;
 export const CAP_MAX = 500;
 
 /**
+ * Gasto ESTIMADO de cosecha en el mes en curso, en USD.
+ *
+ * Se calcula sobre `cap` y el precio del actor, NO sobre el costo real que
+ * devuelve Apify al terminar: es una cota SUPERIOR (casi siempre se traen menos
+ * comentarios que el tope). Para un freno de presupuesto sobreestimar es lo
+ * correcto — el error cae del lado de gastar de menos.
+ *
+ * Las cosechas reutilizadas no cuentan porque no crean fila: no se pagan.
+ */
+export async function gastoDelMes({ organizationId } = {}) {
+  const desde = new Date();
+  desde.setUTCDate(1);
+  desde.setUTCHours(0, 0, 0, 0);
+  let q = supabase
+    .from("comment_harvest_jobs")
+    .select("network, cap")
+    .gte("created_at", desde.toISOString());
+  if (organizationId) q = q.eq("organization_id", organizationId);
+  const { data, error } = await q;
+  if (error) throw new Error(`no se pudo leer el gasto del mes: ${error.message}`);
+  const usd = (data || []).reduce(
+    (s, j) => s + (Number(j.cap) || 0) * (ACTORS[j.network]?.costPerComment || 0), 0);
+  return { usd: Number(usd.toFixed(3)), cosechas: (data || []).length, desde: desde.toISOString() };
+}
+
+/**
  * Actor por red + como se le pide un POST concreto. Los ids y el modelo de
  * cobro estan verificados contra la API de Apify (2026-07-22).
  * `costPerComment` es el precio del tier BRONZE, que es el del plan actual;

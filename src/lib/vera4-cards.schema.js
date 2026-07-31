@@ -32,6 +32,34 @@ const opt = (s) => s.optional().nullable();
 // Evidencia: la disciplina anti-invencion. Es opcional en la forma pero el
 // prompt la exige; sin ella una card es una opinion sin respaldo.
 const EVIDENCE = opt(z.array(z.string().max(120)).max(12));
+/* De donde salio lo que la card afirma. Se pinta en el PIE, discreto y clicable.
+
+   LA REGLA: una fuente que el cliente no puede abrir ni comprobar NO es una
+   fuente — es una afirmacion con aire de cita, que es peor que no citar nada.
+   Por eso `que` tiene que decir algo legible ("Reel de @paranice del 12/07") y
+   las de tipo `web` EXIGEN url: una noticia sin enlace no se verifica.
+
+   Nace de un defecto medido: lo que se guardaba en `evidence` eran claves que
+   Vera se inventaba ("ev_brand_dna", "ev_posts_scan"). No apuntaban a nada, asi
+   que nunca se pudieron mostrar. `evidence` sigue existiendo para el rastro
+   interno; lo que ve el cliente es esto. */
+const FUENTE = z.object({
+  tipo: z.enum(["publicacion", "comentarios", "tendencia", "web", "metrica", "busqueda"]),
+  que: txt(6, 140),                     // lo que se lee en el pie
+  // Mismo criterio que el pintor: solo http(s). Vera lee captions y webs de
+  // terceros, y un `javascript:` aqui seria ejecutable con un clic del cliente.
+  url: opt(z.string().max(500).regex(/^https?:\/\//i, "la url tiene que ser http(s)")),
+  quien: opt(txt(1, 60)),               // @handle, medio, herramienta
+  cuando: opt(txt(3, 40)),
+}).strip()
+  .refine((f) => f.tipo !== "web" || !!f.url, {
+    message: "una fuente 'web' sin url no es verificable: o va el enlace, o no es fuente web",
+  })
+  .refine((f) => !/^ev[_-]/i.test(f.que.trim()), {
+    message: "'que' es lo que LEE el cliente, no una clave interna tipo ev_algo",
+  });
+const FUENTES = opt(z.array(FUENTE).max(8));
+
 const PRIORIDAD = z.enum(["alta", "media", "baja"]);
 const CONFIANZA = z.enum(["alta", "media", "baja", "exploratoria"]);
 const ROL = z.enum(["competidor_directo", "competidor_indirecto", "referente", "aliado", "otro_sector"]);
@@ -45,6 +73,7 @@ const fichas = (item, { min = 1, max = 8 } = {}) =>
     type: z.string(),
     items: z.array(item).min(min).max(max),
     evidence: EVIDENCE,
+    fuentes: FUENTES,
   }).strip();
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -78,6 +107,7 @@ const latencia = z.object({
   }).strip()),
   markdown: opt(txt(10, 400)),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip().refine((c) => c.dias_promedio != null || c.peor, {
   message: "latencia sin cifra ni ventana perdida no dice nada: da al menos dias_promedio o peor",
 });
@@ -105,6 +135,7 @@ const emocion_objetivo = z.object({
   que_la_dispara: txt(10, 360),
   cita: opt(txt(3, 240)),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const ritmo = z.object({
@@ -132,6 +163,7 @@ const autopsia = z.object({
   }).strip()).max(6).default([]),
   leccion: txt(10, 320),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const victoria_explicada = z.object({
@@ -146,6 +178,7 @@ const victoria_explicada = z.object({
   prueba_contraria: opt(txt(10, 300)),
   como_se_repite: txt(10, 320),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const causalidad = z.object({
@@ -208,6 +241,7 @@ const cobertura_momentos = z.object({
   ventana_dias: opt(z.number().min(1).max(400)),
   nota_metodo: opt(txt(5, 200)),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const rejilla_codigos = z.object({
@@ -225,6 +259,7 @@ const rejilla_codigos = z.object({
   // encuesta de Romaniuk. Es una aproximacion honesta y TIENE que decirse.
   nota_metodo: txt(5, 220),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const deriva_codigos = z.object({
@@ -236,6 +271,7 @@ const deriva_codigos = z.object({
   }).strip()).min(1).max(6),
   destacado: opt(txt(2, 90)),               // el que se apaga: va en color, el resto en gris
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip().refine((c) => c.series.every((x) => x.valores.length === c.fechas.length), {
   message: "cada codigo necesita un valor por fecha, en el mismo orden",
 });
@@ -248,6 +284,7 @@ const construir_vs_cosechar = z.object({
   vara: opt(z.number().min(0).max(100)),    // 60 por defecto (Binet & Field)
   nota_metodo: txt(5, 200),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip().refine((c) => c.construir.length === c.meses.length && c.cosechar.length === c.meses.length, {
   message: "construir y cosechar necesitan un valor por mes, en el mismo orden",
 });
@@ -266,6 +303,7 @@ const aplauso_vs_propagacion = z.object({
   // El limite que la card DEBE confesar: esto no mide memoria de marca.
   nota_limite: opt(txt(10, 240)),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const penetracion_vs_lealtad = z.object({
@@ -277,6 +315,7 @@ const penetracion_vs_lealtad = z.object({
   }).strip()).length(2),                    // exactamente dos: gente nueva vs los mismos
   base: opt(txt(5, 120)),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip().refine((c) => c.series.every((x) => x.valores.length === c.meses.length), {
   message: "cada serie necesita un valor por mes, en el mismo orden",
 });
@@ -294,6 +333,7 @@ const biblioteca_patrones = z.object({
     que_decide: txt(5, 220),                // si no cambia una decision, es trivia
   }).strip()).min(1).max(20),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -316,6 +356,7 @@ const territorio_tematico = z.object({
   celdas: z.array(z.array(z.number().min(0).max(100))).min(1).max(6),
   nota_metodo: NOTA_METODO,
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip().refine((c) => c.celdas.length === c.perfiles.length
   && c.celdas.every((f) => f.length === c.temas.length), {
   message: "celdas tiene que ser una fila por perfil y una columna por tema, en el mismo orden",
@@ -330,6 +371,7 @@ const registro_de_voz = z.object({
   }).strip()).min(1).max(8),
   nota_metodo: NOTA_METODO,
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip().refine((c) => c.perfiles.every((p) => p.mezcla.length === c.tonos.length), {
   message: "cada perfil reparte sus puntos entre EXACTAMENTE los mismos tonos, en el mismo orden",
 });
@@ -344,6 +386,7 @@ const emocion_competencia = z.object({
   }).strip()).min(1).max(8),
   nota_metodo: NOTA_METODO,
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip()
   .refine((c) => c.escala.some((e) => /neutr/i.test(e)), {
     message: "la escala necesita un punto neutro (llamalo 'neutro'): es donde se parte el eje",
@@ -363,6 +406,7 @@ const busqueda_vs_voz = z.object({
   }).strip()).min(2).max(3),
   base: opt(txt(5, 120)),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip().refine((c) => c.series.every((s) => s.valores.length === c.meses.length), {
   message: "cada serie necesita un valor por mes, en el mismo orden",
 });
@@ -424,6 +468,7 @@ const pulso_nicho = z.object({
   delta: opt(txt(1, 160)),
   markdown: opt(txt(10, 500)),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const senal_debil = fichas(z.object({
@@ -444,6 +489,7 @@ const triangulacion = z.object({
     observacion: txt(5, 360),
     fuente: opt(txt(2, 90)),
     evidence: EVIDENCE,
+  fuentes: FUENTES,
   }).strip()).min(2).max(6),
   conclusion: txt(15, 500),
   confianza: opt(CONFIANZA),
@@ -478,6 +524,7 @@ const propuestas_fecha = z.object({
       // sirve para cualquiera del nicho.
       por_que_esta_marca: txt(10, 300),
       evidence: EVIDENCE,
+  fuentes: FUENTES,
     }).strip()).length(2),
   }).strip()).min(1).max(4),
 }).strip();
@@ -498,6 +545,7 @@ const algoritmo_rival = z.object({
     // Lo unico que convierte la observacion en util: que hace ESTA marca con eso.
     que_me_llevo: txt(10, 280),
     evidence: EVIDENCE,
+  fuentes: FUENTES,
   }).strip()).min(1).max(5),
   // Lo que se repite en todas las plataformas, si es que se repite.
   patron_transversal: opt(txt(15, 400)),
@@ -529,6 +577,7 @@ const crecimiento_categoria = z.object({
   cuota_ahora: opt(txt(1, 20)),
   unidad: opt(txt(2, 60)),          // aqui la unidad es conversacion observada, no ventas
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const tendencia_o_moda = z.object({
@@ -543,6 +592,7 @@ const tendencia_o_moda = z.object({
     consistencia: opt(z.enum(["alta", "media", "baja"])),
     veredicto: z.enum(["tendencia", "moda", "pronto_para_saber"]),
     evidence: EVIDENCE,
+  fuentes: FUENTES,
   }).strip()).min(1).max(10),
   nota_metodo: opt(txt(5, 200)),
 }).strip();
@@ -553,6 +603,7 @@ const tres_horizontes = z.object({
   h2: z.array(z.object({ senal: txt(3, 130), que_preparar: txt(5, 220), revisar_el: opt(FECHA) }).strip()).max(6).default([]),
   h3: z.array(z.object({ senal: txt(3, 130), por_que_importa: txt(5, 220) }).strip()).max(6).default([]),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip().refine((c) => (c.h1?.length || 0) + (c.h2?.length || 0) + (c.h3?.length || 0) > 0, {
   message: "los tres horizontes vacios no ordenan nada",
 }).refine((c) => !((c.h2?.length || 0) === 0 && (c.h3?.length || 0) === 0 && (c.h1?.length || 0) > 2), {
@@ -579,6 +630,7 @@ const curva_adopcion = z.object({
   }).strip()).min(1).max(8),
   nota_metodo: txt(5, 200),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -595,6 +647,7 @@ const decision_del_dia = z.object({
   horizonte: z.enum(["hoy", "esta_semana", "este_mes"]),
   confianza: opt(CONFIANZA),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const autoridad_adn = fichas(z.object({
@@ -639,6 +692,7 @@ const pieza_asombro = z.object({
   por_que_nadie_mas: txt(10, 320),  // si otra marca podria publicarla, no es asombro
   que_necesita: z.array(txt(3, 130)).max(8).default([]),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const formato = fichas(z.object({
@@ -662,6 +716,7 @@ const cadena_portafolio = z.object({
   que_se_pierde: opt(txt(5, 260)),
   como_se_arregla: opt(txt(5, 300)),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const verificacion = z.object({
@@ -699,6 +754,7 @@ const bucle_outcome = z.object({
     veredicto: opt(z.enum(["acerte", "me_equivoque", "sin_datos"])),
     por_que_no: opt(txt(3, 220)),
     evidence: EVIDENCE,
+  fuentes: FUENTES,
   }).strip()).min(1).max(12),
   markdown: opt(txt(10, 360)),
 }).strip();
@@ -748,6 +804,7 @@ const intuicion = z.object({
   que_hago: txt(10, 500),
   confianza: opt(CONFIANZA),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -762,6 +819,7 @@ const recalibracion = z.object({
   ahora_creo: txt(10, 300),
   que_hago_distinto: txt(10, 300),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 const humildad = z.object({
@@ -793,6 +851,7 @@ const a2a_readiness = z.object({
     accion: txt(5, 200), impacto: opt(z.enum(["alto", "medio", "bajo"])),
   }).strip()).max(8).default([]),
   evidence: EVIDENCE,
+  fuentes: FUENTES,
 }).strip();
 
 /* ══════════════════════════════════════════════════════════════════════════

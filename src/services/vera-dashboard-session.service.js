@@ -577,26 +577,23 @@ function _estimateCostUsd(inputChars, outputChars) {
 
 async function _chargeOrg(organizationId, usdCost, sessionId) {
   try {
-    const credits = Math.max(1, Math.round(usdCost * 10)); // 1 crédito = $0.10
-    const { data: cur } = await supabase
-      .from("organization_credits")
-      .select("credits_available")
-      .eq("organization_id", organizationId)
-      .maybeSingle();
-    if (cur) {
-      await supabase
-        .from("organization_credits")
-        .update({ credits_available: Math.max(0, (cur.credits_available || 0) - credits) })
-        .eq("organization_id", organizationId);
-    }
-    await supabase.from("credit_usage").insert({
-      organization_id: organizationId,
-      kind: "vera_dashboard_reading",
-      credits_delta: -credits,
-      usd_cost: usdCost,
-      source_table: "vera_session_audit",
-      metadata: { session_id: sessionId },
+    // 1 credito = 1 USD. Antes era Math.max(1, round(usdCost * 10)): cobraba
+    // DIEZ veces el costo al saldo y el libro anotaba 1x, y ademas un minimo de
+    // 1 credito por sesion aunque hubiera costado centavos.
+    const credits = +Number(usdCost).toFixed(4);
+    if (!(credits > 0)) return;
+    const { data: cobrado, error } = await supabase.rpc("use_credits_numeric", {
+      p_organization_id: organizationId,
+      p_user_id:         null,
+      p_credits_amount:  credits,
+      p_kind:            "vera_dashboard_reading",
+      p_usd_cost:        usdCost,
+      p_source_table:    "vera_session_audit",
+      p_source_id:       sessionId || null,
+      p_metadata: { session_id: sessionId },
     });
+    if (error) console.warn(`[vera-dashboard] cobro fallo: ${error.message}`);
+    else if (cobrado === false) console.warn(`[vera-dashboard] saldo insuficiente (${credits}cr)`);
   } catch (e) {
     console.warn("vera-dashboard-session: cobro de créditos falló (no bloquea):", e.message);
   }
@@ -2322,12 +2319,13 @@ export async function getSesionesVivas() {
 // ── AUTO-ACTIVACIÓN POR PLAN (JC: "vera se activará sola") ──────────────────
 // Chequeo horario: si el diagnóstico publicado de una marca es más viejo que
 // la cadencia de su plan, Vera corre uno nuevo por su cuenta.
+/* El catalogo vivo son DOS niveles (2026-07-31): team y agency. Los demas
+   —creator, growth, enterprise— nombraban planes que ya no existen en `plans`,
+   asi que ninguna org podia caer en ellos. Lo que no este aqui usa el respaldo
+   de 168 h de mas abajo, que es el mismo numero que daba `creator`. */
 const DIAG_CADENCE_H_BY_PLAN = {
   agency: Number(process.env.VERA_DIAG_H_AGENCY || 24),
-  enterprise: Number(process.env.VERA_DIAG_H_AGENCY || 24),
-  growth: Number(process.env.VERA_DIAG_H_GROWTH || 24),
   team: Number(process.env.VERA_DIAG_H_TEAM || 48),
-  creator: Number(process.env.VERA_DIAG_H_CREATOR || 168),
 };
 
 // Backoff tras fallos consecutivos. Sin esto, una marca cuyo diagnóstico falla
@@ -2385,7 +2383,8 @@ export function startDiagnosisScheduler() {
           console.log(`vera-diagnosis-scheduler: org ${s.organization_id} sin agente sano — se omite`);
           continue;
         }
-        const plan = String(s.plans?.name || "creator").toLowerCase();
+        // Sin plan resuelto NO se inventa uno: cae al respaldo de 168 h.
+        const plan = String(s.plans?.name || "sin_plan").toLowerCase();
         const cadenceH = DIAG_CADENCE_H_BY_PLAN[plan] || 168;
         const { data: brands } = await supabase
           .from("brand_containers").select("id").eq("organization_id", s.organization_id);

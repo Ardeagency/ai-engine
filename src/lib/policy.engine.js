@@ -8,20 +8,38 @@
  */
 import { supabase } from "./supabase.js";
 
-// ── Tier maps ──────────────────────────────────────────────────────────────
-const PLAN_TIER = { basico: 0, basic: 0, starter: 1, pro: 2, business: 2, enterprise: 3 };
+/* ── Tier maps ───────────────────────────────────────────────────────────────
+   EL CATALOGO VIVO SON DOS NIVELES (2026-07-31): team y agency. Los demas
+   —trial, creator, starter, pro, business— se borraron de `plans`.
+
+   ESTE MAPA LLEVABA MESES SIN LOS PLANES QUE SE VENDEN. Ni `team` ni `agency`
+   estaban aqui, asi que `PLAN_TIER[plan] ?? 0` los dejaba en tier 0 y TODA
+   accion con minPlan quedaba negada para clientes que estaban pagando. Se
+   conservan los nombres viejos como alias: si sobrevive una fila antigua en
+   `subscriptions`, se sigue resolviendo en vez de caer a cero. */
+const PLAN_TIER = {
+  // Vivos
+  team: 1, agency: 2,
+  // Historicos (planes ya borrados del catalogo; aqui solo para no romper filas viejas)
+  basico: 0, basic: 0, trial: 0, creator: 1, starter: 1, pro: 2, business: 2, enterprise: 3,
+};
 const ROLE_TIER = { viewer: 0, member: 1, user: 1, admin: 2, dev: 2, owner: 3 };
 
 // ── Action rules ───────────────────────────────────────────────────────────
-// minPlan / minRole usan los mismos strings de las tablas del DB.
+/* minPlan / minRole usan los mismos strings de las tablas del DB.
+   TRADUCIDO AL CATALOGO DE DOS NIVELES (2026-07-31): lo que exigia el nivel de
+   entrada de pago ("starter", tier 1) ahora exige `team`; lo que exigia el nivel
+   alto ("pro"/"business", tier 2) ahora exige `agency`. Se conserva la INTENCION
+   del diseno —hay funciones de entrada y funciones del tier alto—, no se inventa
+   politica nueva. "basico" es tier 0: sin minimo. */
 const ACTION_RULES = {
   triggerFlowRun: {
-    minPlan: "pro",
+    minPlan: "agency",
     minRole: "admin",
     creditCost: 1,
   },
   createFlowSchedule: {
-    minPlan: "starter",
+    minPlan: "team",
     minRole: "admin",
     creditCost: 0,
   },
@@ -31,17 +49,17 @@ const ACTION_RULES = {
     creditCost: 0,
   },
   SCHEDULE_FLOW: {
-    minPlan: "starter",
+    minPlan: "team",
     minRole: "admin",
     creditCost: 0,
   },
   TRIGGER_FLOW_RUN: {
-    minPlan: "pro",
+    minPlan: "agency",
     minRole: "admin",
     creditCost: 1,
   },
   PUBLISH_ACTIONS: {
-    minPlan: "starter",
+    minPlan: "team",
     minRole: "admin",
     creditCost: 1,
   },
@@ -52,8 +70,14 @@ const ACTION_RULES = {
 async function getOrgContext(organizationId, userId) {
   const [subResult, memberResult, orgResult] = await Promise.all([
     supabase
+      // `plan_type` NO EXISTE en esta tabla: la columna es `plan_id`. PostgREST
+      // devolvia "column subscriptions.plan_type does not exist", la fila entera
+      // venia null y el codigo caia al respaldo "basico" SIN ENTERARSE — el
+      // mismo fallo mudo que ya se pago en hetzner.provisioner con
+      // `organizations.plan`. Efecto: toda org, pagara lo que pagara, quedaba en
+      // tier 0 y cualquier accion con minPlan se negaba.
       .from("subscriptions")
-      .select("plan_type, status")
+      .select("plan_id, status")
       .eq("organization_id", organizationId)
       .in("status", ["active", "trialing"])
       .order("created_at", { ascending: false })
@@ -77,7 +101,15 @@ async function getOrgContext(organizationId, userId) {
   const isOwner = orgResult.data?.owner_user_id === userId;
   const memberRole = memberResult.data?.role || "viewer";
   const resolvedRole = isOwner ? "owner" : memberRole;
-  const planType = subResult.data?.plan_type || "basico";
+  // Sin suscripcion viva no hay plan: "basico" es tier 0, el suelo.
+  const planType = subResult.data?.plan_id || "basico";
+  // Un plan que la tabla de tiers no conoce NO puede pasar por tier 0 en
+  // silencio: eso es exactamente como se llega a negarle una funcion a quien la
+  // paga. Se avisa, y el gate sigue cerrando (fallar cerrado es lo correcto),
+  // pero deja rastro para que se arregle el mapa.
+  if (planType !== "basico" && PLAN_TIER[planType] === undefined) {
+    console.warn(`[policy] plan "${planType}" no esta en PLAN_TIER — se trata como tier 0. Anadelo o se le niegan funciones a un cliente que paga.`);
+  }
 
   return { planType, role: resolvedRole, isOwner };
 }

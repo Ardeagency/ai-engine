@@ -705,7 +705,9 @@ async function _resolveOrgPlan(organizationId) {
     .eq("organization_id", organizationId)
     .in("status", ["trial", "active", "past_due"])
     .maybeSingle();
-  return data?.plans?.name || "creator";
+  // Este string viaja al prompt de Vera. Nombrar un plan que ya no existe
+  // (era "creator") es contarle a la marca algo falso sobre si misma.
+  return data?.plans?.name || "sin_plan";
 }
 
 export async function deliverToVera(feedRow, feed, brand) {

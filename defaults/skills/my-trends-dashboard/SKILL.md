@@ -1,6 +1,6 @@
 ---
 name: my-trends-dashboard
-description: Como construyo el dashboard TENDENCIAS — el tablero donde leo el MERCADO y no la cuenta, separando lo que va a durar de lo que se apaga en tres semanas, ordenando cada senal por horizonte y decidiendo si a ESTA marca le toca. Incluye COMO me organizo para llenarlo (getVera4Encargo, investigar, publishVera4Card una card por llamada) y la regla de sus instrumentos — la forma la fija el tablero, yo alimento la serie. La uso cada vez que escribo o reviso las tarjetas de Tendencias (latido, senales debiles, triangulacion, tensiones, tendencia o moda, tres horizontes, derecho a jugar, curva de adopcion, momento exacto, lo que falta, crecimiento de categoria, y mi intuicion sobre el mercado), cuando me piden leer el mercado o el nicho, y cuando dudo si una senal merece que la marca se suba. Se activa en "lee las tendencias", "que se esta moviendo", "que hay de nuevo en el mercado", "esto es tendencia o moda", "nos subimos a esto", "actualiza tendencias". NO es la marca por dentro (my-brand-dashboard) ni los perfiles monitoreados (my-competition-dashboard). NO es el juicio de UNA senal puntual (reading-beneath-the-surface, que es el razonamiento que uso AQUI).
+description: Como construyo el dashboard TENDENCIAS — el tablero donde leo el MERCADO y no la cuenta, separando lo que va a durar de lo que se apaga en tres semanas, ordenando cada senal por horizonte y decidiendo si a ESTA marca le toca. Incluye COMO me organizo para llenarlo (getVera4Encargo, investigar, publishVera4Card una card por llamada) y la regla de sus instrumentos — la forma la fija el tablero, yo alimento la serie. La uso cada vez que escribo o reviso las tarjetas de Tendencias (latido, senales debiles, triangulacion, tensiones, tendencia o moda, tres horizontes, derecho a jugar, curva de adopcion, propuestas de oportunidad por fecha, lo que falta, crecimiento de categoria, y mi intuicion sobre el mercado), cuando me piden leer el mercado o el nicho, y cuando dudo si una senal merece que la marca se suba. Se activa en "lee las tendencias", "que se esta moviendo", "que hay de nuevo en el mercado", "esto es tendencia o moda", "nos subimos a esto", "actualiza tendencias". NO es la marca por dentro (my-brand-dashboard) ni los perfiles monitoreados (my-competition-dashboard). NO es el juicio de UNA senal puntual (reading-beneath-the-surface, que es el razonamiento que uso AQUI).
 ---
 
 # My Trends Dashboard — Leer el mercado sin volverse una revista
@@ -16,6 +16,50 @@ Tres preguntas lo salvan, y este tab existe para responderlas en orden:
 3. **¿A esta marca le toca?**
 
 Si una señal no puede terminar en "le toca / no le toca", no la publico.
+
+## La ley del avance: el pasado es evidencia, nunca el titular
+
+Mi trabajo tiene cinco actos y el último no es opcional: **identificar, aprender,
+analizar, investigar y EJECUTAR**. Un tablero que se queda en los tres primeros
+es un acta de lo que ya pasó, y a un acta nadie le paga.
+
+Puedo —y debo— mirar atrás: de ahí sale todo lo que sé. Pero lo que miro atrás
+entra a la card como la **prueba de una apuesta sobre lo que viene**, no como la
+noticia. Se nota al leer:
+
+- Crónica (no se publica): *«la cuenta estuvo 14 días sin publicar tras el partido»*.
+- Lectura (se publica): *«cuando se acaba el evento del que colgamos el contenido,
+  la cuenta se apaga porque no hay plan del día siguiente — el próximo con fecha
+  es X, y ese plan se escribe ANTES, no cuando pase»*.
+
+Es el mismo hallazgo. Uno cierra, el otro abre.
+
+**El peaje lo cobra el motor, no mi buena voluntad.** Nueve cards tienen por
+sujeto el periodo que ya cerró —autopsia, victoria_explicada, silencio,
+causalidad, bucle_outcome, deriva_codigos, impacto_vs_ruido, latencia, ritmo— y
+`publishVera4Card` **las rechaza sin `avance`**: `mueve` (el acto concreto que se
+hace distinto a partir de mañana), `cuando` (el reloj, con fecha o plazo) y
+`senal` (en qué se verá si acerté). Se rechazan «seguir», «mantener»,
+«monitorear», «estar presente», «hacer más de» —describen lo que ya hacen— y se
+rechaza «pronto» como reloj. Cualquier otra card admite `avance` y el tablero lo
+pinta igual.
+
+**La prueba de lo obvio, en todas las cards.** Antes de publicar, escribo en mi
+cabeza lo obvio que el cliente ya ve de ese asunto sin mí. Si lo que iba a
+publicar es eso con otras palabras, lo borro y sigo mirando. Tres formas del
+obvio que se cuelan siempre: ponerle nombre a un número que está en pantalla;
+repetir el dato con verbo («X está en tendencia» → «publica sobre X»); y decir
+lo que cualquiera del nicho diría —tapo el nombre de la marca: si la frase sigue
+funcionando, no la escribí para ella.
+
+**Investigo antes de concluir.** Casi todo lo obvio sale de conformarme con los
+datos que ya venían servidos. Tengo tools y no tengo límite: abro la pieza, leo
+los comentarios, miro el perfil, busco el término, lo compruebo fuera. Una
+lectura derivada de lo que ya estaba en pantalla no puede ser más que lo que ya
+estaba en pantalla.
+
+Y si de verdad no hay nada, lo digo corto y **no publico la card**: la de relleno
+ocupa el sitio de lo único que nadie más puede dar, que es mi juicio.
 
 ## Aquí se lee el MERCADO, no la cuenta
 
@@ -115,6 +159,29 @@ Por cada señal (`derecho_a_jugar`), con su razón en una línea:
 
 **DEJAR PASAR tiene que aparecer.** Una marca que se sube a todo no se recuerda
 por nada.
+
+## Dos propuestas por fecha, y la fecha ya está en pantalla
+
+`propuestas_fecha` vive **pegada al calendario de Próximas Fechas**, así que no
+repito lo que el calendario ya dice. La fecha, el país y el nombre del evento
+están ahí al lado. Lo único que aporto es **qué haría ESTA marca con esa
+ocasión**.
+
+**Dos por fecha, ni una ni tres.** Con una sola parece la única salida posible y
+no hay nada que decidir; con tres es un menú y nadie elige. Y las dos tienen que
+ser distintas de verdad: **una segura** —la que claramente le pertenece— y **una
+arriesgada**, el ángulo que nadie más tomaría ese día. Dos versiones de la misma
+idea no son dos propuestas.
+
+Cada una se puede empezar a producir mañana sin preguntarme nada: qué se ve, qué
+se dice, en qué formato y **por qué esta marca tiene permiso** para hablar de esa
+fecha. Ese permiso sale del ADN, del producto o de su historia — no de que la
+fecha exista.
+
+La vara: **tapo el nombre de la marca en la propuesta.** Si sigue sirviendo para
+cualquiera del nicho, no la escribí para esta marca. Y si de una fecha no tengo
+nada que decir, la dejo fuera: dos fechas bien tomadas valen más que cinco de
+relleno, y el saludo de efeméride ("feliz día de…") no es una propuesta.
 
 ## ¿Subió el nicho o subiste tú?
 

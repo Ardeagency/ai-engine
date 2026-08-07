@@ -60,6 +60,63 @@ const FUENTE = z.object({
   });
 const FUENTES = opt(z.array(FUENTE).max(8));
 
+/* ── EL PEAJE DEL PASADO ─────────────────────────────────────────────────────
+   Una card que cuenta lo que YA ocurrio solo se gana su sitio si cambia algo de
+   lo que sigue. `avance` es ese peaje.
+
+   POR QUE VIVE AQUI Y NO EN EL PROMPT: se pidio en prosa durante meses y el
+   tablero siguio saliendo como la cronica del mes — "brecha editorial de 14
+   dias", "el carrusel funciono porque era el Mundial". Lo que se pide en prosa
+   es lo primero que se suelta cuando la sesion va apretada; lo que exige el
+   schema no se puede saltar. Es la misma leccion de las 2 propuestas por fecha
+   y de la prueba obligatoria del algoritmo rival.
+
+   NO ES "la recomendacion del final". Es la razon por la que la card se publica:
+   si de mirar atras no sale una apuesta con reloj, mirar atras no valia el sitio.
+
+   `mueve` = que se hace DISTINTO · `cuando` = el reloj · `senal` = como sabremos
+   si funciono, que es lo que convierte una apuesta en un experimento. */
+
+// Lo que suena a decision y no lo es. Todas se escribieron de verdad en alguna
+// lectura: son las formas de rellenar el campo sin decidir nada.
+const AVANCE_VACIO = [
+  /^\s*(seguir|continuar|mantener|conservar|sostener)\b/i,
+  /^\s*(monitorear|vigilar|observar|estar\s+(mas\s+)?(atent[ao]|pendiente))\b/i,
+  /\b(hacer|publicar|producir|generar|crear)\s+mas\b/i,
+  /\bestar\s+presente\b/i,
+  /\breplicar\s+lo\s+que\s+(funciono|funciona)\b/i,
+  /\bmas\s+de\s+lo\s+mismo\b/i,
+];
+// Un reloj que no marca hora. "Pronto" no es una fecha: es una forma de no
+// comprometerse que pasa desapercibida porque ocupa el mismo sitio que una.
+const RELOJ_VACIO =
+  /^\s*(pronto|ya|cuanto\s+antes|lo\s+antes\s+posible|proximamente|a\s+futuro|siempre|constante|continuo|permanente|en\s+curso|tbd|n\/a|-+)\s*$/i;
+
+const AVANCE = z.object({
+  mueve: txt(12, 240),
+  cuando: txt(2, 40),
+  senal: opt(txt(6, 200)),
+}).strip()
+  .refine((a) => !AVANCE_VACIO.some((re) => re.test(a.mueve)), {
+    path: ["mueve"],
+    message:
+      "eso no mueve nada: 'seguir', 'mantener', 'monitorear', 'estar presente' y 'hacer mas de' describen el estado actual. " +
+      "Escribe el acto concreto que se hace DISTINTO a partir de manana.",
+  })
+  .refine((a) => !RELOJ_VACIO.test(a.cuando), {
+    path: ["cuando"],
+    message:
+      "'pronto' no es un reloj. Da una fecha, una semana o un plazo: 'antes del 20 ago', 'esta semana', 'en 10 dias'.",
+  });
+
+/* Las cards cuyo sujeto ES el periodo que ya cerro. Aqui el peaje es
+   OBLIGATORIO: son justo las que, sin el, convierten el tablero en la biografia
+   de la cuenta. Cualquier otra card puede traerlo, y el tablero lo pinta igual. */
+export const AVANCE_OBLIGATORIO = new Set([
+  "autopsia", "victoria_explicada", "silencio", "causalidad", "bucle_outcome",
+  "deriva_codigos", "impacto_vs_ruido", "latencia", "ritmo",
+]);
+
 const PRIORIDAD = z.enum(["alta", "media", "baja"]);
 const CONFIANZA = z.enum(["alta", "media", "baja", "exploratoria"]);
 const ROL = z.enum(["competidor_directo", "competidor_indirecto", "referente", "aliado", "otro_sector"]);
@@ -1007,9 +1064,37 @@ export function validarCardV4(card) {
       errores: [`type: '${tipo || "(vacio)"}' no existe. Validos: ${VERA4_TYPES.join(", ")}`],
     };
   }
-  const sano = _sanearForma(molde, card);
+  // EL PEAJE (ver AVANCE arriba). Se valida APARTE del molde y se vuelve a pegar
+  // al final por dos razones: nueve moldes terminan en .refine() y ya no admiten
+  // .extend(), y los moldes hacen .strip() — meterlo por delante lo borraria en
+  // silencio, que es la peor forma de fallar: Vera lo escribe y nadie lo ve.
+  const { avance: crudo, ...sinAvance } = card;
+  let avance;
+  if (crudo != null) {
+    const a = AVANCE.safeParse(crudo);
+    if (!a.success) {
+      return {
+        ok: false,
+        errores: a.error.issues.slice(0, 4)
+          .map((i) => `avance.${i.path.join(".") || "(raiz)"}: ${i.message}`),
+      };
+    }
+    avance = a.data;
+  } else if (AVANCE_OBLIGATORIO.has(tipo)) {
+    return {
+      ok: false,
+      errores: [
+        `avance: '${tipo}' mira al periodo que ya cerro, y eso sin decir que cambia manana es una cronica, ` +
+        `no una lectura. Manda avance:{mueve, cuando, senal?} — mueve = el acto concreto que se hace ` +
+        `DISTINTO, cuando = el reloj (fecha o plazo), senal = como sabremos si funciono.`,
+      ],
+    };
+  }
+  const conAvance = (c) => (avance ? { ...c, avance } : c);
+
+  const sano = _sanearForma(molde, sinAvance);
   if (sano.ok) {
-    return { ok: true, card: { ...sano.valor, type: tipo }, saneada: sano.saneados };
+    return { ok: true, card: conAvance({ ...sano.valor, type: tipo }), saneada: sano.saneados };
   }
   const r = molde.safeParse(sano.valor);
   if (!r.success) {
@@ -1019,7 +1104,7 @@ export function validarCardV4(card) {
     };
   }
   // `type` sobrevive al strip de los moldes de lista, que no lo declaran literal.
-  return { ok: true, card: { ...r.data, type: tipo } };
+  return { ok: true, card: conAvance({ ...r.data, type: tipo }) };
 }
 
 /** El tab al que pertenece una card, o null si no vive en ninguno todavia.

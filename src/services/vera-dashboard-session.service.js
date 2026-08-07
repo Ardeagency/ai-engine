@@ -46,6 +46,11 @@ import {
   mimarcaCardsSchema,
   MIMARCA_SCHEMA_VERSION,
 } from "../lib/vera-mimarca-cards.schema.js";
+// La ley que gobierna los CUATRO tableros. Vive con los encargos de vera4 y se
+// importa aqui a proposito: Mi Marca escribe con otro schema (cards.v2) pero es
+// el mismo tablero y el mismo defecto — mantenerla en dos sitios es como se
+// llega a que uno de los dos se quede viejo sin que nadie lo note.
+import { LEY_DEL_AVANCE } from "../lib/vera4-encargos.js";
 
 // ── Límites ──────────────────────────────────────────────────────────────────
 const MAX_ATTEMPTS_PER_SCOPE = Number(process.env.VERA_DASH_SCOPE_ATTEMPTS || 2);
@@ -392,6 +397,15 @@ bloque tuyo solo le pone nombre a un número que ya está viendo, le quitó el s
 a lo único que nadie más puede darle: tu juicio. Los stat_tile son la EXCEPCIÓN
 —existen para anclar la lectura en tres cifras— y por eso llevan "note": sin el
 "y esto qué significa", un stat_tile es ruido repetido.
+
+${LEY_DEL_AVANCE}
+
+AQUÍ LA LEY SE COBRA EN DOS SITIOS. El \`recommended_move\` no puede ser el dato
+en imperativo ("'peanut' trendea" → "publica sobre peanut"): eso es la misma
+frase con otro verbo, y el cliente ya la tenía. Un movimiento empieza donde el
+dato se acaba — por qué se movió, quién lo está moviendo, y qué tiene ESTA marca
+que no tienen los que ya están ahí. Y el \`watchlist_item\` lleva su \`check_back\`
+con fecha real: una vigilancia sin fecha de revisión no se revisa nunca.
 
 Orden OBLIGATORIO de narrative:
 1) 3-5 stat_tile — los números clave con delta (los que hoy entierras en prosa).
@@ -1611,6 +1625,8 @@ no pautara — quiere decir que la plataforma empezó a mirar ese día. Si vas a
 afirmar algo sobre un periodo, pregúntate qué tool te lo mostró; si ninguna, no
 lo afirmes. Inventar un hito, un año o una racha es el peor error que puedes
 cometer aquí, porque suena verdadero y nadie lo va a verificar.
+
+${LEY_DEL_AVANCE}
 
 LAS TARJETAS QUE DEBES LLENAR (las 6 primeras son OBLIGATORIAS).
 

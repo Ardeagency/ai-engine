@@ -39,6 +39,7 @@ import * as integrationDataTools from "../tools/integration-data.tools.js";
 import * as webTools from "../tools/web.tools.js";
 import * as missionTools from "../tools/missions.tools.js";
 import * as artifactTools from "../tools/artifact.tools.js";
+import * as predictorTools from "../tools/predictor.tools.js";
 import { renderToolGroup } from "../lib/tool-catalog.js";
 import { validateToolCall } from "../lib/tool-call.validator.js";
 import { captureSynthError } from "../lib/synth-error-capture.js";
@@ -998,6 +999,25 @@ const TOOL_REGISTRY = {
   listArtifacts: {
     fn: ({ params, brandContainerId, organizationId, ...rest }) =>
       artifactTools.listArtifacts({ ...(params || {}), ...rest }, brandContainerId, organizationId),
+    requiresConsent: false,
+  },
+
+  // ── Predictor: simular al publico antes de gastar en el ───────────────────
+  // Motor MiroFish, invocado por CLI como subproceso (su AGPL no entra a este
+  // repo). Las corridas tardan minutos u horas: se LANZA y se SONDEA, nunca se
+  // espera. Ver src/services/predictor.service.js.
+  lanzarPredictor: {
+    fn: ({ params, ...rest }) => predictorTools.lanzarPredictor({ ...(params || {}), ...rest }),
+    // Gate humano: no porque escriba estado de marca (no lo hace), sino porque
+    // levanta un trabajo largo y visible. Que cueste no lo vuelve escritura.
+    requiresConsent: true,
+  },
+  getPredictor: {
+    fn: ({ params, ...rest }) => predictorTools.getPredictor({ ...(params || {}), ...rest }),
+    requiresConsent: false,
+  },
+  listarPredictores: {
+    fn: ({ params, ...rest }) => predictorTools.listarPredictores({ ...(params || {}), ...rest }),
     requiresConsent: false,
   },
 };

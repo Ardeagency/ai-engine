@@ -30,18 +30,30 @@ const lista = (v) => (Array.isArray(v) ? v.filter(Boolean) : []);
 const texto = (v) => String(v ?? "").trim();
 
 /**
- * Arma el documento semilla con lo que la marca REALMENTE tiene registrado.
- * Devuelve tambien `faltantes` para poder decir de que se alimento y de que no.
+ * Arma el documento semilla.
+ *
+ * REGLA QUE GOBIERNA ESTE DOCUMENTO: el motor extrae los agentes de las
+ * ENTIDADES que el texto protagoniza. Si la semilla habla de la marca, los
+ * agentes son la marca, sus fundadores y sus retailers — medido: una corrida
+ * simulo a WAKEUP, El Pollo, FDA, Amazon y Carulla debatiendo entre si.
+ *
+ * Por eso aqui mandan LAS PERSONAS. Salen de `audience_personas` (dolores,
+ * deseos, objeciones, gatillos, forma de hablar), NO de `audience_segments`
+ * —esos son objetos de pauta de Meta: cubos de retargeting y geo-targeting con
+ * intereses vacios, que no describen a nadie.
+ *
+ * La marca entra al final y en corto: es lo que se les propone, no el sujeto.
+ * En particular NO entra `creative_brief`, cuya narrativa de fundadores y
+ * cadenas de retail es justo lo que envenenaba el grafo.
+ *
+ * Devuelve `faltantes` para poder decir de que NO se alimento la simulacion.
  */
 export async function construirSemilla({ brandContainerId, organizationId, contextoExtra }) {
   const bc = await resolveBrandContainer(brandContainerId, organizationId);
 
   const { data: marca } = await supabase
     .from("brand_containers")
-    .select(
-      "nombre_marca, nicho_core, sub_nichos, arquetipo, propuesta_valor, mision_vision, " +
-      "mercado_objetivo, palabras_clave, objetivos_estrategicos, creative_brief"
-    )
+    .select("nombre_marca, nicho_core, sub_nichos, propuesta_valor, mercado_objetivo")
     .eq("id", bc.id)
     .maybeSingle();
 
@@ -49,76 +61,82 @@ export async function construirSemilla({ brandContainerId, organizationId, conte
     throw Object.assign(new Error("No se encontro el ADN de la marca."), { statusCode: 404 });
   }
 
-  const { data: audiencias } = await supabase
-    .from("audience_segments")
-    .select("external_audience_name, platform, age_range, genders, locations, interests, behaviors, estimated_size")
+  const { data: personas } = await supabase
+    .from("audience_personas")
+    .select("name, description, awareness_level, dolores, deseos, objeciones, gatillos_compra, estilo_lenguaje")
     .eq("organization_id", organizationId)
     .eq("brand_container_id", bc.id)
-    .limit(25);
+    .neq("is_active", false)
+    .limit(20);
+
+  // Una persona sin dolores/deseos/objeciones no es un personaje: es una fila
+  // vacia. Meterla produce un agente hueco que no aporta y ensucia el grafo.
+  const utiles = (personas || []).filter((p) => {
+    const carne = [p.dolores, p.deseos, p.objeciones, p.gatillos_compra]
+      .filter((a) => Array.isArray(a) && a.length).length;
+    return carne >= 2 || (texto(p.description).length > 80 && carne >= 1);
+  });
 
   const faltantes = [];
   const p = [];
 
-  p.push(`# ${texto(marca.nombre_marca) || "La marca"} — contexto de marca\n`);
-  if (marca.nicho_core) p.push(`**Categoria:** ${texto(marca.nicho_core)}`);
-  if (marca.arquetipo) p.push(`**Arquetipo:** ${texto(marca.arquetipo)}`);
-  if (lista(marca.mercado_objetivo).length) {
-    p.push(`**Mercados:** ${lista(marca.mercado_objetivo).join(", ")}`);
-  }
+  p.push(`# El publico de ${texto(marca.nombre_marca) || "la marca"}\n`);
+  p.push(
+    "Este documento describe a las personas reales que deciden. Cada una piensa, " +
+    "duda y compra por su cuenta.\n"
+  );
 
-  if (texto(marca.propuesta_valor)) {
-    p.push(`\n## Propuesta de valor\n${texto(marca.propuesta_valor)}`);
+  if (utiles.length) {
+    for (const per of utiles) {
+      p.push(`\n## ${texto(per.name)}`);
+      if (texto(per.description)) p.push(texto(per.description));
+      if (per.awareness_level) p.push(`Que tanto conoce la categoria: ${texto(per.awareness_level)}.`);
+
+      const bloque = (etiqueta, valores) => {
+        const v = lista(valores);
+        if (v.length) p.push(`\n${etiqueta}\n${v.map((x) => `- ${x}`).join("\n")}`);
+      };
+      bloque("Lo que le duele:", per.dolores);
+      bloque("Lo que quiere:", per.deseos);
+      bloque("Lo que objeta o desconfia:", per.objeciones);
+      bloque("Lo que la convence:", per.gatillos_compra);
+
+      const habla = lista(per.estilo_lenguaje);
+      if (habla.length) p.push(`\nComo habla: ${habla.join("; ")}.`);
+    }
   } else {
-    faltantes.push("propuesta de valor");
-  }
-
-  if (texto(marca.mision_vision)) p.push(`\n## Mision\n${texto(marca.mision_vision)}`);
-
-  if (lista(marca.sub_nichos).length) {
-    p.push(`\n## Lineas de producto\n${lista(marca.sub_nichos).map((s) => `- ${s}`).join("\n")}`);
-  }
-
-  if (texto(marca.creative_brief)) {
-    p.push(`\n## Historia y contexto\n${texto(marca.creative_brief)}`);
-  } else {
-    faltantes.push("brief de marca");
-  }
-
-  if (lista(marca.palabras_clave).length) {
-    p.push(`\n## Territorio de lenguaje\n${lista(marca.palabras_clave).join(", ")}.`);
-  }
-
-  if (lista(marca.objetivos_estrategicos).length) {
+    // Sin personas no hay a quien simular. Se dice fuerte: el resultado sera
+    // un analisis generico disfrazado de simulacion.
+    faltantes.push("personas de audiencia (audience_personas vacias o sin contenido)");
     p.push(
-      `\n## Objetivos estrategicos declarados\n` +
-      lista(marca.objetivos_estrategicos).map((o) => `- ${o}`).join("\n")
+      "\n> AVISO: esta marca no tiene personas de audiencia descritas. Sin ellas no " +
+      "hay publico que simular y la prediccion sera generica.\n"
     );
   }
 
-  // Las audiencias reales son lo que separa una simulacion de un invento.
-  if (audiencias?.length) {
-    const filas = audiencias.map((a) => {
-      const partes = [];
-      if (a.external_audience_name) partes.push(`**${a.external_audience_name}**`);
-      if (a.platform) partes.push(`(${a.platform})`);
-      if (a.age_range) partes.push(`edad ${a.age_range}`);
-      if (lista(a.genders).length) partes.push(lista(a.genders).join("/"));
-      if (lista(a.locations).length) partes.push(`en ${lista(a.locations).slice(0, 6).join(", ")}`);
-      if (lista(a.interests).length) partes.push(`intereses: ${lista(a.interests).slice(0, 10).join(", ")}`);
-      if (lista(a.behaviors).length) partes.push(`comportamientos: ${lista(a.behaviors).slice(0, 6).join(", ")}`);
-      if (a.estimated_size) partes.push(`~${Number(a.estimated_size).toLocaleString("es-CO")} personas`);
-      return `- ${partes.join(" · ")}`;
-    });
-    p.push(`\n## Audiencias reales registradas\n${filas.join("\n")}`);
+  // La marca, corta y como oferta — no como protagonista.
+  p.push(`\n## Lo que se les propone`);
+  const oferta = [];
+  if (texto(marca.nombre_marca)) oferta.push(`**${texto(marca.nombre_marca)}**`);
+  if (texto(marca.nicho_core)) oferta.push(`(${texto(marca.nicho_core)})`);
+  p.push(oferta.join(" ") + ".");
+  if (texto(marca.propuesta_valor)) {
+    p.push(texto(marca.propuesta_valor));
   } else {
-    faltantes.push("audiencias registradas");
+    faltantes.push("propuesta de valor");
+  }
+  if (lista(marca.sub_nichos).length) {
+    p.push(`Lineas: ${lista(marca.sub_nichos).join(", ")}.`);
+  }
+  if (lista(marca.mercado_objetivo).length) {
+    p.push(`Mercados: ${lista(marca.mercado_objetivo).join(", ")}.`);
   }
 
   if (texto(contextoExtra)) {
-    p.push(`\n## El movimiento que se quiere probar\n${texto(contextoExtra)}`);
+    p.push(`\n## El movimiento que se va a evaluar\n${texto(contextoExtra)}`);
   }
 
-  return { semilla: p.join("\n"), marca: bc, faltantes };
+  return { semilla: p.join("\n"), marca: bc, faltantes, personas: utiles.length };
 }
 
 /**
